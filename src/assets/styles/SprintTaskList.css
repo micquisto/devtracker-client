@@ -1,0 +1,177 @@
+.sprint-task-toolbar,
+.sprint-task-filters {
+  min-width: 0;
+}
+
+.sprint-task-row {
+  min-width: 0;
+  animation: fadeUp 0.5s ease both;
+  will-change: opacity, transform;
+}
+
+.sprint-task-pagination {
+  min-width: 0;
+}
+
+.sprint-task-control-label {
+  display: none;
+}
+
+.sprint-task-assignee-initials {
+  display: inline;
+}
+
+.sprint-task-assignee-name {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .sprint-task-header {
+    align-items: flex-start !important;
+  }
+
+  .sprint-task-toolbar {
+    width: 100%;
+    margin-top: 0 !important;
+  }
+
+  .sprint-task-row {
+    grid-template-columns: 72px 56px 44px minmax(180px, 1fr) auto auto auto !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 640px) {
+  .sprint-task-kind {
+    grid-area: kind;
+  }
+
+  .sprint-task-id {
+    grid-area: id;
+  }
+
+  .sprint-task-assignee {
+    grid-area: assignee;
+  }
+
+  .sprint-task-title {
+    grid-area: title;
+  }
+
+  .sprint-task-badges {
+    grid-area: badges;
+  }
+
+  .sprint-task-status {
+    grid-area: status;
+  }
+
+  .sprint-task-points {
+    grid-area: points;
+  }
+
+  .sprint-task-assignee-initials {
+    display: none;
+  }
+
+  .sprint-task-assignee-name {
+    display: inline;
+  }
+
+  .sprint-task-control-label {
+    display: block;
+  }
+
+  .sprint-task-toolbar,
+  .sprint-task-filters {
+    flex-wrap: wrap !important;
+    overflow-x: visible;
+    padding-bottom: 0;
+    width: 100%;
+  }
+
+  .sprint-task-toolbar {
+    margin-top: 0 !important;
+  }
+
+  .sprint-task-pagination {
+    flex-wrap: wrap !important;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .sprint-task-toolbar button,
+  .sprint-task-filters button {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+    text-align: center;
+  }
+
+  .sprint-task-pagination button {
+    flex: 0 0 auto;
+  }
+
+  .sprint-task-row {
+    grid-template-columns: 1fr auto !important;
+    grid-template-areas:
+      "kind points"
+      "id assignee"
+      "title title"
+      "badges badges"
+      "status status" !important;
+    gap: 8px !important;
+    padding: 12px !important;
+    overflow-x: visible;
+    align-items: start !important;
+  }
+
+  .sprint-task-kind,
+  .sprint-task-id,
+  .sprint-task-assignee,
+  .sprint-task-points {
+    align-self: center;
+  }
+
+  .sprint-task-assignee,
+  .sprint-task-points {
+    justify-self: end;
+    text-align: right !important;
+  }
+
+  .sprint-task-title {
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+  }
+
+  .sprint-task-badges,
+  .sprint-task-status {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 420px) {
+  .sprint-task-row {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "kind"
+      "id"
+      "assignee"
+      "title"
+      "badges"
+      "status"
+      "points" !important;
+  }
+
+  .sprint-task-assignee,
+  .sprint-task-points {
+    justify-self: start;
+    text-align: left !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sprint-task-row {
+    animation: none;
+  }
+}

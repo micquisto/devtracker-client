@@ -1,0 +1,55 @@
+.page-title {
+  min-width: 0;
+}
+
+.page-title--center {
+  text-align: center;
+}
+
+.page-title__eyebrow {
+  font-size: 10px;
+  font-family: "DM Mono", monospace;
+  color: rgba(100, 180, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.page-title__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.page-title--center .page-title__row {
+  justify-content: center;
+}
+
+.page-title__heading {
+  margin: 0;
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.page-title__heading--large {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.page-title__heading--sprint {
+  font-size: 21px;
+  letter-spacing: -0.03em;
+}
+
+.page-title__subtitle {
+  font-size: 11px;
+  color: rgba(0, 200, 255, 0.55);
+  font-family: "DM Mono", monospace;
+  margin-top: 4px;
+  letter-spacing: 0.05em;
+}

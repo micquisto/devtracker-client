@@ -1,0 +1,117 @@
+.sprint-board-grid,
+.sprint-scoreboard-top,
+.sprint-assignee-grid {
+  min-width: 0;
+}
+
+.sprint-board-column {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.project-score-legend-item {
+  font: inherit;
+}
+
+@media (max-width: 1180px) {
+  .sprint-scoreboard-top {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sprint-assignee-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .sprint-page {
+    min-height: auto !important;
+    padding-top: 12px !important;
+  }
+
+  .sprint-board-grid {
+    grid-template-columns: repeat(7, minmax(260px, 82vw)) !important;
+    height: calc(100vh - 190px) !important;
+    min-height: 430px !important;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sprint-scoreboard {
+    padding: 10px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .sprint-selector-row {
+    align-items: stretch !important;
+  }
+
+  .sprint-header {
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .sprint-task-count {
+    width: 100%;
+    text-align: center;
+  }
+
+  .sprint-title-row {
+    align-items: flex-start !important;
+    flex-direction: column;
+    gap: 8px !important;
+  }
+
+  .sprint-board-grid {
+    grid-template-columns: repeat(7, minmax(238px, 86vw)) !important;
+    height: calc(100vh - 205px) !important;
+    gap: 10px !important;
+  }
+
+  .sprint-board-column {
+    padding: 10px !important;
+  }
+
+  .sprint-scoreboard-top {
+    gap: 8px !important;
+  }
+
+  .sprint-total-card,
+  .sprint-project-chart-card {
+    padding: 10px !important;
+  }
+
+  .sprint-total-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .project-score-legend-item {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+  }
+
+  .project-score-legend-value {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .sprint-assignee-grid {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)) !important;
+    overflow-x: visible !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .sprint-total-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sprint-total-block {
+    grid-column: auto !important;
+    transform: none !important;
+  }
+
+  .sprint-assignee-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

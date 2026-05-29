@@ -1,0 +1,10 @@
+.sprint-kanban-card {
+  animation: fadeUp 0.5s ease both;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sprint-kanban-card {
+    animation: none;
+  }
+}
