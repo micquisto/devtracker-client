@@ -2,8 +2,17 @@ import { useEffect, useState } from "react";
 import "@/assets/styles/Statistics.page.css";
 
 const RADAR_LABELS = ["Productivity", "Efficiency", "Quality", "Collaboration", "Velocity"];
-const RADAR_KEYS = ["productivity", "efficiency", "quality", "collaboration", "velocity"];
+const RADAR_KEYS = ["productivity", "efficiency", "quality", "collaboration", "velocity"] as const;
 const BAR_COLORS = ["#00c8ff", "#00e5a0", "#f5c842", "#ff6eb4", "#a78bfa"];
+
+type RadarKey = (typeof RADAR_KEYS)[number];
+type RadarValues = Record<RadarKey, number>;
+type StatBar = {
+  label: string;
+  value: number;
+  max: number;
+  unit: string;
+};
 
 const devData = {
   score: 8420,
@@ -19,17 +28,17 @@ const devData = {
     { label: "Sprint Participation", value: 12, max: 14, unit: "" },
     { label: "Mentoring Sessions", value: 7, max: 10, unit: "" },
   ],
-  radar: { productivity: 87, efficiency: 92, quality: 78, collaboration: 95, velocity: 83 },
+  radar: { productivity: 87, efficiency: 92, quality: 78, collaboration: 95, velocity: 83 } satisfies RadarValues,
 };
 
-function polarToCartesian(cx, cy, r, angleDeg) {
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-function RadarChart({ values }) {
+function RadarChart({ values }: { values: RadarValues }) {
   const cx = 160, cy = 160, maxR = 110, levels = 5, n = RADAR_KEYS.length;
-  const polygonPoints = (r) => Array.from({ length: n }, (_, i) => {
+  const polygonPoints = (r: number) => Array.from({ length: n }, (_, i) => {
     const p = polarToCartesian(cx, cy, r, (360 / n) * i);
     return `${p.x},${p.y}`;
   }).join(" ");
@@ -113,7 +122,7 @@ function RadarChart({ values }) {
   );
 }
 
-function SkillBarChart({ values }) {
+function SkillBarChart({ values }: { values: RadarValues }) {
   const [heights, setHeights] = useState(RADAR_KEYS.map(() => 0));
   const chartH = 160;
 
@@ -176,11 +185,11 @@ function SkillBarChart({ values }) {
   );
 }
 
-function SkillLineChart({ values }) {
+function SkillLineChart({ values }: { values: RadarValues }) {
   const W = 500, H = 180, padL = 32, padR = 16, padT = 20, padB = 36;
   const chartW = W - padL - padR, chartH = H - padT - padB, n = RADAR_KEYS.length, step = chartW / (n - 1);
   const [anim, setAnim] = useState(false);
-  const [hov, setHov] = useState(null);
+  const [hov, setHov] = useState<number | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setAnim(true), 500);
@@ -255,9 +264,9 @@ function SkillLineChart({ values }) {
   );
 }
 
-function SkillDoughnutChart({ values }) {
+function SkillDoughnutChart({ values }: { values: RadarValues }) {
   const [anim, setAnim] = useState(false);
-  const [hov, setHov] = useState(null);
+  const [hov, setHov] = useState<number | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setAnim(true), 400);
@@ -356,7 +365,13 @@ function SkillDoughnutChart({ values }) {
   );
 }
 
-function StatBar2({ label, value, max, unit, index }) {
+function StatBar2({
+  label,
+  value,
+  max,
+  unit,
+  index,
+}: StatBar & { index: number }) {
   const [w, setW] = useState(0);
   const pct = Math.round((value / max) * 100);
 
@@ -382,7 +397,17 @@ function StatBar2({ label, value, max, unit, index }) {
   );
 }
 
-function ScoreCircle2({ value, label, color, delay = 0 }) {
+function ScoreCircle2({
+  value,
+  label,
+  color,
+  delay = 0,
+}: {
+  value: string | number;
+  label: string;
+  color: string;
+  delay?: number;
+}) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {

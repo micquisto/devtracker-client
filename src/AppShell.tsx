@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { 
-  DashboardPage, 
-  SprintPage, 
-  StoryPointsPage, 
-  StatisticsPage, TasksListPage 
+import type { Dispatch, SetStateAction } from "react";
+import {
+  DashboardPage,
+  SprintPage,
+  StoryPointsPage,
+  StatisticsPage,
+  TasksListPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
 import "@/assets/styles/AppShell.css";
@@ -125,10 +127,20 @@ const Icon = {
   ),
 };
 
+type IconKey = Exclude<keyof typeof Icon, "badge" | "chevron" | "logo">;
+type NavEntry = {
+  id: string;
+  label: string;
+  icon?: IconKey;
+  badge?: boolean;
+  children?: NavEntry[];
+};
+type SetActivePage = Dispatch<SetStateAction<string>>;
+
 /* ─────────────────────────────────────────────
    NAV STRUCTURE
 ───────────────────────────────────────────── */
-const NAV = [
+const NAV: NavEntry[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   {
     id: "scrum", label: "Scrum", icon: "scrum",
@@ -164,7 +176,7 @@ const ACTIVE_PAGE_STORAGE_KEY = "devtracker.activePage";
 const NAV_ITEMS = NAV.flatMap((n) => [n, ...(n.children || [])]);
 const VALID_NAV_IDS = new Set(NAV_ITEMS.map((item) => item.id));
 
-function getInitialActivePage() {
+function getInitialActivePage(): string {
   if (typeof window === "undefined") return "dashboard";
   const saved = window.localStorage.getItem(ACTIVE_PAGE_STORAGE_KEY);
   return saved && VALID_NAV_IDS.has(saved) ? saved : "dashboard";
@@ -173,13 +185,24 @@ function getInitialActivePage() {
 /* ─────────────────────────────────────────────
    SIDEBAR NAV ITEM
 ───────────────────────────────────────────── */
-function NavItem({ item, active, setActive, depth = 0 }) {
-  const hasChildren = item.children?.length > 0;
-  const isActive = active === item.id || item.children?.some(c => c.id === active);
+function NavItem({
+  item,
+  active,
+  setActive,
+  depth = 0,
+}: {
+  item: NavEntry;
+  active: string;
+  setActive: SetActivePage;
+  depth?: number;
+}) {
+  const children = item.children ?? [];
+  const hasChildren = children.length > 0;
+  const isActive = active === item.id || children.some((c) => c.id === active);
   const [open, setOpen] = useState(isActive);
 
   const handleClick = () => {
-    if (hasChildren) setOpen(o => !o);
+    if (hasChildren) setOpen((o) => !o);
     else setActive(item.id);
   };
 
@@ -202,10 +225,10 @@ function NavItem({ item, active, setActive, depth = 0 }) {
           textAlign: "left",
           marginBottom: 1,
         }}
-        onMouseEnter={e => {
+        onMouseEnter={(e) => {
           if (active !== item.id) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
         }}
-        onMouseLeave={e => {
+        onMouseLeave={(e) => {
           if (active !== item.id) e.currentTarget.style.background = "transparent";
         }}
       >
@@ -238,10 +261,10 @@ function NavItem({ item, active, setActive, depth = 0 }) {
       {hasChildren && (
         <div style={{
           overflow: "hidden",
-          maxHeight: open ? `${item.children.length * 40}px` : "0px",
+          maxHeight: open ? `${children.length * 40}px` : "0px",
           transition: "max-height 0.35s cubic-bezier(0.23,1,0.32,1)",
         }}>
-          {item.children.map(child => (
+          {children.map((child) => (
             <NavItem key={child.id} item={child} active={active} setActive={setActive} depth={depth + 1} />
           ))}
         </div>
@@ -253,7 +276,15 @@ function NavItem({ item, active, setActive, depth = 0 }) {
 /* ─────────────────────────────────────────────
    SIDEBAR CONTENT
 ───────────────────────────────────────────── */
-function SidebarContent({ active, setActive, onClose = undefined }) {
+function SidebarContent({
+  active,
+  setActive,
+  onClose,
+}: {
+  active: string;
+  setActive: SetActivePage;
+  onClose?: () => void;
+}) {
   return (
     <div style={{
       display: "flex", flexDirection: "column", height: "100%",
@@ -299,8 +330,16 @@ function SidebarContent({ active, setActive, onClose = undefined }) {
 
       {/* Nav items */}
       <nav style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-        {NAV.map(item => (
-          <NavItem key={item.id} item={item} active={active} setActive={(id) => { setActive(id); onClose?.(); }} />
+        {NAV.map((item) => (
+          <NavItem
+            key={item.id}
+            item={item}
+            active={active}
+            setActive={(id) => {
+              setActive(id);
+              onClose?.();
+            }}
+          />
         ))}
       </nav>
 
@@ -340,8 +379,8 @@ function SidebarContent({ active, setActive, onClose = undefined }) {
 /* ─────────────────────────────────────────────
    TOP BAR
 ───────────────────────────────────────────── */
-function TopBar({ onBurger, active }) {
-  const label = NAV_ITEMS.find(n => n.id === active)?.label || "Dashboard";
+function TopBar({ onBurger, active }: { onBurger: () => void; active: string }) {
+  const label = NAV_ITEMS.find((n) => n.id === active)?.label || "Dashboard";
   return (
     <div style={{
       height: 56, display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -412,17 +451,14 @@ function TopBar({ onBurger, active }) {
 /* ─────────────────────────────────────────────
    PAGE CONTENT PLACEHOLDER
 ───────────────────────────────────────────── */
-function PageContent({ active }) {
-  const activeItem = NAV_ITEMS.find(n => n.id === active);
+function PageContent({ active }: { active: string }) {
+  const activeItem = NAV_ITEMS.find((n) => n.id === active);
   const label = activeItem?.label || "Dashboard";
   const activeIconKey =
     activeItem && "icon" in activeItem && typeof activeItem.icon === "string"
       ? activeItem.icon
       : "dashboard";
-  const activeIcon =
-    activeIconKey === "chevron"
-      ? Icon.dashboard
-      : Icon[activeIconKey as Exclude<keyof typeof Icon, "chevron">];
+  const activeIcon = Icon[activeIconKey];
 
   if (active === "dashboard") {
     return <DashboardPage />;
@@ -488,7 +524,7 @@ const SIDEBAR_W = 220;
 export default function AppShell() {
   const [active, setActive] = useState(getInitialActivePage);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const overlayRef = useRef(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, active);
@@ -496,7 +532,9 @@ export default function AppShell() {
 
   // Close drawer on ESC
   useEffect(() => {
-    const h = (e) => { if (e.key === "Escape") setDrawerOpen(false); };
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawerOpen(false);
+    };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
