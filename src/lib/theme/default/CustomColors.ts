@@ -154,7 +154,7 @@ export const PriorityColor: Record<string, string> = {
   P3: Palette.purple,
 };
 
-/** Task status — foreground */
+/** Task status - foreground */
 export const StatusColor: Record<string, string> = {
   Done: Palette.green,
   "In Progress": Palette.cyan,
@@ -163,7 +163,7 @@ export const StatusColor: Record<string, string> = {
   Todo: Text.faint,
 };
 
-/** Task status — background */
+/** Task status - background */
 export const StatusBg: Record<string, string> = {
   Done: "rgba(0,229,160,0.1)",
   "In Progress": "rgba(0,200,255,0.1)",

@@ -1,3 +1,5 @@
+import { getSupabaseRows } from "@/lib/supabase";
+
 export type TrelloParamValue =
   | string
   | number
@@ -146,6 +148,10 @@ export type TrelloSprintCard = TrelloCard & {
   movedToCurrentSprintAt: Date | null;
   historyActivity: TrelloAction[];
   comments: TrelloComment[];
+};
+
+type SupabaseMemberRow = {
+  trello_member_id: string | null;
 };
 
 const TRELLO_API_BASE_URL =
@@ -435,8 +441,7 @@ export async function getTrelloSprintCards(
   const boards = boardIds?.length
     ? await getTrelloBoardsSequentially(boardIds)
     : await getTrelloMemberBoards();
-  const selectedMemberIds =
-    memberIds && memberIds !== "all" && memberIds.length > 0 ? memberIds : null;
+  const selectedMemberIds = await resolveTrelloMemberIds(memberIds);
   const selectedListNames = new Set(
     (listNames?.length ? listNames : [currentSprintListName]).map(normalizeName),
   );
@@ -490,6 +495,21 @@ async function getTrelloBoardsSequentially(boardIds: string[]): Promise<TrelloBo
   }
 
   return boards;
+}
+
+async function resolveTrelloMemberIds(
+  memberIds: GetTrelloSprintCardsOptions["memberIds"],
+): Promise<string[] | null> {
+  if (memberIds === "all") return null;
+  if (Array.isArray(memberIds)) return memberIds;
+
+  const members = await getSupabaseRows<SupabaseMemberRow>("members", {
+    select: "trello_member_id",
+  });
+
+  return members
+    .map((member) => member.trello_member_id)
+    .filter((memberId): memberId is string => Boolean(memberId));
 }
 
 function buildTrelloSprintCard({

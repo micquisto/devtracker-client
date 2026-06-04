@@ -6,6 +6,11 @@ export type CreateSupabaseAuthUserResult = {
   status: "created" | "skipped" | "failed";
   userId?: string;
   message: string;
+  member?: {
+    status: "created" | "skipped" | "failed";
+    message: string;
+    trelloUsername?: string;
+  };
 };
 
 function isAlreadyRegisteredMessage(message: string): boolean {
@@ -41,6 +46,11 @@ export async function createSupabaseAuthUsers(
       body: {
         emails,
         password,
+        trello: {
+          organizationId: import.meta.env.VITE_TRELLO_ORGANIZATION_ID,
+          apiKey: import.meta.env.VITE_TRELLO_API_KEY,
+          token: import.meta.env.VITE_TRELLO_TOKEN,
+        },
       },
     },
   );
