@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import type { Session } from "@supabase/supabase-js";
 import {
   DashboardPage,
+  LoginPage,
   SprintPage,
   StoryPointsPage,
   StatisticsPage,
   TasksListPage,
+  TestPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
+import { getSupabaseSession, signOutSupabaseUser, supabase } from "@/lib/supabase";
 import "@/assets/styles/AppShell.css";
 
 /* ─────────────────────────────────────────────
@@ -170,6 +174,7 @@ const NAV: NavEntry[] = [
     ],
   },
   { id: "credit", label: "Credit Score", icon: "credit", badge: true },
+  { id: "test", label: "Test", icon: "history" },
 ];
 
 const ACTIVE_PAGE_STORAGE_KEY = "devtracker.activePage";
@@ -379,7 +384,17 @@ function SidebarContent({
 /* ─────────────────────────────────────────────
    TOP BAR
 ───────────────────────────────────────────── */
-function TopBar({ onBurger, active }: { onBurger: () => void; active: string }) {
+function TopBar({
+  onBurger,
+  active,
+  userEmail,
+  onLogout,
+}: {
+  onBurger: () => void;
+  active: string;
+  userEmail?: string;
+  onLogout: () => void;
+}) {
   const label = NAV_ITEMS.find((n) => n.id === active)?.label || "Dashboard";
   return (
     <div style={{
@@ -436,13 +451,37 @@ function TopBar({ onBurger, active }: { onBurger: () => void; active: string }) 
             fontFamily: "'DM Mono', monospace", fontWeight: 700,
           }}>ACTIVE</span>
         </div>
-        <div style={{
-          width: 30, height: 30, borderRadius: "50%",
-          background: "linear-gradient(135deg, #00c8ff, #00e5a0)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 11, fontWeight: 800, color: "#060d1f",
-          fontFamily: "'DM Mono', monospace",
-        }}>JD</div>
+        {userEmail && (
+          <span style={{
+            color: "rgba(160,210,255,0.75)",
+            fontFamily: "'DM Mono', monospace",
+            fontSize: 10,
+            fontWeight: 700,
+            maxWidth: 220,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
+            {userEmail}
+          </span>
+        )}
+        <button
+          onClick={onLogout}
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(100,180,255,0.15)",
+            borderRadius: 999,
+            color: "rgba(160,210,255,0.82)",
+            cursor: "pointer",
+            fontFamily: "'DM Mono', monospace",
+            fontSize: 10,
+            fontWeight: 800,
+            padding: "6px 10px",
+            textTransform: "uppercase",
+          }}
+        >
+          Logout
+        </button>
       </div>
     </div>
   );
@@ -478,6 +517,10 @@ function PageContent({ active }: { active: string }) {
 
   if (active === "scrum-story-points") {
     return <StoryPointsPage />;
+  }
+
+  if (active === "test") {
+    return <TestPage />;
   }
 
   return (
@@ -524,7 +567,36 @@ const SIDEBAR_W = 220;
 export default function AppShell() {
   const [active, setActive] = useState(getInitialActivePage);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    getSupabaseSession()
+      .then((currentSession) => {
+        if (mounted) setSession(currentSession);
+      })
+      .catch(() => {
+        if (mounted) setSession(null);
+      })
+      .finally(() => {
+        if (mounted) setSessionLoading(false);
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_, nextSession) => {
+      setSession(nextSession);
+      setSessionLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, active);
@@ -544,6 +616,36 @@ export default function AppShell() {
     document.body.style.overflow = drawerOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [drawerOpen]);
+
+  const handleLogout = async () => {
+    await signOutSupabaseUser();
+    setSession(null);
+    setDrawerOpen(false);
+  };
+
+  if (sessionLoading) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg,#060d1f 0%,#0a1628 40%,#071220 100%)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "rgba(160,210,255,0.75)",
+        fontFamily: "'DM Mono', monospace",
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+      }}>
+        Loading session...
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginPage onLogin={setSession} />;
+  }
 
   return (
     <div style={{
@@ -610,7 +712,12 @@ export default function AppShell() {
         flex: 1, display: "flex", flexDirection: "column",
         minWidth: 0, minHeight: 0, position: "relative", zIndex: 1,
       }}>
-        <TopBar onBurger={() => setDrawerOpen(true)} active={active} />
+        <TopBar
+          onBurger={() => setDrawerOpen(true)}
+          active={active}
+          userEmail={session.user.email}
+          onLogout={() => void handleLogout()}
+        />
         <main className="app-main" style={{
           flex: 1, overflowY: "auto",
           minHeight: 0,

@@ -1,0 +1,9 @@
+.test-page__button-loader {
+  animation: test-page-spin 0.8s linear infinite;
+}
+
+@keyframes test-page-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

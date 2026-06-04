@@ -19,6 +19,12 @@ const TEAM_BY_INITIALS = Object.fromEntries(
 
 const sprintBoardTasks = SPRINT_BOARD_TASKS;
 
+const SPRINT_KANBAN_COLUMNS = [
+  SPRINT_BOARD_COLUMNS[0],
+  { id: "adhoc", label: "Adhoc", color: "#ff9f43" },
+  ...SPRINT_BOARD_COLUMNS.slice(1),
+] as const;
+
 function SprintTaskCard({
   task,
   columnColor,
@@ -316,7 +322,7 @@ export default function SprintKanbanBoard() {
       className="sprint-board-grid"
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${SPRINT_BOARD_COLUMNS.length}, minmax(220px, 1fr))`,
+        gridTemplateColumns: `repeat(${SPRINT_KANBAN_COLUMNS.length}, minmax(220px, 1fr))`,
         gap: 12,
         height: "calc(100vh - 170px)",
         minHeight: 420,
@@ -324,10 +330,18 @@ export default function SprintKanbanBoard() {
         paddingBottom: 8,
       }}
     >
-      {SPRINT_BOARD_COLUMNS.map((column, columnIndex) => {
-        const tasks = sprintBoardTasks.filter(
-          (task) => task.boardColumn === column.id,
-        );
+      {SPRINT_KANBAN_COLUMNS.map((column, columnIndex) => {
+        const tasks = sprintBoardTasks.filter((task) => {
+          if (column.id === "adhoc") {
+            return task.boardColumn === "planned" && Boolean(task.isAdhoc);
+          }
+
+          if (column.id === "planned") {
+            return task.boardColumn === "planned" && !task.isAdhoc;
+          }
+
+          return task.boardColumn === column.id;
+        });
 
         return (
           <section

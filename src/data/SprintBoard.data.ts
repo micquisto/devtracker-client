@@ -56,6 +56,7 @@ const EXTRA_BOARD_TASKS: BoardTask[] = [
     status: "Todo",
     points: 3,
     boardColumn: "planned",
+    isAdhoc: true,
     project: "Business Logic / Back-end Pstock",
   },
   {
