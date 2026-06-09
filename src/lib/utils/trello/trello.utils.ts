@@ -29,6 +29,7 @@ export type TrelloList = {
 
 export type TrelloCard = {
   id: string;
+  idShort?: number;
   name: string;
   desc?: string;
   closed?: boolean;
@@ -132,6 +133,7 @@ export type GetTrelloSprintCardsOptions = {
   listNames?: string[] | null;
   currentSprintListName?: string;
   dateRange?: TrelloDateRange | null;
+  includeCardDetails?: boolean;
   memberIds?: string[] | "all" | null;
   customFieldNames?: string[] | null;
   storyPointFieldNames?: string[];
@@ -158,7 +160,7 @@ const TRELLO_API_BASE_URL =
   import.meta.env.VITE_TRELLO_API_BASE_URL ?? "https://api.trello.com/1";
 const TRELLO_REQUEST_DELAY_MS = getEnvNumber(
   import.meta.env.VITE_TRELLO_REQUEST_DELAY_MS,
-  1200,
+  500,
 );
 const TRELLO_MAX_RETRIES = getEnvNumber(import.meta.env.VITE_TRELLO_MAX_RETRIES, 3);
 const TRELLO_RATE_LIMIT_RETRY_MS = getEnvNumber(
@@ -433,6 +435,7 @@ export async function getTrelloSprintCards(
     listNames = null,
     currentSprintListName = "Current Sprint",
     dateRange = null,
+    includeCardDetails = false,
     memberIds = null,
     customFieldNames = null,
     storyPointFieldNames,
@@ -460,12 +463,21 @@ export async function getTrelloSprintCards(
     );
 
     for (const list of targetLists) {
-      const cards = await getTrelloListCards(list.id);
+      const cards = await getTrelloListCards(list.id, {
+        fields: "all",
+        members: true,
+        labels: true,
+        customFieldItems: true,
+        pluginData: true,
+      });
 
       for (const card of cards) {
         if (!matchesMembers(card, selectedMemberIds)) continue;
 
-        const detailedCard = await getTrelloCardDetails(card.id);
+        const detailedCard =
+          includeCardDetails || Boolean(dateRange)
+            ? await getTrelloCardDetails(card.id)
+            : card;
         const sprintCard = buildTrelloSprintCard({
           board,
           list,

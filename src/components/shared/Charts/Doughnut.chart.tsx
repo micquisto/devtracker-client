@@ -61,7 +61,7 @@ type DoughnutChartProps<T extends DoughnutSegmentInput> = {
   segments: T[];
   geometry?: DoughnutGeometry;
   viewBox?: string;
-  maxWidth?: number;
+  maxWidth?: number | string;
   gradientIdPrefix?: string;
   popOffset?: number;
   animDelay?: number;
@@ -120,7 +120,7 @@ function DoughnutChart<T extends DoughnutSegmentInput>({
     >
       <svg
         viewBox={viewBox}
-        style={{ width: "100%", maxWidth, flexShrink: 0 }}
+        style={{ width: "100%", maxWidth, flex: "0 1 auto", minWidth: 0 }}
         onMouseLeave={() => setHov(null)}
       >
         <defs>

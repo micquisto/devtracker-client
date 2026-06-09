@@ -1,23 +1,15 @@
+import { useEffect, useState } from "react";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
+import { PROJECT_LABELS, SPRINT_BOARD_COLUMNS } from "@/data/SprintBoard.data";
 import {
-  PROJECT_LABELS,
-  SPRINT_BOARD_COLUMNS,
-  SPRINT_BOARD_TASKS,
-  type BoardTask,
-} from "@/data/SprintBoard.data";
-import {
+  Palette,
   PriorityColor,
   SeverityColor,
   StatusBg,
   StatusColor,
 } from "@/lib/theme";
+import { getSupabaseRows } from "@/lib/supabase";
 import "@/assets/styles/SprintKanbanBoard.css";
-
-const TEAM_BY_INITIALS = Object.fromEntries(
-  TEAM_MEMBERS.map((member) => [member.initials, member]),
-);
-
-const sprintBoardTasks = SPRINT_BOARD_TASKS;
 
 const SPRINT_KANBAN_COLUMNS = [
   SPRINT_BOARD_COLUMNS[0],
@@ -25,24 +17,259 @@ const SPRINT_KANBAN_COLUMNS = [
   ...SPRINT_BOARD_COLUMNS.slice(1),
 ] as const;
 
+const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
+  "project refinement",
+  "on-deck sprint backlog",
+]);
+
+type BoardColumnId = (typeof SPRINT_BOARD_COLUMNS)[number]["id"];
+
+type SprintRow = {
+  id: string;
+};
+
+type SprintPointType = "planned" | "adhoc" | "done" | "blocked";
+
+type TaskRow = {
+  id?: string;
+  sprint_id: string;
+  project_type: string | null;
+  assigned_to: string | null;
+  trello_card_id: string;
+  trello_short_id: number | null;
+  trello_board_id: string;
+  trello_card_url: string | null;
+  trello_list_name: string | null;
+  title: string;
+  priority: string;
+  status: string;
+  story_points: number;
+  severity: number;
+  sp_type: SprintPointType;
+};
+
+type MemberRow = {
+  id: string | null;
+  auth_user_id: string | null;
+  trello_username: string | null;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type ProjectTypeRow = {
+  id: string;
+  name: string;
+};
+
+type KanbanTask = {
+  id: string;
+  title: string;
+  trelloCardUrl: string | null;
+  assigneeInitials: string;
+  assigneeName: string;
+  assigneeColor: string;
+  severity: string;
+  priority: string;
+  status: string;
+  points: number;
+  boardColumn: BoardColumnId;
+  spType: SprintPointType;
+  project: {
+    label: string;
+    color: string;
+  };
+};
+
+type SprintKanbanBoardProps = {
+  selectedMemberId?: string;
+};
+
+const ASSIGNEE_COLORS = [
+  Palette.cyan,
+  Palette.green,
+  Palette.gold,
+  Palette.purple,
+  Palette.pink,
+  Palette.orange,
+  Palette.indigo,
+  Palette.redSoft,
+];
+
+const MOCK_MEMBER_COLOR_BY_NAME = new Map(
+  TEAM_MEMBERS.map((member) => [member.name, member.color]),
+);
+
+const MOCK_MEMBER_NAME_BY_TRELLO_USERNAME: Record<string, string> = {
+  joshuabalansa: "John Doe",
+  doerrosales1: "Sarah Kim",
+  louiefranzgualingco: "Alex Rivera",
+  jpangs: "Mia Chen",
+  thomasandrewzaragoza1: "Leo Santos",
+};
+
+const UNASSIGNED_COLOR = "#8a96a8";
+
+const PROJECT_TYPE_FALLBACK_COLORS = [
+  Palette.cyan,
+  Palette.purple,
+  Palette.gold,
+  Palette.pink,
+  Palette.green,
+  Palette.orange,
+  Palette.indigo,
+  Palette.redSoft,
+];
+
+const SPRINT_BOARD_CONTAINER_STYLE: React.CSSProperties = {
+  height: "calc(100vh - 170px)",
+  minHeight: 420,
+};
+
+function getAssigneeColor(member: MemberRow | undefined, fallbackName: string): string {
+  if (!member || fallbackName === "Unassigned") return UNASSIGNED_COLOR;
+
+  const mockMemberName = member.trello_username
+    ? MOCK_MEMBER_NAME_BY_TRELLO_USERNAME[member.trello_username]
+    : undefined;
+  const mockColor = mockMemberName
+    ? MOCK_MEMBER_COLOR_BY_NAME.get(mockMemberName)
+    : undefined;
+
+  if (mockColor) return mockColor;
+
+  const seed = member.id ?? fallbackName;
+  const hash = Array.from(seed).reduce(
+    (sum, char) => sum + char.charCodeAt(0),
+    0,
+  );
+
+  return ASSIGNEE_COLORS[hash % ASSIGNEE_COLORS.length];
+}
+
+function getInitials(name: string): string {
+  if (name === "Unassigned") return "UA";
+
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+}
+
+function getSeverityLabel(value: number): string {
+  if (value === 1.3) return "P1";
+  if (value === 1.2) return "P2";
+  if (value === 1.1) return "P3";
+  return "P4";
+}
+
+function getBoardColumn(listName: string | null): BoardColumnId {
+  const normalized = listName?.trim().toLowerCase();
+
+  if (normalized === "in development" || normalized === "in dev") return "in-dev";
+  if (normalized === "for dev deployment") return "for-dev-deployment";
+  if (normalized === "on dev environment") return "on-dev-environment";
+  if (normalized === "for live deployment") return "for-live-deployment";
+  if (normalized === "on live🎉" || normalized === "live") return "live";
+  if (normalized === "blocked") return "blocked";
+
+  return "planned";
+}
+
+function shouldShowOnKanban(listName: string | null): boolean {
+  const normalized = listName?.trim().toLowerCase();
+
+  return !normalized || !KANBAN_HIDDEN_TRELLO_LIST_NAMES.has(normalized);
+}
+
+function getProjectTypeColor(projectTypeName: string): string {
+  const existingProjectLabel = PROJECT_LABELS.find(
+    (item) => item.label === projectTypeName,
+  );
+
+  if (existingProjectLabel) return existingProjectLabel.color;
+  if (projectTypeName === "General") return UNASSIGNED_COLOR;
+
+  const hash = Array.from(projectTypeName).reduce(
+    (sum, char) => sum + char.charCodeAt(0),
+    0,
+  );
+
+  return PROJECT_TYPE_FALLBACK_COLORS[hash % PROJECT_TYPE_FALLBACK_COLORS.length];
+}
+
+function getSprintPointTypeLabel(spType: SprintPointType): string {
+  if (spType === "adhoc") return "Adhoc";
+  if (spType === "done") return "Done";
+  if (spType === "blocked") return "Blocked";
+  return "Planned";
+}
+
+function getSprintPointTypeColor(spType: SprintPointType): string {
+  if (spType === "adhoc") return "#ff9f43";
+  if (spType === "done") return "#00e5a0";
+  if (spType === "blocked") return "#ff4757";
+  return "#00c8ff";
+}
+
+function mapTask(
+  task: TaskRow,
+  membersById: Map<string, MemberRow>,
+  projectTypesById: Map<string, ProjectTypeRow>,
+): KanbanTask {
+  const member = task.assigned_to ? membersById.get(task.assigned_to) : undefined;
+  const assigneeName = member?.full_name ?? "Unassigned";
+  const projectTypeName = task.project_type
+    ? projectTypesById.get(task.project_type)?.name ?? "General"
+    : "General";
+
+  return {
+    id: String(task.trello_short_id ?? task.trello_card_id),
+    title: task.title,
+    trelloCardUrl: task.trello_card_url,
+    assigneeInitials: getInitials(assigneeName),
+    assigneeName,
+    assigneeColor: getAssigneeColor(member, assigneeName),
+    severity: getSeverityLabel(task.severity),
+    priority: task.priority,
+    status: task.status,
+    points: task.story_points,
+    boardColumn: getBoardColumn(task.trello_list_name),
+    spType: task.sp_type,
+    project: {
+      label: projectTypeName,
+      color: getProjectTypeColor(projectTypeName),
+    },
+  };
+}
+
 function SprintTaskCard({
   task,
   columnColor,
   animationDelay,
 }: {
-  task: BoardTask;
+  task: KanbanTask;
   columnColor: string;
   animationDelay: string;
 }) {
-  const assignee = TEAM_BY_INITIALS[task.assignee];
-  const assigneeColor = assignee?.color ?? columnColor;
-  const assigneeName = assignee?.name ?? task.assignee;
-  const severityColor = SeverityColor[task.severity];
-  const priorityColor = PriorityColor[task.priority];
-  const statusColor = StatusColor[task.status];
-  const statusBg = StatusBg[task.status];
-  const project =
-    PROJECT_LABELS.find((item) => item.label === task.project) ?? PROJECT_LABELS[0];
+  const assigneeColor = task.assigneeColor;
+  const severityColor = SeverityColor[task.severity] ?? Palette.green;
+  const priorityColor =
+    PriorityColor[task.priority] ??
+    {
+      critical: Palette.red,
+      high: Palette.orange,
+      medium: Palette.gold,
+      low: Palette.green,
+    }[task.priority] ??
+    Palette.cyan;
+  const statusColor = StatusColor[task.status] ?? Palette.cyan;
+  const statusBg = StatusBg[task.status] ?? "rgba(0,200,255,0.1)";
+  const spTypeColor = getSprintPointTypeColor(task.spType);
+  const project = task.project;
 
   return (
     <article
@@ -92,17 +319,21 @@ function SprintTaskCard({
             boxShadow: "0 0 14px rgba(0,229,160,0.16)",
           }}
         >
-          {task.points}
-          <span
-            style={{
-              color: "rgba(160,210,255,0.7)",
-              fontSize: 9,
-              letterSpacing: "0",
-              marginLeft: 3,
-            }}
-          >
-            SP
-          </span>
+          {task.points > 0 ? (
+            <>
+              {task.points}
+              <span
+                style={{
+                  color: "rgba(160,210,255,0.7)",
+                  fontSize: 9,
+                  letterSpacing: "0",
+                  marginLeft: 3,
+                }}
+              >
+                SP
+              </span>
+            </>
+          ) : null}
         </span>
       </div>
 
@@ -122,7 +353,21 @@ function SprintTaskCard({
           boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.025), 0 0 12px ${assigneeColor}10`,
         }}
       >
-        {task.title}
+        {task.trelloCardUrl ? (
+          <a
+            href={task.trelloCardUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              color: "inherit",
+              textDecoration: "none",
+            }}
+          >
+            {task.title}
+          </a>
+        ) : (
+          task.title
+        )}
       </div>
 
       <div
@@ -154,7 +399,7 @@ function SprintTaskCard({
             boxShadow: `0 0 10px ${assigneeColor}66`,
           }}
         >
-          {task.assignee}
+          {task.assigneeInitials}
         </span>
         <div style={{ minWidth: 0 }}>
           <div
@@ -168,7 +413,7 @@ function SprintTaskCard({
               textOverflow: "ellipsis",
             }}
           >
-            {assigneeName}
+            {task.assigneeName}
           </div>
           <div
             style={{
@@ -186,10 +431,13 @@ function SprintTaskCard({
 
       <div
         style={{
-          display: "inline-flex",
+          display: "flex",
           alignItems: "center",
+          justifyContent: "flex-start",
           gap: 6,
-          alignSelf: "flex-start",
+          alignSelf: "stretch",
+          width: "100%",
+          boxSizing: "border-box",
           padding: "4px 8px",
           borderRadius: 9,
           background: `${project.color}14`,
@@ -200,6 +448,7 @@ function SprintTaskCard({
           fontWeight: 900,
           lineHeight: 1.25,
           marginBottom: 8,
+          textAlign: "left",
         }}
       >
         <span
@@ -212,7 +461,7 @@ function SprintTaskCard({
             flexShrink: 0,
           }}
         />
-        <span>{project.label}</span>
+        <span style={{ minWidth: 0, textAlign: "left" }}>{project.label}</span>
       </div>
 
       <div
@@ -262,24 +511,18 @@ function SprintTaskCard({
           style={{
             padding: "3px 8px",
             borderRadius: 99,
-            background: task.isAdhoc
-              ? "rgba(255,159,67,0.16)"
-              : "rgba(0,200,255,0.12)",
-            border: task.isAdhoc
-              ? "1px solid rgba(255,159,67,0.55)"
-              : "1px solid rgba(0,200,255,0.46)",
-            color: task.isAdhoc ? "#ff9f43" : "#00c8ff",
+            background: `${spTypeColor}1f`,
+            border: `1px solid ${spTypeColor}66`,
+            color: spTypeColor,
             fontSize: 9,
             fontFamily: "'DM Mono', monospace",
             fontWeight: 900,
             textTransform: "uppercase",
             letterSpacing: "0.04em",
-            boxShadow: task.isAdhoc
-              ? "0 0 10px rgba(255,159,67,0.18)"
-              : "0 0 10px rgba(0,200,255,0.14)",
+            boxShadow: `0 0 10px ${spTypeColor}24`,
           }}
         >
-          {task.isAdhoc ? "Adhoc" : "Planned"}
+          {getSprintPointTypeLabel(task.spType)}
         </span>
       </div>
 
@@ -309,35 +552,149 @@ function SprintTaskCard({
             fontWeight: 800,
           }}
         >
-          {task.assignee}
+          {task.assigneeInitials}
         </span>
       </div>
     </article>
   );
 }
 
-export default function SprintKanbanBoard() {
+export default function SprintKanbanBoard({
+  selectedMemberId = "",
+}: SprintKanbanBoardProps) {
+  const [tasks, setTasks] = useState<KanbanTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTasks() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const [currentSprint] = await getSupabaseRows<SprintRow>("sprints", {
+          select: "id",
+          eq: { is_current: 1 },
+          limit: 1,
+        });
+
+        if (!currentSprint) {
+          if (!cancelled) setTasks([]);
+          return;
+        }
+
+        const [taskRows, memberRows, projectTypeRows] = await Promise.all([
+          getSupabaseRows<TaskRow>("tasks", {
+            select:
+              "id,sprint_id,project_type,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,title,priority,status,story_points,severity,sp_type",
+            eq: selectedMemberId
+              ? { sprint_id: currentSprint.id, assigned_to: selectedMemberId }
+              : { sprint_id: currentSprint.id },
+          }),
+          getSupabaseRows<MemberRow>("members", {
+            select: "id,auth_user_id,trello_username,full_name,first_name,last_name",
+          }),
+          getSupabaseRows<ProjectTypeRow>("project_type", {
+            select: "id,name",
+          }),
+        ]);
+
+        const membersById = new Map(
+          memberRows
+            .filter((member) => member.id)
+            .map((member) => [member.id as string, member]),
+        );
+        const projectTypesById = new Map(
+          projectTypeRows.map((projectType) => [projectType.id, projectType]),
+        );
+
+        if (!cancelled) {
+          setTasks(
+            taskRows
+              .filter((task) => shouldShowOnKanban(task.trello_list_name))
+              .map((task) => mapTask(task, membersById, projectTypesById)),
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setError(error instanceof Error ? error.message : "Unable to load tasks.");
+          setTasks([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadTasks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMemberId]);
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          ...SPRINT_BOARD_CONTAINER_STYLE,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          color: "rgba(160,210,255,0.7)",
+          fontFamily: "'DM Mono', monospace",
+          fontSize: 12,
+          fontWeight: 900,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+        }}
+      >
+        <span className="sprint-kanban-loader" aria-hidden="true" />
+        Fetching Data
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{
+          ...SPRINT_BOARD_CONTAINER_STYLE,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#ff8d8d",
+          padding: 16,
+          textAlign: "center",
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
+
   return (
     <div
       className="sprint-board-grid"
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${SPRINT_KANBAN_COLUMNS.length}, minmax(220px, 1fr))`,
+        gridTemplateColumns: `repeat(${SPRINT_KANBAN_COLUMNS.length}, minmax(300px, 1fr))`,
         gap: 12,
-        height: "calc(100vh - 170px)",
-        minHeight: 420,
+        ...SPRINT_BOARD_CONTAINER_STYLE,
         overflowX: "auto",
         paddingBottom: 8,
       }}
     >
       {SPRINT_KANBAN_COLUMNS.map((column, columnIndex) => {
-        const tasks = sprintBoardTasks.filter((task) => {
+        const columnTasks = tasks.filter((task) => {
           if (column.id === "adhoc") {
-            return task.boardColumn === "planned" && Boolean(task.isAdhoc);
+            return task.boardColumn === "planned" && task.spType === "adhoc";
           }
 
           if (column.id === "planned") {
-            return task.boardColumn === "planned" && !task.isAdhoc;
+            return task.boardColumn === "planned" && task.spType === "planned";
           }
 
           return task.boardColumn === column.id;
@@ -355,6 +712,7 @@ export default function SprintKanbanBoard() {
               padding: 12,
               display: "flex",
               flexDirection: "column",
+              minWidth: 300,
             }}
           >
             <div
@@ -395,7 +753,7 @@ export default function SprintKanbanBoard() {
                   fontWeight: 900,
                 }}
               >
-                {tasks.length}
+                {columnTasks.length}
               </span>
             </div>
 
@@ -406,11 +764,13 @@ export default function SprintKanbanBoard() {
                 gap: 8,
                 flex: 1,
                 minHeight: 0,
+                minWidth: 0,
+                overflowX: "hidden",
                 overflowY: "auto",
                 paddingRight: 2,
               }}
             >
-              {tasks.map((task, taskIndex) => (
+              {columnTasks.map((task, taskIndex) => (
                 <SprintTaskCard
                   key={task.id}
                   task={task}

@@ -1,5 +1,6 @@
 import { StyledSelect } from "@/components/shared/Elements";
 import { SPRINT_BOARD_HISTORY } from "@/data/SprintBoard.data";
+import type { ReactNode } from "react";
 
 export type SprintStatus = "open" | "active" | "closed";
 
@@ -12,6 +13,7 @@ type SprintFilterOption = {
 type SprintFilterProps = {
   selectedSprint: string;
   onSprintChange: (value: string) => void;
+  actions?: ReactNode;
 };
 
 export const SPRINT_STATUS_STYLE: Record<
@@ -53,6 +55,7 @@ export const getSprintFilterOption = (selectedSprint: string) =>
 export default function SprintFilter({
   selectedSprint,
   onSprintChange,
+  actions,
 }: SprintFilterProps) {
   const selectedSprintOption = getSprintFilterOption(selectedSprint);
   const selectedSprintStatusStyle =
@@ -64,9 +67,12 @@ export default function SprintFilter({
       style={{
         display: "flex",
         justifyContent: "flex-end",
+        alignItems: "center",
+        gap: 8,
         marginBottom: 12,
       }}
     >
+      {actions}
       <StyledSelect
         value={selectedSprint}
         onChange={onSprintChange}

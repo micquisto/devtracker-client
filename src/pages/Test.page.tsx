@@ -1,7 +1,11 @@
 import { useCallback, useState } from "react";
 import { Card } from "@/components/shared/Containers";
 import { Title } from "@/components/shared/page";
-import { getTrelloSprintCards, type TrelloSprintCard } from "@/lib/utils";
+import {
+  syncCurrentSprintTasks,
+  type SprintSyncResult,
+  type TrelloSprintCard,
+} from "@/lib/utils";
 import {
   createSupabaseAuthUsers,
   getSupabaseRows,
@@ -23,6 +27,7 @@ type JsonValue =
 
 type FetchState = {
   data: TrelloSprintCard[] | null;
+  sprint: SprintSyncResult | null;
   loading: boolean;
   error: string | null;
 };
@@ -64,10 +69,6 @@ const TEST_USER_EMAILS = [
   "joshuap@plumbersstock.com",
   "thomasz@plumbersstock.com",
 ];
-
-const TRELLO_CUSTOM_FIELD_NAMES = ["Date Completed","Assignee", "Severity", "Priority", "Type", "Status", "Date Added"];
-
-const TRELLO_LIST_NAMES = ["Current Sprint", "In Development", "For Dev Deployment", "On Dev Environment"];
 
 const PROJECTS: ProjectRow[] = [
   { trello_board_id: "5oj0clmi", name: "All DevDenPH", status: "active" },
@@ -171,6 +172,7 @@ function JsonTree({
 export default function TestPage() {
   const [state, setState] = useState<FetchState>({
     data: null,
+    sprint: null,
     loading: false,
     error: null,
   });
@@ -187,20 +189,17 @@ export default function TestPage() {
     });
 
   const fetchCards = useCallback(async () => {
-    setState({ data: null, loading: true, error: null });
+    setState({ data: null, sprint: null, loading: true, error: null });
 
     try {
-      const data = await getTrelloSprintCards({
-        boardIds: null,
-        listNames: TRELLO_LIST_NAMES,
-        customFieldNames: TRELLO_CUSTOM_FIELD_NAMES,
-      });
-      setState({ data, loading: false, error: null });
+      const { cards, result } = await syncCurrentSprintTasks();
+      setState({ data: cards, sprint: result, loading: false, error: null });
     } catch (error) {
       setState({
         data: null,
+        sprint: null,
         loading: false,
-        error: error instanceof Error ? error.message : "Unable to fetch Trello cards.",
+        error: formatUnknownError(error, "Unable to fetch Trello cards."),
       });
     }
   }, []);
@@ -526,6 +525,30 @@ export default function TestPage() {
           >
             {state.error}
           </pre>
+        )}
+
+        {state.sprint && (
+          <div
+            style={{
+              borderBottom: `1px solid ${Border.faint}`,
+              color: Text.label,
+              fontFamily: "'DM Mono', monospace",
+              fontSize: 12,
+              lineHeight: 1.7,
+              marginBottom: 14,
+              maxHeight: 220,
+              overflow: "auto",
+              paddingBottom: 14,
+              textAlign: "left",
+              width: "100%",
+            }}
+          >
+            <JsonTree
+              label="sprintSync"
+              value={state.sprint as unknown as JsonValue}
+              defaultOpen
+            />
+          </div>
         )}
 
         {state.data && (

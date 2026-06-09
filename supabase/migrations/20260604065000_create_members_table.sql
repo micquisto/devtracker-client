@@ -2,6 +2,7 @@ create table if not exists public.members (
   id uuid primary key default gen_random_uuid(),
   auth_user_id uuid not null references auth.users(id) on delete cascade,
   trello_member_id text unique,
+  trello_username text unique,
   full_name text not null,
   email text not null unique,
   first_name text not null,

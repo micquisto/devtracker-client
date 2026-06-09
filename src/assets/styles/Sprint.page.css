@@ -13,6 +13,185 @@
   font: inherit;
 }
 
+.sprint-board-separator {
+  height: 1px;
+  margin: 0 0 12px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 200, 255, 0.34),
+    rgba(245, 200, 66, 0.2),
+    transparent
+  );
+  box-shadow: 0 0 12px rgba(0, 200, 255, 0.16);
+}
+
+.sprint-action-loader {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(160, 210, 255, 0.34);
+  border-radius: 50%;
+  animation: sprint-action-spin 0.75s linear infinite;
+}
+
+.sprint-confirmation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(0, 200, 255, 0.14), transparent 34%),
+    rgba(3, 8, 20, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.sprint-confirmation-dialog {
+  position: relative;
+  width: min(440px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(0, 200, 255, 0.32);
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgba(10, 22, 44, 0.98), rgba(6, 13, 31, 0.96)),
+    rgba(6, 13, 31, 0.98);
+  padding: 20px;
+}
+
+.sprint-confirmation-glow {
+  position: absolute;
+  inset: -80px -80px auto auto;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  opacity: 0.12;
+  filter: blur(10px);
+  pointer-events: none;
+}
+
+.sprint-confirmation-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.sprint-confirmation-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid;
+  border-radius: 12px;
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.sprint-confirmation-eyebrow {
+  color: rgba(100, 180, 255, 0.62);
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sprint-confirmation-title {
+  margin: 2px 0 0;
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.sprint-confirmation-message {
+  position: relative;
+  margin: 0;
+  color: rgba(180, 215, 255, 0.82);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.sprint-confirmation-details {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(100, 180, 255, 0.11);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(230, 245, 255, 0.9);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+}
+
+.sprint-confirmation-details strong {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sprint-confirmation-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.sprint-confirmation-button {
+  border-radius: 11px;
+  padding: 8px 13px;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.sprint-confirmation-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.sprint-confirmation-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.sprint-confirmation-button--secondary {
+  border: 1px solid rgba(100, 180, 255, 0.18);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(160, 210, 255, 0.74);
+}
+
+.sprint-confirmation-button--primary {
+  border: 1px solid;
+  box-shadow: 0 0 16px rgba(0, 200, 255, 0.12);
+}
+
+@keyframes sprint-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 1180px) {
   .sprint-scoreboard-top {
     grid-template-columns: 1fr !important;

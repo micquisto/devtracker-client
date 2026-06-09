@@ -24,6 +24,9 @@ alter table public.members
 add column if not exists trello_member_id text;
 
 alter table public.members
+add column if not exists trello_username text;
+
+alter table public.members
 add column if not exists full_name text,
 add column if not exists email text,
 add column if not exists first_name text,
@@ -31,3 +34,4 @@ add column if not exists last_name text;
 
 create unique index if not exists members_email_key on public.members(email);
 create unique index if not exists members_trello_member_id_key on public.members(trello_member_id);
+create unique index if not exists members_trello_username_key on public.members(trello_username);

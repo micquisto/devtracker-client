@@ -1,0 +1,399 @@
+.app-flow-page {
+  padding: 20px 0 40px;
+}
+
+.app-flow-layout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.75fr);
+  margin-top: 18px;
+}
+
+.app-flow-card {
+  min-width: 0;
+}
+
+.app-flow-card--wide {
+  grid-column: 1 / -1;
+}
+
+.app-flow-card__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.app-flow-kicker {
+  color: rgba(100, 180, 255, 0.55);
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.app-flow-heading {
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.app-flow-copy {
+  color: rgba(180, 215, 255, 0.76);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 10px 0 0;
+}
+
+.app-flow-chart {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
+}
+
+.app-flow-diagram {
+  display: grid;
+  gap: 14px;
+}
+
+.app-flow-diagram__lane {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  position: relative;
+}
+
+.app-flow-diagram__lane--main .app-flow-diagram-node:not(:last-child)::after {
+  color: rgba(0, 200, 255, 0.58);
+  content: "→";
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  font-weight: 900;
+  position: absolute;
+  right: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.app-flow-diagram-node {
+  --node-accent: #00c8ff;
+  align-items: center;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--node-accent) 18%, transparent), transparent 46%),
+    rgba(255, 255, 255, 0.035);
+  border: 1px solid color-mix(in srgb, var(--node-accent) 32%, rgba(100, 180, 255, 0.1));
+  border-radius: 14px;
+  color: rgba(232, 244, 255, 0.88);
+  cursor: pointer;
+  display: flex;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  gap: 9px;
+  justify-content: flex-start;
+  min-height: 58px;
+  padding: 10px 12px;
+  position: relative;
+  text-align: left;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.app-flow-diagram-node:hover,
+.app-flow-diagram-node.is-active {
+  border-color: var(--node-accent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--node-accent) 24%, transparent);
+  transform: translateY(-2px);
+}
+
+.app-flow-diagram-node span {
+  align-items: center;
+  background: color-mix(in srgb, var(--node-accent) 18%, transparent);
+  border-radius: 9px;
+  color: var(--node-accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  height: 26px;
+  justify-content: center;
+  width: 28px;
+}
+
+.app-flow-diagram__split {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.45fr) minmax(0, 1fr);
+}
+
+.app-flow-diagram-decision {
+  background: linear-gradient(135deg, rgba(245, 200, 66, 0.13), rgba(0, 200, 255, 0.06));
+  border: 1px solid rgba(245, 200, 66, 0.34);
+  border-radius: 16px;
+  color: #f5c842;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 16px 14px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.app-flow-diagram-branches {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.app-flow-diagram-branch {
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(100, 180, 255, 0.12);
+  border-radius: 14px;
+  color: rgba(180, 215, 255, 0.78);
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 12px;
+  text-align: left;
+}
+
+.app-flow-diagram-branch span {
+  color: #00c8ff;
+  display: block;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.app-flow-diagram-branch.is-active {
+  background: rgba(0, 200, 255, 0.1);
+  border-color: rgba(0, 200, 255, 0.48);
+  box-shadow: 0 0 16px rgba(0, 200, 255, 0.14);
+}
+
+.app-flow-step {
+  --step-accent: #00c8ff;
+  align-items: flex-start;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(6, 13, 31, 0.48));
+  border: 1px solid rgba(100, 180, 255, 0.1);
+  border-left: 3px solid var(--step-accent);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 112px;
+  padding: 12px;
+  position: relative;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.app-flow-step:hover,
+.app-flow-step.is-active {
+  border-color: color-mix(in srgb, var(--step-accent) 70%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--step-accent) 20%, transparent);
+  transform: translateY(-2px);
+}
+
+.app-flow-step__index {
+  align-items: center;
+  background: color-mix(in srgb, var(--step-accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--step-accent) 46%, transparent);
+  border-radius: 10px;
+  color: var(--step-accent);
+  display: inline-flex;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  height: 28px;
+  justify-content: center;
+  width: 34px;
+}
+
+.app-flow-step__body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.app-flow-step__title {
+  color: rgba(232, 244, 255, 0.9);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.app-flow-step__summary {
+  color: rgba(150, 195, 238, 0.66);
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.app-flow-step__arrow {
+  color: var(--step-accent);
+  font-family: "DM Mono", monospace;
+  font-size: 14px;
+  font-weight: 900;
+  opacity: 0.75;
+}
+
+.app-flow-list {
+  color: rgba(180, 215, 255, 0.75);
+  display: grid;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  gap: 8px;
+  line-height: 1.4;
+  margin: 14px 0 0;
+  padding-left: 18px;
+}
+
+.app-flow-output,
+.app-flow-rule {
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid rgba(100, 180, 255, 0.1);
+  border-radius: 12px;
+  color: rgba(190, 222, 255, 0.82);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 10px;
+  padding: 10px 11px;
+}
+
+.app-flow-output span,
+.app-flow-rule span {
+  color: #00c8ff;
+  display: block;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.app-flow-status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.app-flow-status-tab,
+.app-flow-pill {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(100, 180, 255, 0.12);
+  border-radius: 999px;
+  color: rgba(150, 195, 238, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+}
+
+.app-flow-status-tab {
+  cursor: pointer;
+}
+
+.app-flow-status-tab.is-active {
+  background: rgba(0, 200, 255, 0.13);
+  border-color: rgba(0, 200, 255, 0.55);
+  color: #00c8ff;
+  box-shadow: 0 0 14px rgba(0, 200, 255, 0.16);
+}
+
+.app-flow-pill-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-flow-table-impact {
+  display: grid;
+  gap: 8px;
+}
+
+.app-flow-note {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid;
+  border-radius: 14px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 14px;
+  padding: 12px 14px;
+}
+
+.app-flow-note code {
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  margin: 0 4px;
+}
+
+@media (max-width: 1180px) {
+  .app-flow-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .app-flow-chart {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
+  .app-flow-diagram__lane {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
+  .app-flow-diagram__lane--main .app-flow-diagram-node:not(:last-child)::after {
+    content: "";
+  }
+
+  .app-flow-diagram__split {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .app-flow-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app-flow-status-tabs {
+    justify-content: flex-start;
+  }
+
+  .app-flow-chart {
+    grid-template-columns: 1fr;
+  }
+
+  .app-flow-diagram__lane,
+  .app-flow-diagram-branches {
+    grid-template-columns: 1fr;
+  }
+
+  .app-flow-step {
+    min-height: 0;
+  }
+}

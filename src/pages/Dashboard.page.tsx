@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { FilterState } from "../interfaces";
 import { getFilterLabel } from "@/lib/utils";
+import { getSupabaseRows } from "@/lib/supabase";
 import { 
   ScoreKPI, 
   TeamLineChart, 
@@ -25,12 +26,63 @@ import {
 } from "@/data/SprintBoard.data";
 import "@/assets/styles/Dashboard.page.css";
 
+const TASK_COUNT_LIST_NAMES = [
+  "Current Sprint",
+  "Adhoc",
+  "In Development",
+  "For Dev Deployment",
+  "On Dev Environment",
+  "Project Refinement",
+  "On-Deck Sprint Backlog",
+];
+
+const COLUMN_TASK_LIST_NAME: Record<string, string | undefined> = {
+  planned: "Current Sprint",
+  "in-dev": "In Development",
+  "for-dev-deployment": "For Dev Deployment",
+  "on-dev-environment": "On Dev Environment",
+};
+
+type DashboardTaskCountRow = {
+  trello_list_name: string | null;
+};
+
+function normalizeListName(value: string | null): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
 /* ─── MAIN DASHBOARD PAGE ───────────────────── */
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [filter, setFilter] = useState<FilterState>({ mode: "current" });
+  const [taskCountRows, setTaskCountRows] = useState<DashboardTaskCountRow[] | null>(
+    null,
+  );
+
   useEffect(() => {
     setTimeout(() => setMounted(true), 80);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTaskCounts() {
+      try {
+        const tasks = await getSupabaseRows<DashboardTaskCountRow>("tasks", {
+          select: "trello_list_name",
+        });
+
+        if (!cancelled) setTaskCountRows(tasks);
+      } catch {
+        if (!cancelled) setTaskCountRows(null);
+      }
+    }
+
+    void loadTaskCounts();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const anim = (d: number): React.CSSProperties => ({
@@ -42,13 +94,25 @@ export default function DashboardPage() {
   const completionRate = `${SPRINT_BOARD_COMPLETION_RATE}%`;
   const totalSP = SPRINT_BOARD_TOTAL_STORY_POINTS;
   const doneSP = SPRINT_BOARD_COMPLETED_STORY_POINTS;
+  const countedListNames = new Set(TASK_COUNT_LIST_NAMES.map(normalizeListName));
+  const countedTaskRows =
+    taskCountRows?.filter((task) =>
+      countedListNames.has(normalizeListName(task.trello_list_name)),
+    ) ?? null;
+  const taskCountTotal = countedTaskRows?.length ?? SPRINT_BOARD_TASKS.length;
   const sprintTaskCountCards = [
-    { id: "all", label: "Tasks Count", color: Palette.cyan, count: SPRINT_BOARD_TASKS.length },
+    { id: "all", label: "Tasks Count", color: Palette.cyan, count: taskCountTotal },
     ...SPRINT_BOARD_COLUMNS.map((column) => ({
       id: column.id,
       label: column.id === "planned" ? "Pending" : column.label,
       color: column.color,
-      count: SPRINT_BOARD_TASKS.filter((task) => task.boardColumn === column.id).length,
+      count: countedTaskRows
+        ? countedTaskRows.filter(
+            (task) =>
+              normalizeListName(task.trello_list_name) ===
+              normalizeListName(COLUMN_TASK_LIST_NAME[column.id] ?? null),
+          ).length
+        : SPRINT_BOARD_TASKS.filter((task) => task.boardColumn === column.id).length,
     })),
   ];
 

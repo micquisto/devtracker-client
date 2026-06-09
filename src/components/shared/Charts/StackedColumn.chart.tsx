@@ -12,6 +12,7 @@ export type StackLayerInput = {
 export type StackedColumnSegmentInput = {
   label: string;
   sublabel?: string;
+  topLabel?: string;
   labelColor?: string;
   /** Rendered top-to-bottom: first layer is the top segment of the column */
   stacks: StackLayerInput[];
@@ -37,6 +38,7 @@ type StackedColumnChartProps<T extends StackedColumnSegmentInput> = {
   gap?: number;
   gridTicks?: number[];
   chartPaddingLeft?: number;
+  barMaxWidth?: number;
   highlightIndex?: number;
   highlightLabelColor?: string;
   defaultLabelColor?: string;
@@ -58,6 +60,7 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
   gap = 10,
   gridTicks = [0, 4, 8, 12, 16],
   chartPaddingLeft = 24,
+  barMaxWidth,
   highlightIndex,
   highlightLabelColor = DEFAULT_HIGHLIGHT_LABEL,
   defaultLabelColor = DEFAULT_LABEL,
@@ -142,6 +145,7 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
                 key={s.label + i}
                 style={{
                   flex: 1,
+                  maxWidth: barMaxWidth,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
@@ -153,6 +157,22 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
                 onMouseLeave={() => setHov(null)}
               >
                 {hov === i && renderTooltip?.(s, i)}
+
+                {s.topLabel && (
+                  <div
+                    style={{
+                      color: labelColor,
+                      fontFamily: "'DM Mono',monospace",
+                      fontSize: 9,
+                      fontWeight: 900,
+                      marginBottom: 6,
+                      textShadow: `0 0 10px ${labelColor}44`,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {s.topLabel}
+                  </div>
+                )}
 
                 {s.stacks.map((layer, li) => {
                   const h = getStackPixelHeight(layer.value, max, barAreaHeight);

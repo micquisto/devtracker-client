@@ -3,11 +3,11 @@ import { SPRINT_HISTORY, SPRINT_TASKS, TEAM_MEMBERS } from "@/data/Mock.data";
 
 export const SPRINT_BOARD_COLUMNS = [
   { id: "planned", label: "Planned", color: "#00c8ff" },
-  { id: "in-dev", label: "In Dev", color: "#a78bfa" },
+  { id: "in-dev", label: "In Development", color: "#a78bfa" },
   { id: "for-dev-deployment", label: "For Dev Deployment", color: "#f5c842" },
   { id: "on-dev-environment", label: "On Dev Environment", color: "#6b89ff" },
   { id: "for-live-deployment", label: "For Live Deployment", color: "#ff6eb4" },
-  { id: "live", label: "Live", color: "#00e5a0" },
+  { id: "live", label: "On Live🎉", color: "#00e5a0" },
   { id: "blocked", label: "Blocked", color: "#ff4757" },
 ] as const;
 

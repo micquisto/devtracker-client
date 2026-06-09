@@ -9,6 +9,7 @@ import {
   StatisticsPage,
   TasksListPage,
   TestPage,
+  AppFlowPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
 import { getSupabaseSession, signOutSupabaseUser, supabase } from "@/lib/supabase";
@@ -58,6 +59,7 @@ const NAV: NavEntry[] = [
   },
   { id: "credit", label: "Credit Score", icon: "credit", badge: true },
   { id: "test", label: "Test", icon: "history" },
+  { id: "app-flow", label: "App Flow", icon: "scrum" },
 ];
 
 const ACTIVE_PAGE_STORAGE_KEY = "devtracker.activePage";
@@ -404,6 +406,10 @@ function PageContent({ active }: { active: string }) {
 
   if (active === "test") {
     return <TestPage />;
+  }
+
+  if (active === "app-flow") {
+    return <AppFlowPage />;
   }
 
   return (

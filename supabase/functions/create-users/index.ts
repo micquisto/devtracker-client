@@ -37,6 +37,16 @@ type MemberProfile = {
   email: string;
 };
 
+type MemberRow = {
+  auth_user_id: string;
+  trello_member_id: string;
+  trello_username: string;
+  full_name: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+};
+
 const MEMBER_PROFILES_BY_EMAIL: Record<string, MemberProfile> = {
   "michaelq@plumbersstock.com": {
     full_name: "Jan Michael Quisto",
@@ -85,6 +95,10 @@ const EMAIL_BY_TRELLO_USERNAME: Record<string, string> = {
   thomasandrewzaragoza1: "thomasz@plumbersstock.com",
 };
 
+const TRELLO_USERNAME_BY_EMAIL = Object.fromEntries(
+  Object.entries(EMAIL_BY_TRELLO_USERNAME).map(([username, email]) => [email, username]),
+);
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -98,6 +112,21 @@ function isAlreadyRegisteredMessage(message: string): boolean {
     normalized.includes("already registered") ||
     normalized.includes("already exists") ||
     normalized.includes("user already")
+  );
+}
+
+function hasMemberChanged(
+  existingMember: Partial<MemberRow>,
+  nextMember: MemberRow,
+): boolean {
+  return (
+    existingMember.auth_user_id !== nextMember.auth_user_id ||
+    existingMember.trello_member_id !== nextMember.trello_member_id ||
+    existingMember.trello_username !== nextMember.trello_username ||
+    existingMember.full_name !== nextMember.full_name ||
+    existingMember.email !== nextMember.email ||
+    existingMember.first_name !== nextMember.first_name ||
+    existingMember.last_name !== nextMember.last_name
   );
 }
 
@@ -255,7 +284,9 @@ Deno.serve(async (request) => {
   const targetEmails = emails.map((email) => email.toLowerCase());
   const { data: existingMembers, error: existingMembersError } = await supabaseAdmin
     .from("members")
-    .select("email")
+    .select(
+      "auth_user_id,trello_member_id,trello_username,full_name,email,first_name,last_name",
+    )
     .in("email", targetEmails);
 
   if (existingMembersError) {
@@ -271,33 +302,39 @@ Deno.serve(async (request) => {
     );
   }
 
-  const existingMemberEmails = new Set(
-    (existingMembers ?? []).map((member) => String(member.email).toLowerCase()),
+  const existingMemberByEmail = new Map(
+    ((existingMembers ?? []) as Partial<MemberRow>[]).map((member) => [
+      String(member.email).toLowerCase(),
+      member,
+    ]),
   );
-  const memberRows = trelloMembers.flatMap((trelloMember) => {
+  const memberRows = trelloMembers.flatMap<MemberRow>((trelloMember) => {
     const email = EMAIL_BY_TRELLO_USERNAME[trelloMember.username]?.toLowerCase();
     const profile = email ? MEMBER_PROFILES_BY_EMAIL[email] : undefined;
     const authUser = email ? authUserByEmail.get(email) : undefined;
+    const trelloUsername = email ? TRELLO_USERNAME_BY_EMAIL[email] : undefined;
 
-    if (!email || existingMemberEmails.has(email) || !profile || !authUser) return [];
+    if (!email || !trelloUsername || !profile || !authUser) return [];
 
-    return [
-      {
-        auth_user_id: authUser.id,
-        trello_member_id: trelloMember.id,
-        full_name: profile.full_name,
-        email: profile.email,
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-      },
-    ];
+    const nextMember = {
+      auth_user_id: authUser.id,
+      trello_member_id: trelloMember.id,
+      trello_username: trelloUsername,
+      full_name: profile.full_name,
+      email: profile.email,
+      first_name: profile.first_name,
+      last_name: profile.last_name,
+    };
+    const existingMember = existingMemberByEmail.get(email);
+
+    return !existingMember || hasMemberChanged(existingMember, nextMember)
+      ? [nextMember]
+      : [];
   });
 
   const { error: upsertError } = memberRows.length
     ? await supabaseAdmin.from("members").upsert(memberRows, { onConflict: "email" })
     : { error: null };
-
-  const createdMemberEmails = new Set(memberRows.map((member) => member.email));
 
   return Response.json(
     results.map((result) => {
@@ -306,25 +343,31 @@ Deno.serve(async (request) => {
           EMAIL_BY_TRELLO_USERNAME[member.username]?.toLowerCase() ===
           result.email.toLowerCase(),
       );
+      const existingMember = existingMemberByEmail.get(result.email.toLowerCase());
+      const changedMember = memberRows.find(
+        (member) => member.email.toLowerCase() === result.email.toLowerCase(),
+      );
 
       return {
         ...result,
         member: {
           status: upsertError
             ? "failed"
-            : createdMemberEmails.has(result.email)
+            : changedMember
               ? "created"
               : "skipped",
           message: upsertError
             ? upsertError.message
-            : createdMemberEmails.has(result.email)
-              ? "Member profile created from Supabase user and Trello data."
-              : existingMemberEmails.has(result.email.toLowerCase())
-                ? "Member record already exists."
+            : changedMember
+              ? existingMember
+                ? "Member profile updated from Supabase user and Trello data."
+                : "Member profile created from Supabase user and Trello data."
+              : existingMember
+                ? "Member record already up to date."
                 : trelloMember
                   ? "Supabase auth user is not available for this email."
                   : "No matching Trello organization member found.",
-          trelloUsername: trelloMember?.username,
+          trelloUsername: trelloMember?.username ?? TRELLO_USERNAME_BY_EMAIL[result.email],
         },
       };
     }),

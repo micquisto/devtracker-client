@@ -1,46 +1,14 @@
-import { useRef } from "react";
-import { DoughnutChart } from "@/components/shared/Charts";
+import { useEffect, useRef, useState } from "react";
+import { DoughnutChart, StackedColumnChart } from "@/components/shared/Charts";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
 import {
   PROJECT_LABELS,
   SPRINT_BOARD_TASKS,
-  INCOMPLETE_BOARD_COLUMNS,
 } from "@/data/SprintBoard.data";
+import { getSupabaseRows } from "@/lib/supabase";
+import { Background, Border, Chart } from "@/lib/theme";
 
 const sprintBoardTasks = SPRINT_BOARD_TASKS;
-
-const assigneeStoryPointTotals = TEAM_MEMBERS.map((member) => ({
-  ...member,
-  plannedStoryPoints: sprintBoardTasks
-    .filter((task) => task.assignee === member.initials && !task.isAdhoc)
-    .reduce((sum, task) => sum + task.points, 0),
-  adhocStoryPoints: sprintBoardTasks
-    .filter((task) => task.assignee === member.initials && task.isAdhoc)
-    .reduce((sum, task) => sum + task.points, 0),
-  completedStoryPoints: sprintBoardTasks
-    .filter(
-      (task) =>
-        task.assignee === member.initials &&
-        !INCOMPLETE_BOARD_COLUMNS.includes(task.boardColumn),
-    )
-    .reduce((sum, task) => sum + task.points, 0),
-  taskCount: sprintBoardTasks.filter((task) => task.assignee === member.initials)
-    .length,
-}))
-  .map((member) => ({
-    ...member,
-    storyPoints: member.plannedStoryPoints + member.adhocStoryPoints,
-    completedRate:
-      member.plannedStoryPoints > 0
-        ? Math.round((member.completedStoryPoints / member.plannedStoryPoints) * 100)
-        : 0,
-  }))
-  .filter((member) => member.storyPoints > 0);
-
-const totalBoardStoryPoints = assigneeStoryPointTotals.reduce(
-  (sum, member) => sum + member.storyPoints,
-  0,
-);
 
 const plannedStoryPoints = sprintBoardTasks
   .filter((task) => !task.isAdhoc)
@@ -50,20 +18,408 @@ const adhocStoryPoints = sprintBoardTasks
   .filter((task) => task.isAdhoc)
   .reduce((sum, task) => sum + task.points, 0);
 
-const projectStoryPointTotals = PROJECT_LABELS.map((project) => ({
+const initialProjectStoryPointSegments = PROJECT_LABELS.map((project) => ({
   ...project,
   storyPoints: sprintBoardTasks
     .filter((task) => task.project === project.label)
     .reduce((sum, task) => sum + task.points, 0),
-})).filter((project) => project.storyPoints > 0);
-
-const projectStoryPointSegments = projectStoryPointTotals.map((project) => ({
+}))
+  .filter((project) => project.storyPoints > 0)
+  .map((project) => ({
   ...project,
   value: project.storyPoints,
 }));
 
+type SprintRow = {
+  id: string;
+};
+
+type ScoreboardTaskRow = {
+  story_points: number;
+  sp_type: string | null;
+  project_type: string | null;
+  assigned_to: string | null;
+  is_completed: string | null;
+};
+
+type ScoreboardStoryPointTotals = {
+  planned: number;
+  adhoc: number;
+};
+
+type ProjectTypeRow = {
+  id: string;
+  name: string;
+};
+
+type ProjectStoryPointSegment = {
+  label: string;
+  color: string;
+  storyPoints: number;
+  value: number;
+};
+
+type MemberRow = {
+  id: string | null;
+  trello_username: string | null;
+  role: string | null;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type StoryPointRow = {
+  member_id: string;
+  assigned_story_points: number | null;
+  adhoc_story_points: number | null;
+  completed_story_points: number | null;
+};
+
+type MemberStoryPointCard = {
+  id: string;
+  name: string;
+  initials: string;
+  color: string;
+  plannedStoryPoints: number;
+  adhocStoryPoints: number;
+  completedStoryPoints: number;
+  completedRate: number;
+};
+
+const PROJECT_TYPE_FALLBACK_COLORS = [
+  "#00c8ff",
+  "#a78bfa",
+  "#f5c842",
+  "#ff6eb4",
+  "#00e5a0",
+  "#ff9f43",
+  "#6b89ff",
+  "#ff6b6b",
+];
+
+const ASSIGNEE_COLORS = [
+  "#00c8ff",
+  "#00e5a0",
+  "#f5c842",
+  "#a78bfa",
+  "#ff6eb4",
+  "#ff9f43",
+  "#6b89ff",
+  "#ff6b6b",
+];
+
+const MOCK_MEMBER_COLOR_BY_NAME = new Map(
+  TEAM_MEMBERS.map((member) => [member.name, member.color]),
+);
+
+const MOCK_MEMBER_NAME_BY_TRELLO_USERNAME: Record<string, string> = {
+  joshuabalansa: "John Doe",
+  doerrosales1: "Sarah Kim",
+  louiefranzgualingco: "Alex Rivera",
+  jpangs: "Mia Chen",
+  thomasandrewzaragoza1: "Leo Santos",
+};
+
+const UNASSIGNED_COLOR = "#8a96a8";
+
+const EXCLUDED_SCOREBOARD_MEMBER_IDS = new Set([
+  "c5726102-b436-4557-ad88-ac148f349558",
+]);
+
+const EXCLUDED_SCOREBOARD_MEMBER_ROLES = new Set([
+  "tech_lead",
+  "project_manager",
+]);
+
+function getProjectTypeColor(projectTypeName: string): string {
+  const existingProjectLabel = PROJECT_LABELS.find(
+    (item) => item.label === projectTypeName,
+  );
+
+  if (existingProjectLabel) return existingProjectLabel.color;
+  if (projectTypeName === "General") return "#8a96a8";
+
+  const hash = Array.from(projectTypeName).reduce(
+    (sum, char) => sum + char.charCodeAt(0),
+    0,
+  );
+
+  return PROJECT_TYPE_FALLBACK_COLORS[hash % PROJECT_TYPE_FALLBACK_COLORS.length];
+}
+
+function isProjectStoryPointTask(task: ScoreboardTaskRow): boolean {
+  return task.sp_type === "planned" || task.sp_type === "adhoc";
+}
+
+function getMemberName(member: MemberRow): string {
+  return (
+    member.full_name ||
+    [member.first_name, member.last_name].filter(Boolean).join(" ") ||
+    "Unnamed member"
+  );
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+}
+
+function getMemberColor(member: MemberRow & { id: string }, fallbackName: string): string {
+  if (fallbackName === "Unassigned") return UNASSIGNED_COLOR;
+
+  const mockMemberName = member.trello_username
+    ? MOCK_MEMBER_NAME_BY_TRELLO_USERNAME[member.trello_username]
+    : undefined;
+  const mockColor = mockMemberName
+    ? MOCK_MEMBER_COLOR_BY_NAME.get(mockMemberName)
+    : undefined;
+
+  if (mockColor) return mockColor;
+
+  const seed = member.id ?? fallbackName;
+  const hash = Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+  return ASSIGNEE_COLORS[hash % ASSIGNEE_COLORS.length];
+}
+
+function getCompletedRate(completed: number, planned: number): number {
+  if (planned <= 0) return 0;
+
+  return Math.min(Math.round((completed / planned) * 100), 100);
+}
+
 export default function SprintScoreboard() {
   const scoreboardRef = useRef<HTMLElement | null>(null);
+  const [supabaseStoryPointTotals, setSupabaseStoryPointTotals] =
+    useState<ScoreboardStoryPointTotals>({
+      planned: plannedStoryPoints,
+      adhoc: adhocStoryPoints,
+    });
+  const [projectStoryPointSegments, setProjectStoryPointSegments] = useState<
+    ProjectStoryPointSegment[]
+  >(initialProjectStoryPointSegments);
+  const [memberStoryPointCards, setMemberStoryPointCards] =
+    useState<MemberStoryPointCard[]>([]);
+  const displayedPlannedStoryPoints = supabaseStoryPointTotals.planned;
+  const displayedAdhocStoryPoints = supabaseStoryPointTotals.adhoc;
+  const displayedTotalBoardStoryPoints =
+    displayedPlannedStoryPoints + displayedAdhocStoryPoints;
+  const displayedCompletedBoardStoryPoints = Math.min(
+    memberStoryPointCards.reduce(
+      (sum, member) => sum + member.completedStoryPoints,
+      0,
+    ),
+    displayedTotalBoardStoryPoints,
+  );
+  const projectStoryPointChartSegments = projectStoryPointSegments.filter(
+    (project) => project.storyPoints > 0,
+  );
+  const assigneeCompletionSegments = memberStoryPointCards
+    .map((member) => {
+      const total = member.plannedStoryPoints + member.adhocStoryPoints;
+      const completed = Math.min(member.completedStoryPoints, total);
+      const notDone = Math.max(total - completed, 0);
+      const completedPercent =
+        member.plannedStoryPoints > 0
+          ? Math.min(
+              Math.round((completed / member.plannedStoryPoints) * 100),
+              100,
+            )
+          : 0;
+
+      return {
+        ...member,
+        completed,
+        notDone,
+        total,
+        completedPercent,
+        label: member.name,
+        labelColor: member.color,
+        topLabel: `${completedPercent}%`,
+        sublabel: `${completed}/${total} SP`,
+        stacks: [
+          {
+            value: notDone,
+            defaultColor: `${member.color}24`,
+            highlightColor: `${member.color}38`,
+            highlightBoxShadow: `0 0 16px ${member.color}22`,
+            borderRadius: "5px 5px 0 0",
+          },
+          {
+            value: completed,
+            defaultColor: `${member.color}cc`,
+            highlightColor: `linear-gradient(180deg,${member.color},${member.color}99)`,
+            highlightBoxShadow: `0 0 18px ${member.color}55`,
+          },
+        ],
+      };
+    });
+  const maxAssigneeCompletionTotal = Math.max(
+    ...assigneeCompletionSegments.map((member) => member.total),
+    4,
+  );
+  const assigneeCompletionGridStep = Math.max(
+    1,
+    Math.ceil(maxAssigneeCompletionTotal / 4),
+  );
+  const assigneeCompletionGridTicks = Array.from({ length: 5 }, (_, index) =>
+    Math.min(index * assigneeCompletionGridStep, maxAssigneeCompletionTotal),
+  ).filter((value, index, values) => values.indexOf(value) === index);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStoryPointTotals() {
+      try {
+        const [currentSprint] = await getSupabaseRows<SprintRow>("sprints", {
+          select: "id",
+          eq: { is_current: 1 },
+          limit: 1,
+        });
+
+        if (!currentSprint) {
+          if (!cancelled) {
+            setSupabaseStoryPointTotals({ planned: 0, adhoc: 0 });
+            setProjectStoryPointSegments([]);
+            setMemberStoryPointCards([]);
+          }
+          return;
+        }
+
+        const [tasks, projectTypes, members, storyPoints] = await Promise.all([
+          getSupabaseRows<ScoreboardTaskRow>("tasks", {
+            select: "story_points,sp_type,project_type,assigned_to,is_completed",
+            eq: { sprint_id: currentSprint.id },
+          }),
+          getSupabaseRows<ProjectTypeRow>("project_type", {
+            select: "id,name",
+          }),
+          getSupabaseRows<MemberRow>("members", {
+            select: "id,trello_username,role,full_name,first_name,last_name",
+          }),
+          getSupabaseRows<StoryPointRow>("story_points", {
+            select:
+              "member_id,assigned_story_points,adhoc_story_points,completed_story_points",
+            eq: { sprint_id: currentSprint.id },
+          }),
+        ]);
+        const totals = tasks.reduce<ScoreboardStoryPointTotals>(
+          (sum, task) => {
+            if (task.sp_type === "planned") {
+              sum.planned += task.story_points;
+            }
+
+            if (task.sp_type === "adhoc") {
+              sum.adhoc += task.story_points;
+            }
+
+            return sum;
+          },
+          { planned: 0, adhoc: 0 },
+        );
+        const storyPointsByProjectTypeId = tasks.reduce<Map<string, number>>(
+          (sum, task) => {
+            if (isProjectStoryPointTask(task) && task.project_type) {
+              sum.set(
+                task.project_type,
+                (sum.get(task.project_type) ?? 0) + task.story_points,
+              );
+            }
+
+            return sum;
+          },
+          new Map(),
+        );
+        const projectSegments = projectTypes
+          .map((projectType) => {
+            const storyPoints = storyPointsByProjectTypeId.get(projectType.id) ?? 0;
+
+            return {
+              label: projectType.name,
+              color: getProjectTypeColor(projectType.name),
+              storyPoints,
+              value: storyPoints,
+            };
+          });
+        const storyPointsByMemberId = new Map(
+          storyPoints.map((storyPoint) => [storyPoint.member_id, storyPoint]),
+        );
+        const incompleteStoryPointsByMemberId = tasks.reduce<Map<string, number>>(
+          (sum, task) => {
+            if (
+              task.assigned_to &&
+              isProjectStoryPointTask(task) &&
+              task.is_completed === "incompleted"
+            ) {
+              sum.set(
+                task.assigned_to,
+                (sum.get(task.assigned_to) ?? 0) + task.story_points,
+              );
+            }
+
+            return sum;
+          },
+          new Map(),
+        );
+        const memberCards = members
+          .filter(
+            (member): member is MemberRow & { id: string } =>
+              Boolean(member.id) &&
+              !EXCLUDED_SCOREBOARD_MEMBER_IDS.has(member.id as string) &&
+              !EXCLUDED_SCOREBOARD_MEMBER_ROLES.has(
+                member.role?.trim().toLowerCase() ?? "",
+              ),
+          )
+          .map((member) => {
+            const memberName = getMemberName(member);
+            const storyPoint = storyPointsByMemberId.get(member.id);
+            const plannedPoints = storyPoint?.assigned_story_points ?? 0;
+            const completedPoints = Math.max(
+              (storyPoint?.completed_story_points ?? 0) -
+                (incompleteStoryPointsByMemberId.get(member.id) ?? 0),
+              0,
+            );
+
+            return {
+              id: member.id,
+              name: memberName,
+              initials: getInitials(memberName),
+              color: getMemberColor(member, memberName),
+              plannedStoryPoints: plannedPoints,
+              adhocStoryPoints: storyPoint?.adhoc_story_points ?? 0,
+              completedStoryPoints: completedPoints,
+              completedRate: getCompletedRate(completedPoints, plannedPoints),
+            };
+          });
+
+        if (!cancelled) {
+          setSupabaseStoryPointTotals(totals);
+          setProjectStoryPointSegments(projectSegments);
+          setMemberStoryPointCards(memberCards);
+        }
+      } catch {
+        if (!cancelled) {
+          setSupabaseStoryPointTotals({
+            planned: plannedStoryPoints,
+            adhoc: adhocStoryPoints,
+          });
+          setProjectStoryPointSegments(initialProjectStoryPointSegments);
+          setMemberStoryPointCards([]);
+        }
+      }
+    }
+
+    void loadStoryPointTotals();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const scrollToScoreboard = () => {
     const target = scoreboardRef.current;
@@ -148,7 +504,7 @@ export default function SprintScoreboard() {
             marginBottom: 10,
           }}
         >
-        <div>
+        <div style={{ textAlign: "left" }}>
           <div
             style={{
               fontSize: 10,
@@ -158,6 +514,7 @@ export default function SprintScoreboard() {
               letterSpacing: "0.15em",
               fontWeight: 800,
               marginBottom: 2,
+              textAlign: "left",
             }}
           >
             Current Sprint Story Points
@@ -169,6 +526,7 @@ export default function SprintScoreboard() {
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 16,
               fontWeight: 800,
+              textAlign: "left",
             }}
           >
             Scoreboard
@@ -181,7 +539,8 @@ export default function SprintScoreboard() {
           className="sprint-scoreboard-top"
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(280px, 0.9fr) minmax(360px, 1.1fr)",
+            gridTemplateColumns:
+              "minmax(260px, 0.75fr) minmax(420px, 1.35fr)",
             gap: 10,
           }}
         >
@@ -212,17 +571,17 @@ export default function SprintScoreboard() {
               }}
             >
               {[
-                ["Planned", plannedStoryPoints, "#00c8ff"],
-                ["Adhoc", adhocStoryPoints, "#ff9f43"],
-                ["Total", totalBoardStoryPoints, "#00e5a0"],
+                ["Planned", displayedPlannedStoryPoints, "#00c8ff"],
+                ["Adhoc", displayedAdhocStoryPoints, "#ff9f43"],
+                ["Total", displayedTotalBoardStoryPoints, "#00e5a0"],
               ].map(([label, value, color]) => {
                 const labelText = label as string;
                 const storyPoints = value as number;
                 const accentColor = color as string;
                 const isTotal = labelText === "Total";
                 const percentOfTotal =
-                  totalBoardStoryPoints > 0
-                    ? Math.round((storyPoints / totalBoardStoryPoints) * 100)
+                  displayedTotalBoardStoryPoints > 0
+                    ? Math.round((storyPoints / displayedTotalBoardStoryPoints) * 100)
                     : 0;
 
                 return (
@@ -273,17 +632,35 @@ export default function SprintScoreboard() {
                         textShadow: isTotal ? `0 0 14px ${accentColor}55` : "none",
                       }}
                     >
-                      {storyPoints}
-                      <span
-                        style={{
-                          color: "rgba(160,210,255,0.6)",
-                          fontSize: isTotal ? 11 : 9,
-                          marginLeft: 4,
-                          letterSpacing: 0,
-                        }}
-                      >
-                        SP
-                      </span>
+                      {isTotal ? (
+                        <>
+                          {displayedCompletedBoardStoryPoints}
+                          <span
+                            style={{
+                              color: "rgba(160,210,255,0.68)",
+                              fontSize: 17,
+                              marginLeft: 6,
+                              letterSpacing: 0,
+                            }}
+                          >
+                            / {displayedTotalBoardStoryPoints} SP
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          {storyPoints}
+                          <span
+                            style={{
+                              color: "rgba(160,210,255,0.6)",
+                              fontSize: 9,
+                              marginLeft: 4,
+                              letterSpacing: 0,
+                            }}
+                          >
+                            SP
+                          </span>
+                        </>
+                      )}
                     </div>
                     {!isTotal && (
                       <div
@@ -305,14 +682,14 @@ export default function SprintScoreboard() {
           </div>
 
           <div
-            className="sprint-project-chart-card"
+            className="sprint-assignee-completion-card"
             style={{
               padding: 11,
               borderRadius: 13,
-              border: "1px solid rgba(167,139,250,0.24)",
+              border: "1px solid rgba(0,229,160,0.22)",
               background:
-                "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(0,200,255,0.06), rgba(6,13,31,0.46))",
-              boxShadow: "0 0 24px rgba(167,139,250,0.1)",
+                "linear-gradient(135deg, rgba(0,229,160,0.1), rgba(0,200,255,0.06), rgba(6,13,31,0.46))",
+              boxShadow: "0 0 24px rgba(0,229,160,0.1)",
               minWidth: 0,
             }}
           >
@@ -327,18 +704,138 @@ export default function SprintScoreboard() {
                 marginBottom: 8,
               }}
             >
-              Project Story Points
+              Assignee Completed vs Not Completed
+            </div>
+            <div
+              style={{
+                margin: "8px 6px 0",
+                padding: "8px 8px 6px",
+                borderRadius: 11,
+                background: "rgba(255,255,255,0.025)",
+                border: "1px solid rgba(100,180,255,0.08)",
+              }}
+            >
+              <StackedColumnChart
+                segments={assigneeCompletionSegments}
+                max={maxAssigneeCompletionTotal}
+                barAreaHeight={280}
+                gap={10}
+                gridTicks={assigneeCompletionGridTicks}
+                legend={[
+                  {
+                    color: Chart.completed,
+                    label: "Completed portion uses assignee color",
+                  },
+                  {
+                    color: Chart.remaining,
+                    label: "Remaining uses muted assignee color",
+                  },
+                ]}
+                renderTooltip={(member) => (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: 290,
+                      background: Background.tooltip,
+                      border: `1px solid ${Border.tooltip}`,
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      zIndex: 10,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: member.color,
+                        fontFamily: "'DM Sans', sans-serif",
+                        marginBottom: 4,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {member.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: member.color,
+                        fontFamily: "'DM Mono', monospace",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Completed: {member.completed} SP
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "#00e5a0",
+                        fontFamily: "'DM Mono', monospace",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Completion: {member.completedPercent}%
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: `${member.color}99`,
+                        fontFamily: "'DM Mono', monospace",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Not Completed: {member.notDone} SP
+                    </div>
+                  </div>
+                )}
+              />
+            </div>
+          </div>
+
+          <div
+            className="sprint-project-chart-card"
+            style={{
+              padding: 11,
+              borderRadius: 13,
+              border: "1px solid rgba(167,139,250,0.24)",
+              background:
+                "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(0,200,255,0.06), rgba(6,13,31,0.46))",
+              boxShadow: "0 0 24px rgba(167,139,250,0.1)",
+              gridColumn: "1 / -1",
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                color: "rgba(100,180,255,0.55)",
+                fontFamily: "'DM Mono', monospace",
+                fontSize: 9,
+                fontWeight: 900,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: 8,
+              }}
+            >
+              Story Points Breakdown
             </div>
             <DoughnutChart
-              segments={projectStoryPointSegments}
+              segments={projectStoryPointChartSegments}
+              geometry={{
+                cx: 120,
+                cy: 120,
+                outerR: 102,
+                innerR: 58,
+                gap: 2.5,
+              }}
               gradientIdPrefix="project-sp"
-              maxWidth={170}
+              maxWidth="clamp(280px, 34vw, 380px)"
+              popOffset={4}
               renderCenter={({ hovered, cx, cy }) => {
                 const active = hovered ?? null;
-                const activeValue = active?.storyPoints ?? totalBoardStoryPoints;
+                const activeValue =
+                  active?.storyPoints ?? displayedTotalBoardStoryPoints;
                 const activePercent =
-                  totalBoardStoryPoints > 0
-                    ? Math.round((activeValue / totalBoardStoryPoints) * 100)
+                  displayedTotalBoardStoryPoints > 0
+                    ? Math.round((activeValue / displayedTotalBoardStoryPoints) * 100)
                     : 0;
 
                 return (
@@ -349,7 +846,7 @@ export default function SprintScoreboard() {
                       textAnchor="middle"
                       fill={active?.color ?? "#00e5a0"}
                       fontFamily="'DM Mono', monospace"
-                      fontSize="24"
+                      fontSize="28"
                       fontWeight="900"
                     >
                       {activeValue}
@@ -360,7 +857,7 @@ export default function SprintScoreboard() {
                       textAnchor="middle"
                       fill="rgba(160,210,255,0.66)"
                       fontFamily="'DM Mono', monospace"
-                      fontSize="9"
+                      fontSize="10"
                       fontWeight="900"
                     >
                       {active ? `${activePercent}%` : "TOTAL SP"}
@@ -368,7 +865,12 @@ export default function SprintScoreboard() {
                   </>
                 );
               }}
-              renderLegend={({ segments, hov, setHov }) => (
+              renderLegend={({ segments, hov, setHov }) => {
+                const chartSegmentByLabel = new Map(
+                  segments.map((project) => [project.label, project]),
+                );
+
+                return (
                 <div
                   style={{
                     flex: "1 1 260px",
@@ -378,19 +880,23 @@ export default function SprintScoreboard() {
                     minWidth: 0,
                   }}
                 >
-                  {segments.map((project) => {
+                  {projectStoryPointSegments.map((project) => {
+                    const chartSegment = chartSegmentByLabel.get(project.label);
                     const percent =
-                      totalBoardStoryPoints > 0
-                        ? Math.round((project.storyPoints / totalBoardStoryPoints) * 100)
+                      displayedTotalBoardStoryPoints > 0
+                        ? Math.round(
+                            (project.storyPoints / displayedTotalBoardStoryPoints) *
+                              100,
+                          )
                         : 0;
-                    const isActive = hov === project.i;
+                    const isActive = chartSegment ? hov === chartSegment.i : false;
 
                     return (
                       <button
                         className="project-score-legend-item"
                         key={project.label}
                         type="button"
-                        onMouseEnter={() => setHov(project.i)}
+                        onMouseEnter={() => setHov(chartSegment?.i ?? null)}
                         onMouseLeave={() => setHov(null)}
                         style={{
                           display: "grid",
@@ -405,7 +911,8 @@ export default function SprintScoreboard() {
                           background: isActive
                             ? `${project.color}16`
                             : "rgba(255,255,255,0.025)",
-                          cursor: "pointer",
+                          cursor: chartSegment ? "pointer" : "default",
+                          opacity: project.storyPoints > 0 ? 1 : 0.62,
                           textAlign: "left",
                         }}
                       >
@@ -415,7 +922,10 @@ export default function SprintScoreboard() {
                             height: 7,
                             borderRadius: "50%",
                             background: project.color,
-                            boxShadow: `0 0 8px ${project.color}88`,
+                            boxShadow:
+                              project.storyPoints > 0
+                                ? `0 0 8px ${project.color}88`
+                                : "none",
                           }}
                         />
                         <span
@@ -447,7 +957,8 @@ export default function SprintScoreboard() {
                     );
                   })}
                 </div>
-              )}
+                );
+              }}
             />
           </div>
         </div>
@@ -456,16 +967,16 @@ export default function SprintScoreboard() {
           className="sprint-assignee-grid"
           style={{
             display: "grid",
-            gridTemplateColumns: `repeat(${assigneeStoryPointTotals.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${memberStoryPointCards.length}, minmax(0, 1fr))`,
             gap: 8,
             overflowX: "auto",
             paddingBottom: 2,
           }}
         >
-          {assigneeStoryPointTotals.map((member) => (
+          {memberStoryPointCards.map((member) => (
             <div
               className="sprint-assignee-card"
-              key={member.initials}
+              key={member.id}
               style={{
                 flex: "1 1 150px",
                 minWidth: 0,
@@ -527,7 +1038,7 @@ export default function SprintScoreboard() {
                       fontWeight: 800,
                     }}
                   >
-                    {member.taskCount} cards assigned
+                    Story points
                   </div>
                 </div>
               </div>
