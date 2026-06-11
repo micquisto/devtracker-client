@@ -10,6 +10,7 @@ import {
   TasksListPage,
   TestPage,
   AppFlowPage,
+  RequirementsDataPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
 import { getSupabaseSession, signOutSupabaseUser, supabase } from "@/lib/supabase";
@@ -60,10 +61,31 @@ const NAV: NavEntry[] = [
   { id: "credit", label: "Credit Score", icon: "credit", badge: true },
   { id: "test", label: "Test", icon: "history" },
   { id: "app-flow", label: "App Flow", icon: "scrum" },
+  {
+    id: "admin",
+    label: "Admin",
+    icon: "profile",
+    children: [
+      {
+        id: "admin-data-override",
+        label: "Data Override",
+        children: [
+          { id: "admin-requirements-data", label: "Requirements Data" },
+        ],
+      },
+    ],
+  },
 ];
 
 const ACTIVE_PAGE_STORAGE_KEY = "devtracker.activePage";
-const NAV_ITEMS = NAV.flatMap((n) => [n, ...(n.children || [])]);
+function flattenNavItems(items: NavEntry[]): NavEntry[] {
+  return items.flatMap((item) => [
+    item,
+    ...flattenNavItems(item.children ?? []),
+  ]);
+}
+
+const NAV_ITEMS = flattenNavItems(NAV);
 const VALID_NAV_IDS = new Set(NAV_ITEMS.map((item) => item.id));
 
 function getInitialActivePage(): string {
@@ -80,11 +102,13 @@ function NavItem({
   active,
   setActive,
   depth = 0,
+  collapsed = false,
 }: {
   item: NavEntry;
   active: string;
   setActive: SetActivePage;
   depth?: number;
+  collapsed?: boolean;
 }) {
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
@@ -92,6 +116,7 @@ function NavItem({
   const [open, setOpen] = useState(isActive);
 
   const handleClick = () => {
+    if (collapsed && hasChildren) return;
     if (hasChildren) setOpen((o) => !o);
     else setActive(item.id);
   };
@@ -101,8 +126,9 @@ function NavItem({
       <button
         onClick={handleClick}
         style={{
-          width: "100%", display: "flex", alignItems: "center", gap: 10,
-          padding: depth === 0 ? "10px 16px" : "7px 16px 7px 38px",
+          width: "100%", display: "flex", alignItems: "center", gap: collapsed ? 0 : 10,
+          justifyContent: collapsed ? "center" : "flex-start",
+          padding: collapsed ? "10px 0" : depth === 0 ? "10px 16px" : "7px 16px 7px 38px",
           background: active === item.id
             ? "linear-gradient(90deg, rgba(0,200,255,0.18) 0%, rgba(0,200,255,0.04) 100%)"
             : "transparent",
@@ -115,6 +141,7 @@ function NavItem({
           textAlign: "left",
           marginBottom: 1,
         }}
+        title={collapsed ? item.label : undefined}
         onMouseEnter={(e) => {
           if (active !== item.id) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
         }}
@@ -134,24 +161,28 @@ function NavItem({
             transition: "background 0.2s",
           }}/>
         )}
-        <span style={{
-          flex: 1,
-          fontSize: depth === 0 ? 13 : 12,
-          fontFamily: "'DM Sans', sans-serif",
-          fontWeight: active === item.id ? 700 : depth === 0 ? 500 : 400,
-          letterSpacing: depth === 0 ? "0.02em" : "0.01em",
-        }}>
-          {item.label}
-        </span>
-        {item.badge && Icon.badge}
-        {hasChildren && Icon.chevron(open)}
+        {!collapsed && (
+          <>
+            <span style={{
+              flex: 1,
+              fontSize: depth === 0 ? 13 : 12,
+              fontFamily: "'DM Sans', sans-serif",
+              fontWeight: active === item.id ? 700 : depth === 0 ? 500 : 400,
+              letterSpacing: depth === 0 ? "0.02em" : "0.01em",
+            }}>
+              {item.label}
+            </span>
+            {item.badge && Icon.badge}
+            {hasChildren && Icon.chevron(open)}
+          </>
+        )}
       </button>
 
       {/* Children */}
-      {hasChildren && (
+      {hasChildren && !collapsed && (
         <div style={{
           overflow: "hidden",
-          maxHeight: open ? `${children.length * 40}px` : "0px",
+          maxHeight: open ? "999px" : "0px",
           transition: "max-height 0.35s cubic-bezier(0.23,1,0.32,1)",
         }}>
           {children.map((child) => (
@@ -170,10 +201,14 @@ function SidebarContent({
   active,
   setActive,
   onClose,
+  collapsed = false,
+  onToggleCollapse,
 }: {
   active: string;
   setActive: SetActivePage;
   onClose?: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }) {
   return (
     <div style={{
@@ -182,13 +217,23 @@ function SidebarContent({
       {/* Logo / brand */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "20px 16px 16px",
+        padding: collapsed ? "18px 10px 14px" : "20px 16px 16px",
         borderBottom: "1px solid rgba(100,180,255,0.08)",
         marginBottom: 8,
+        position: "relative",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: collapsed ? 0 : 10,
+            justifyContent: collapsed ? "center" : "flex-start",
+            width: collapsed ? "100%" : "auto",
+            minWidth: 0,
+          }}
+        >
           {Icon.logo}
-          <div>
+          {!collapsed && <div>
             <div style={{
               fontSize: 13, fontFamily: "'DM Mono', monospace", fontWeight: 800,
               color: "#e8f4ff", letterSpacing: "0.05em", lineHeight: 1,
@@ -198,8 +243,47 @@ function SidebarContent({
               fontFamily: "'DM Mono', monospace", letterSpacing: "0.15em",
               marginTop: 2,
             }}>v2.0 PLATFORM</div>
-          </div>
+          </div>}
         </div>
+        {onToggleCollapse && (
+          <button
+            aria-label={collapsed ? "Expand side menu" : "Collapse side menu"}
+            onClick={onToggleCollapse}
+            title={collapsed ? "Expand menu" : "Collapse menu"}
+            type="button"
+            style={{
+              position: "absolute",
+              right: -13,
+              top: 22,
+              width: 26,
+              height: 26,
+              borderRadius: 999,
+              background: "rgba(8,16,34,0.98)",
+              border: "1px solid rgba(0,200,255,0.28)",
+              color: "#00c8ff",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 0 16px rgba(0,200,255,0.18)",
+              zIndex: 6,
+              transition: "transform 0.2s ease, border-color 0.2s ease",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                fontFamily: "'DM Mono', monospace",
+                fontSize: 16,
+                fontWeight: 900,
+                lineHeight: 1,
+                transform: collapsed ? "rotate(180deg)" : "none",
+              }}
+            >
+              ‹
+            </span>
+          </button>
+        )}
         {onClose && (
           <button onClick={onClose} style={{
             background: "rgba(255,255,255,0.05)", border: "1px solid rgba(100,180,255,0.15)",
@@ -215,8 +299,9 @@ function SidebarContent({
       <div style={{
         fontSize: 9, fontFamily: "'DM Mono', monospace", fontWeight: 700,
         color: "rgba(80,130,180,0.5)", letterSpacing: "0.2em",
-        padding: "4px 16px 8px", textTransform: "uppercase",
-      }}>Navigation</div>
+        padding: collapsed ? "4px 0 8px" : "4px 16px 8px", textTransform: "uppercase",
+        textAlign: collapsed ? "center" : "left",
+      }}>{collapsed ? "Nav" : "Navigation"}</div>
 
       {/* Nav items */}
       <nav style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
@@ -225,6 +310,7 @@ function SidebarContent({
             key={item.id}
             item={item}
             active={active}
+            collapsed={collapsed}
             setActive={(id) => {
               setActive(id);
               onClose?.();
@@ -234,34 +320,36 @@ function SidebarContent({
       </nav>
 
       {/* Bottom user card */}
-      <div style={{
-        margin: "12px 12px 16px",
-        padding: "12px",
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(100,180,255,0.1)",
-        borderRadius: 12,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: "50%",
-            background: "linear-gradient(135deg, #00c8ff, #00e5a0)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 12, fontWeight: 800, color: "#060d1f",
-            fontFamily: "'DM Mono', monospace", flexShrink: 0,
-          }}>JD</div>
-          <div style={{ overflow: "hidden" }}>
+      {!collapsed && (
+        <div style={{
+          margin: "12px 12px 16px",
+          padding: "12px",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(100,180,255,0.1)",
+          borderRadius: 12,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{
-              fontSize: 12, fontWeight: 700, color: "#e8f4ff",
-              fontFamily: "'DM Sans', sans-serif",
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-            }}>John Doe</div>
-            <div style={{
-              fontSize: 10, color: "rgba(0,200,255,0.6)",
-              fontFamily: "'DM Mono', monospace",
-            }}>Senior Dev · Grade A</div>
+              width: 34, height: 34, borderRadius: "50%",
+              background: "linear-gradient(135deg, #00c8ff, #00e5a0)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 800, color: "#060d1f",
+              fontFamily: "'DM Mono', monospace", flexShrink: 0,
+            }}>JD</div>
+            <div style={{ overflow: "hidden" }}>
+              <div style={{
+                fontSize: 12, fontWeight: 700, color: "#e8f4ff",
+                fontFamily: "'DM Sans', sans-serif",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>John Doe</div>
+              <div style={{
+                fontSize: 10, color: "rgba(0,200,255,0.6)",
+                fontFamily: "'DM Mono', monospace",
+              }}>Senior Dev · Grade A</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -412,6 +500,10 @@ function PageContent({ active }: { active: string }) {
     return <AppFlowPage />;
   }
 
+  if (active === "admin-requirements-data") {
+    return <RequirementsDataPage />;
+  }
+
   return (
     <div style={{
       display: "flex", flexDirection: "column",
@@ -452,10 +544,12 @@ function PageContent({ active }: { active: string }) {
    ROOT APP SHELL
 ───────────────────────────────────────────── */
 const SIDEBAR_W = 220;
+const SIDEBAR_COLLAPSED_W = 68;
 
 export default function AppShell() {
   const [active, setActive] = useState(getInitialActivePage);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -549,16 +643,23 @@ export default function AppShell() {
 
       {/* ── DESKTOP SIDEBAR ── */}
       <aside className="desktop-sidebar" style={{
-        width: SIDEBAR_W, flexShrink: 0,
+        width: sidebarCollapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W,
+        flexShrink: 0,
         background: "rgba(6,13,31,0.85)",
         borderRight: "1px solid rgba(100,180,255,0.08)",
         backdropFilter: "blur(16px)",
         position: "sticky", top: 0, height: "100vh",
-        overflowY: "auto",
+        overflowY: "visible",
         flexDirection: "column",
         zIndex: 5,
+        transition: "width 0.28s cubic-bezier(0.23,1,0.32,1)",
       }}>
-        <SidebarContent active={active} setActive={setActive} />
+        <SidebarContent
+          active={active}
+          setActive={setActive}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
+        />
       </aside>
 
       {/* ── MOBILE OVERLAY ── */}

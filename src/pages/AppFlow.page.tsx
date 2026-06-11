@@ -160,9 +160,9 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Replace Story Points",
     summary: "Recalculate member story point totals.",
     details: [
-      "assigned_story_points sums planned tasks when sprint is planning or active.",
-      "completed_story_points sums completed planned/adhoc tasks.",
-      "adhoc_story_points updates only when sprint is active.",
+      "assigned_story_points sums planned tasks using story_points when sprint is planning or active.",
+      "completed_story_points sums completed planned/adhoc tasks using real_story_points.",
+      "adhoc_story_points updates from story_points only when sprint is active.",
       "total_bonus_points is completed SP minus assigned SP, floored at zero.",
     ],
     output: "Updated story_points rows through the replace RPC.",

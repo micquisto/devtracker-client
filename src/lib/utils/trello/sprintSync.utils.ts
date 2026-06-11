@@ -10,6 +10,7 @@ const TRELLO_CUSTOM_FIELD_NAMES = [
   "Status",
   "Date Added",
   "Project Type",
+  "Completion Rate",
 ];
 
 const TRELLO_LIST_NAMES = [
@@ -22,6 +23,7 @@ const TRELLO_LIST_NAMES = [
   "Blocked",
   "Project Refinement",
   "On-Deck Sprint Backlog",
+  "Done QA",
 ];
 
 const PLANNING_SP_TYPE_LIST_NAMES = new Set([
@@ -51,6 +53,7 @@ export type SprintRow = {
   sprint_month: number;
   total_planned_points: number;
   total_completed_points: number;
+  blocked_count: number;
   status: string;
   is_current: number;
 };
@@ -87,6 +90,7 @@ type TaskRow = {
   sp_type: "planned" | "adhoc" | "done" | "blocked";
   is_completed: "pending" | "completed" | "incompleted";
   completion_percentage: number;
+  real_story_points: number | null;
 };
 
 type ExistingTaskRow = {
@@ -257,6 +261,10 @@ function getStoryPoints(card: TrelloSprintCard): number {
   return Number.isFinite(card.storyPoints) ? card.storyPoints ?? 0 : 0;
 }
 
+function getTaskStoryPoints(task: TaskRow): number {
+  return task.real_story_points ?? 0;
+}
+
 function isCompletedList(listName: string): boolean {
   const normalizedListName = normalizeLabel(listName);
 
@@ -312,7 +320,19 @@ function getTaskCompletedAt(card: TrelloSprintCard, fallbackTimestamp: string): 
 }
 
 function getTaskCompletionPercentage(card: TrelloSprintCard): number {
-  return getTaskCompletionStatus(card) === "completed" ? 100 : 0;
+  const completionRate = getCustomFieldValue(card, "Completion Rate");
+  if (!completionRate) return 100;
+
+  const normalizedValue = completionRate.replace("%", "").trim();
+  const parsedValue = Number(normalizedValue);
+
+  if (!Number.isFinite(parsedValue)) return 100;
+
+  return Math.min(Math.max(Math.round(parsedValue), 0), 100);
+}
+
+function getRealStoryPoints(card: TrelloSprintCard): number {
+  return Math.round((getStoryPoints(card) * getTaskCompletionPercentage(card)) / 100);
 }
 
 function resolveProjectType(
@@ -361,6 +381,7 @@ function mapCardToTask(
     sp_type: getSprintPointType(card),
     is_completed: getTaskCompletionStatus(card),
     completion_percentage: getTaskCompletionPercentage(card),
+    real_story_points: getRealStoryPoints(card),
   };
 }
 
@@ -368,7 +389,7 @@ async function getCurrentSprint(): Promise<SprintRow | null> {
   const { data, error } = await supabase
     .from("sprints")
     .select(
-      "id,project_id,name,sprint_number,start_date,end_date,sprint_year,sprint_month,total_planned_points,total_completed_points,status,is_current",
+      "id,project_id,name,sprint_number,start_date,end_date,sprint_year,sprint_month,total_planned_points,total_completed_points,blocked_count,status,is_current",
     )
     .eq("is_current", 1)
     .limit(1);
@@ -463,6 +484,7 @@ async function replaceSprintTasks(
       status: task.status,
       is_completed: task.is_completed,
       completion_percentage: task.completion_percentage,
+      real_story_points: task.real_story_points,
     };
 
     if (normalizeLabel(task.trello_list_name) === "blocked") {
@@ -511,7 +533,7 @@ async function replaceSprintTasks(
 async function getSavedSprintTasks(sprintId: string): Promise<TaskRow[]> {
   return getSupabaseRows<TaskRow>("tasks", {
     select:
-      "id,sprint_id,project_id,project_type,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,trello_last_synced_at,title,description,task_type,priority,completed_at,story_points,severity,status,sp_type,is_completed,completion_percentage",
+      "id,sprint_id,project_id,project_type,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,trello_last_synced_at,title,description,task_type,priority,completed_at,story_points,severity,status,sp_type,is_completed,completion_percentage,real_story_points",
     eq: { sprint_id: sprintId },
   });
 }
@@ -556,7 +578,7 @@ async function replaceSprintStoryPoints(
       isCompletedStoryPointType(task.sp_type) &&
       isCompletedList(task.trello_list_name)
     ) {
-      existing.completed_story_points += task.story_points;
+      existing.completed_story_points += getTaskStoryPoints(task);
     }
 
     if (shouldUpdateAdhocStoryPoints && task.sp_type === "adhoc") {
@@ -590,6 +612,23 @@ async function replaceSprintStoryPoints(
     p_sprint_id: sprint.id,
     p_rows: storyPointRows,
   });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function updateSprintBlockedCount(
+  sprint: SprintRow,
+  tasks: TaskRow[],
+): Promise<void> {
+  const blockedCount = tasks.filter(
+    (task) => normalizeLabel(task.trello_list_name) === "blocked",
+  ).length;
+  const { error } = await supabase
+    .from("sprints")
+    .update({ blocked_count: blockedCount })
+    .eq("id", sprint.id);
 
   if (error) {
     throw error;
@@ -684,6 +723,7 @@ export async function syncCurrentSprintTasks(): Promise<{
 
   // Every successful Trello sync refreshes story points from the final saved task rows.
   const savedTasks = await getSavedSprintTasks(sprint.id);
+  await updateSprintBlockedCount(sprint, savedTasks);
   await replaceSprintStoryPoints(sprint, savedTasks);
 
   return {

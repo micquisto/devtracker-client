@@ -32,10 +32,12 @@ const initialProjectStoryPointSegments = PROJECT_LABELS.map((project) => ({
 
 type SprintRow = {
   id: string;
+  blocked_count: number | null;
 };
 
 type ScoreboardTaskRow = {
   story_points: number;
+  real_story_points: number | null;
   sp_type: string | null;
   project_type: string | null;
   assigned_to: string | null;
@@ -193,6 +195,15 @@ function getCompletedRate(completed: number, planned: number): number {
   return Math.min(Math.round((completed / planned) * 100), 100);
 }
 
+function getCompletionSummaryColor(percent: number): string {
+  if (percent >= 100) return "#00d26a";
+  if (percent >= 76) return "#14b8a6";
+  if (percent >= 51) return "#2563eb";
+  if (percent >= 26) return "#f5c842";
+
+  return "#ff4757";
+}
+
 export default function SprintScoreboard() {
   const scoreboardRef = useRef<HTMLElement | null>(null);
   const [supabaseStoryPointTotals, setSupabaseStoryPointTotals] =
@@ -205,6 +216,7 @@ export default function SprintScoreboard() {
   >(initialProjectStoryPointSegments);
   const [memberStoryPointCards, setMemberStoryPointCards] =
     useState<MemberStoryPointCard[]>([]);
+  const [blockedCount, setBlockedCount] = useState(0);
   const displayedPlannedStoryPoints = supabaseStoryPointTotals.planned;
   const displayedAdhocStoryPoints = supabaseStoryPointTotals.adhoc;
   const displayedTotalBoardStoryPoints =
@@ -215,6 +227,22 @@ export default function SprintScoreboard() {
       0,
     ),
     displayedTotalBoardStoryPoints,
+  );
+  const displayedCompletedBoardRate = getCompletedRate(
+    displayedCompletedBoardStoryPoints,
+    displayedPlannedStoryPoints,
+  );
+  const displayedAverageMemberCompletionRate =
+    memberStoryPointCards.length > 0
+      ? Math.round(
+          memberStoryPointCards.reduce(
+            (sum, member) => sum + member.completedRate,
+            0,
+          ) / memberStoryPointCards.length,
+        )
+      : 0;
+  const displayedCompletedBoardColor = getCompletionSummaryColor(
+    displayedCompletedBoardRate,
   );
   const projectStoryPointChartSegments = projectStoryPointSegments.filter(
     (project) => project.storyPoints > 0,
@@ -277,7 +305,7 @@ export default function SprintScoreboard() {
     async function loadStoryPointTotals() {
       try {
         const [currentSprint] = await getSupabaseRows<SprintRow>("sprints", {
-          select: "id",
+          select: "id,blocked_count",
           eq: { is_current: 1 },
           limit: 1,
         });
@@ -287,13 +315,14 @@ export default function SprintScoreboard() {
             setSupabaseStoryPointTotals({ planned: 0, adhoc: 0 });
             setProjectStoryPointSegments([]);
             setMemberStoryPointCards([]);
+            setBlockedCount(0);
           }
           return;
         }
 
         const [tasks, projectTypes, members, storyPoints] = await Promise.all([
           getSupabaseRows<ScoreboardTaskRow>("tasks", {
-            select: "story_points,sp_type,project_type,assigned_to,is_completed",
+            select: "story_points,real_story_points,sp_type,project_type,assigned_to,is_completed",
             eq: { sprint_id: currentSprint.id },
           }),
           getSupabaseRows<ProjectTypeRow>("project_type", {
@@ -358,7 +387,8 @@ export default function SprintScoreboard() {
             ) {
               sum.set(
                 task.assigned_to,
-                (sum.get(task.assigned_to) ?? 0) + task.story_points,
+                (sum.get(task.assigned_to) ?? 0) +
+                  (task.real_story_points ?? 0),
               );
             }
 
@@ -401,6 +431,7 @@ export default function SprintScoreboard() {
           setSupabaseStoryPointTotals(totals);
           setProjectStoryPointSegments(projectSegments);
           setMemberStoryPointCards(memberCards);
+          setBlockedCount(currentSprint.blocked_count ?? 0);
         }
       } catch {
         if (!cancelled) {
@@ -410,6 +441,7 @@ export default function SprintScoreboard() {
           });
           setProjectStoryPointSegments(initialProjectStoryPointSegments);
           setMemberStoryPointCards([]);
+          setBlockedCount(0);
         }
       }
     }
@@ -563,57 +595,85 @@ export default function SprintScoreboard() {
               className="sprint-total-grid"
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(86px, 1fr))",
-                gridTemplateRows: "auto minmax(0, 1fr)",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gridAutoRows: "minmax(128px, 1fr)",
                 gap: 8,
                 flex: 1,
                 minHeight: 0,
               }}
             >
               {[
-                ["Planned", displayedPlannedStoryPoints, "#00c8ff"],
-                ["Adhoc", displayedAdhocStoryPoints, "#ff9f43"],
-                ["Total", displayedTotalBoardStoryPoints, "#00e5a0"],
-              ].map(([label, value, color]) => {
+                {
+                  label: "Planned",
+                  value: displayedPlannedStoryPoints,
+                  color: "#00c8ff",
+                  footer:
+                    displayedTotalBoardStoryPoints > 0
+                      ? `${Math.round(
+                          (displayedPlannedStoryPoints /
+                            displayedTotalBoardStoryPoints) *
+                            100,
+                        )}% of total`
+                      : "0% of total",
+                },
+                {
+                  label: "Adhoc",
+                  value: displayedAdhocStoryPoints,
+                  color: "#ff9f43",
+                  footer:
+                    displayedTotalBoardStoryPoints > 0
+                      ? `${Math.round(
+                          (displayedAdhocStoryPoints /
+                            displayedTotalBoardStoryPoints) *
+                            100,
+                        )}% of total`
+                      : "0% of total",
+                },
+                {
+                  label: "SP Total",
+                  value: displayedTotalBoardStoryPoints,
+                  color: "#00e5a0",
+                  footer: "planned + adhoc",
+                  blockedCount,
+                },
+                {
+                  label: "Completed",
+                  value: displayedCompletedBoardStoryPoints,
+                  color: displayedCompletedBoardColor,
+                  footer: "",
+                  percent: displayedCompletedBoardRate,
+                },
+              ].map((item) => {
+                const { label, value, color, footer, percent, blockedCount: itemBlockedCount } = item;
                 const labelText = label as string;
                 const storyPoints = value as number;
                 const accentColor = color as string;
-                const isTotal = labelText === "Total";
-                const percentOfTotal =
-                  displayedTotalBoardStoryPoints > 0
-                    ? Math.round((storyPoints / displayedTotalBoardStoryPoints) * 100)
-                    : 0;
+                const isCompleted = labelText === "Completed";
+                const isSpTotal = labelText === "SP Total";
 
                 return (
                   <div
-                    className={isTotal ? "sprint-total-block" : undefined}
+                    className="sprint-total-block"
                     key={labelText}
                     style={{
-                      padding: isTotal ? "12px 13px" : "8px 9px",
-                      borderRadius: isTotal ? 14 : 11,
-                      background: isTotal
-                        ? "linear-gradient(135deg, rgba(0,229,160,0.22), rgba(0,200,255,0.12))"
-                        : `${accentColor}12`,
-                      border: `1px solid ${accentColor}${isTotal ? "88" : "44"}`,
-                      boxShadow: isTotal
-                        ? "0 0 28px rgba(0,229,160,0.2), inset 0 0 0 1px rgba(255,255,255,0.04)"
-                        : "none",
+                      padding: "11px 12px",
+                      borderRadius: 14,
+                      background: `linear-gradient(135deg, ${accentColor}24, ${accentColor}10)`,
+                      border: `1px solid ${accentColor}66`,
+                      boxShadow: `0 0 22px ${accentColor}1f, inset 0 0 0 1px rgba(255,255,255,0.04)`,
                       transform: "none",
-                      gridColumn: isTotal ? "1 / -1" : undefined,
                       alignSelf: "stretch",
                       display: "flex",
                       flexDirection: "column",
-                      justifyContent: isTotal ? "center" : "flex-start",
+                      justifyContent: "center",
                       minHeight: 0,
                     }}
                   >
                     <div
                       style={{
-                        color: isTotal
-                          ? "rgba(232,244,255,0.82)"
-                          : "rgba(160,210,255,0.65)",
+                        color: "rgba(232,244,255,0.82)",
                         fontFamily: "'DM Mono', monospace",
-                        fontSize: isTotal ? 9 : 8,
+                        fontSize: 9,
                         fontWeight: 900,
                         textTransform: "uppercase",
                         marginBottom: 4,
@@ -625,25 +685,37 @@ export default function SprintScoreboard() {
                       style={{
                         color: accentColor,
                         fontFamily: "'DM Mono', monospace",
-                        fontSize: isTotal ? 40 : 22,
+                        fontSize: 32,
                         fontWeight: 900,
-                        letterSpacing: isTotal ? "-0.1em" : "-0.07em",
+                        letterSpacing: "-0.09em",
                         lineHeight: 0.9,
-                        textShadow: isTotal ? `0 0 14px ${accentColor}55` : "none",
+                        textShadow: `0 0 14px ${accentColor}55`,
                       }}
                     >
-                      {isTotal ? (
+                      {isCompleted ? (
                         <>
-                          {displayedCompletedBoardStoryPoints}
+                          {percent}
                           <span
                             style={{
                               color: "rgba(160,210,255,0.68)",
-                              fontSize: 17,
+                              fontSize: 16,
                               marginLeft: 6,
                               letterSpacing: 0,
                             }}
                           >
-                            / {displayedTotalBoardStoryPoints} SP
+                            %
+                          </span>
+                          <span
+                            style={{
+                              display: "block",
+                              color: "rgba(160,210,255,0.68)",
+                              fontSize: 12,
+                              letterSpacing: 0,
+                              marginTop: 6,
+                              textShadow: "none",
+                            }}
+                          >
+                            Avg {displayedAverageMemberCompletionRate}%
                           </span>
                         </>
                       ) : (
@@ -662,19 +734,33 @@ export default function SprintScoreboard() {
                         </>
                       )}
                     </div>
-                    {!isTotal && (
+                    {footer ? (
                       <div
                         style={{
                           marginTop: 4,
-                          color: "rgba(160,210,255,0.55)",
+                          color: isCompleted ? accentColor : "rgba(160,210,255,0.55)",
                           fontFamily: "'DM Mono', monospace",
                           fontSize: 9,
                           fontWeight: 800,
                         }}
                       >
-                        {percentOfTotal}% of total
+                        {footer}
                       </div>
-                    )}
+                    ) : null}
+                    {isSpTotal && typeof itemBlockedCount === "number" ? (
+                      <div
+                        style={{
+                          marginTop: 4,
+                          color: itemBlockedCount > 0 ? "#ff4757" : "#00e5a0",
+                          fontFamily: "'DM Mono', monospace",
+                          fontSize: 9,
+                          fontWeight: 900,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Blocked: {itemBlockedCount}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

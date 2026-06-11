@@ -209,9 +209,11 @@
   }
 
   .sprint-board-grid {
-    grid-template-columns: repeat(7, minmax(260px, 82vw)) !important;
+    grid-template-columns: repeat(8, minmax(260px, 82vw)) !important;
     height: calc(100vh - 190px) !important;
     min-height: 430px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
     scroll-snap-type: x proximity;
     -webkit-overflow-scrolling: touch;
   }
@@ -243,9 +245,11 @@
   }
 
   .sprint-board-grid {
-    grid-template-columns: repeat(7, minmax(238px, 86vw)) !important;
+    grid-template-columns: repeat(8, minmax(238px, 86vw)) !important;
     height: calc(100vh - 205px) !important;
     gap: 10px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
   }
 
   .sprint-board-column {
@@ -263,6 +267,7 @@
 
   .sprint-total-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-auto-rows: minmax(118px, 1fr) !important;
   }
 
   .project-score-legend-item {
@@ -283,6 +288,7 @@
 @media (max-width: 420px) {
   .sprint-total-grid {
     grid-template-columns: 1fr !important;
+    grid-auto-rows: minmax(112px, auto) !important;
   }
 
   .sprint-total-block {

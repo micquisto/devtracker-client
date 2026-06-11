@@ -26,29 +26,44 @@ import {
 } from "@/data/SprintBoard.data";
 import "@/assets/styles/Dashboard.page.css";
 
-const TASK_COUNT_LIST_NAMES = [
-  "Current Sprint",
-  "Adhoc",
-  "In Development",
-  "For Dev Deployment",
-  "On Dev Environment",
-  "Project Refinement",
-  "On-Deck Sprint Backlog",
-];
-
-const COLUMN_TASK_LIST_NAME: Record<string, string | undefined> = {
-  planned: "Current Sprint",
-  "in-dev": "In Development",
-  "for-dev-deployment": "For Dev Deployment",
-  "on-dev-environment": "On Dev Environment",
-};
+const DASHBOARD_HIDDEN_TRELLO_LIST_NAMES = new Set([
+  "project refinement",
+  "on-deck sprint backlog",
+  "done qa",
+]);
 
 type DashboardTaskCountRow = {
   trello_list_name: string | null;
+  sp_type: "planned" | "adhoc" | "done" | "blocked" | null;
+};
+
+type DashboardSprintRow = {
+  id: string;
 };
 
 function normalizeListName(value: string | null): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function getDashboardBoardColumn(listName: string | null): string {
+  const normalized = normalizeListName(listName);
+
+  if (normalized === "in development" || normalized === "in dev") return "in-dev";
+  if (normalized === "for dev deployment") return "for-dev-deployment";
+  if (normalized === "on dev environment") return "on-dev-environment";
+  if (normalized === "for live deployment") return "for-live-deployment";
+  if (normalized === "on live" || normalized === "on live🎉" || normalized === "live") {
+    return "live";
+  }
+  if (normalized === "blocked") return "blocked";
+
+  return "planned";
+}
+
+function shouldCountOnDashboardKanban(listName: string | null): boolean {
+  const normalized = normalizeListName(listName);
+
+  return !normalized || !DASHBOARD_HIDDEN_TRELLO_LIST_NAMES.has(normalized);
 }
 
 /* ─── MAIN DASHBOARD PAGE ───────────────────── */
@@ -68,8 +83,14 @@ export default function DashboardPage() {
 
     async function loadTaskCounts() {
       try {
+        const [currentSprint] = await getSupabaseRows<DashboardSprintRow>("sprints", {
+          select: "id",
+          eq: { is_current: 1 },
+          limit: 1,
+        });
         const tasks = await getSupabaseRows<DashboardTaskCountRow>("tasks", {
-          select: "trello_list_name",
+          select: "trello_list_name,sp_type",
+          ...(currentSprint ? { eq: { sprint_id: currentSprint.id } } : {}),
         });
 
         if (!cancelled) setTaskCountRows(tasks);
@@ -94,25 +115,43 @@ export default function DashboardPage() {
   const completionRate = `${SPRINT_BOARD_COMPLETION_RATE}%`;
   const totalSP = SPRINT_BOARD_TOTAL_STORY_POINTS;
   const doneSP = SPRINT_BOARD_COMPLETED_STORY_POINTS;
-  const countedListNames = new Set(TASK_COUNT_LIST_NAMES.map(normalizeListName));
   const countedTaskRows =
     taskCountRows?.filter((task) =>
-      countedListNames.has(normalizeListName(task.trello_list_name)),
+      shouldCountOnDashboardKanban(task.trello_list_name),
     ) ?? null;
   const taskCountTotal = countedTaskRows?.length ?? SPRINT_BOARD_TASKS.length;
+  const kanbanTaskCountColumns = [
+    SPRINT_BOARD_COLUMNS[0],
+    { id: "adhoc", label: "Adhoc", color: "#ff9f43" },
+    ...SPRINT_BOARD_COLUMNS.slice(1),
+  ];
   const sprintTaskCountCards = [
     { id: "all", label: "Tasks Count", color: Palette.cyan, count: taskCountTotal },
-    ...SPRINT_BOARD_COLUMNS.map((column) => ({
+    ...kanbanTaskCountColumns.map((column) => ({
       id: column.id,
       label: column.id === "planned" ? "Pending" : column.label,
       color: column.color,
       count: countedTaskRows
-        ? countedTaskRows.filter(
-            (task) =>
-              normalizeListName(task.trello_list_name) ===
-              normalizeListName(COLUMN_TASK_LIST_NAME[column.id] ?? null),
-          ).length
-        : SPRINT_BOARD_TASKS.filter((task) => task.boardColumn === column.id).length,
+        ? countedTaskRows.filter((task) => {
+            const boardColumn = getDashboardBoardColumn(task.trello_list_name);
+
+            if (column.id === "adhoc") {
+              return boardColumn === "planned" && task.sp_type === "adhoc";
+            }
+
+            if (column.id === "planned") {
+              return boardColumn === "planned" && task.sp_type === "planned";
+            }
+
+            return boardColumn === column.id;
+          }).length
+        : SPRINT_BOARD_TASKS.filter((task) =>
+            column.id === "adhoc"
+              ? task.boardColumn === "planned" && task.isAdhoc
+              : column.id === "planned"
+                ? task.boardColumn === "planned" && !task.isAdhoc
+                : task.boardColumn === column.id,
+          ).length,
     })),
   ];
 
@@ -244,9 +283,9 @@ export default function DashboardPage() {
             className="task-count-row"
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(8, minmax(120px, 1fr))",
+              gridTemplateColumns: `repeat(${sprintTaskCountCards.length}, minmax(0, 1fr))`,
               gap: 10,
-              overflowX: "auto",
+              overflowX: "visible",
               paddingBottom: 4,
             }}
           >

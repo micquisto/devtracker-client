@@ -20,6 +20,7 @@ const SPRINT_KANBAN_COLUMNS = [
 const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
   "project refinement",
   "on-deck sprint backlog",
+  "done qa",
 ]);
 
 type BoardColumnId = (typeof SPRINT_BOARD_COLUMNS)[number]["id"];
@@ -44,6 +45,7 @@ type TaskRow = {
   priority: string;
   status: string;
   story_points: number;
+  completion_percentage: number | null;
   severity: number;
   sp_type: SprintPointType;
 };
@@ -66,6 +68,7 @@ type KanbanTask = {
   id: string;
   title: string;
   trelloCardUrl: string | null;
+  trelloListName: string | null;
   assigneeInitials: string;
   assigneeName: string;
   assigneeColor: string;
@@ -73,6 +76,7 @@ type KanbanTask = {
   priority: string;
   status: string;
   points: number;
+  completionPercentage: number;
   boardColumn: BoardColumnId;
   spType: SprintPointType;
   project: {
@@ -215,6 +219,12 @@ function getSprintPointTypeColor(spType: SprintPointType): string {
   return "#00c8ff";
 }
 
+function getCompletionPercentageColor(percentage: number): string {
+  if (percentage >= 100) return Palette.green;
+  if (percentage >= 50) return Palette.orange;
+  return Palette.cyan;
+}
+
 function mapTask(
   task: TaskRow,
   membersById: Map<string, MemberRow>,
@@ -230,6 +240,7 @@ function mapTask(
     id: String(task.trello_short_id ?? task.trello_card_id),
     title: task.title,
     trelloCardUrl: task.trello_card_url,
+    trelloListName: task.trello_list_name,
     assigneeInitials: getInitials(assigneeName),
     assigneeName,
     assigneeColor: getAssigneeColor(member, assigneeName),
@@ -237,6 +248,7 @@ function mapTask(
     priority: task.priority,
     status: task.status,
     points: task.story_points,
+    completionPercentage: task.completion_percentage ?? 0,
     boardColumn: getBoardColumn(task.trello_list_name),
     spType: task.sp_type,
     project: {
@@ -269,6 +281,12 @@ function SprintTaskCard({
   const statusColor = StatusColor[task.status] ?? Palette.cyan;
   const statusBg = StatusBg[task.status] ?? "rgba(0,200,255,0.1)";
   const spTypeColor = getSprintPointTypeColor(task.spType);
+  const completionPercentageColor = getCompletionPercentageColor(
+    task.completionPercentage,
+  );
+  const isWorkInProgressList = ["current sprint", "in development"].includes(
+    task.trelloListName?.trim().toLowerCase() ?? "",
+  );
   const project = task.project;
 
   return (
@@ -303,37 +321,90 @@ function SprintTaskCard({
         >
           {task.id}
         </span>
-        <span
-          style={{
-            color: "#00e5a0",
-            background:
-              "linear-gradient(135deg, rgba(0,229,160,0.18), rgba(0,200,255,0.08))",
-            border: "1px solid rgba(0,229,160,0.45)",
-            borderRadius: 10,
-            padding: "4px 8px",
-            fontFamily: "'DM Mono', monospace",
-            fontWeight: 900,
-            fontSize: 15,
-            lineHeight: 1,
-            letterSpacing: "-0.05em",
-            boxShadow: "0 0 14px rgba(0,229,160,0.16)",
-          }}
-        >
-          {task.points > 0 ? (
-            <>
-              {task.points}
-              <span
-                style={{
-                  color: "rgba(160,210,255,0.7)",
-                  fontSize: 9,
-                  letterSpacing: "0",
-                  marginLeft: 3,
-                }}
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span
+            style={{
+              color: "#00e5a0",
+              background:
+                "linear-gradient(135deg, rgba(0,229,160,0.18), rgba(0,200,255,0.08))",
+              border: "1px solid rgba(0,229,160,0.45)",
+              borderRadius: 10,
+              padding: "4px 8px",
+              fontFamily: "'DM Mono', monospace",
+              fontWeight: 900,
+              fontSize: 15,
+              lineHeight: 1,
+              letterSpacing: "-0.05em",
+              boxShadow: "0 0 14px rgba(0,229,160,0.16)",
+            }}
+          >
+            {task.points > 0 ? (
+              <>
+                {task.points}
+                <span
+                  style={{
+                    color: "rgba(160,210,255,0.7)",
+                    fontSize: 9,
+                    letterSpacing: "0",
+                    marginLeft: 3,
+                  }}
+                >
+                  SP
+                </span>
+              </>
+            ) : null}
+          </span>
+          <span
+            title="Completion percentage"
+            style={{
+              color: isWorkInProgressList ? Palette.cyan : completionPercentageColor,
+              background: isWorkInProgressList
+                ? "rgba(0,200,255,0.12)"
+                : `${completionPercentageColor}1f`,
+              border: isWorkInProgressList
+                ? "1px solid rgba(0,200,255,0.48)"
+                : `1px solid ${completionPercentageColor}66`,
+              borderRadius: 10,
+              padding: "4px 7px",
+              fontFamily: "'DM Mono', monospace",
+              fontWeight: 900,
+              fontSize: 11,
+              lineHeight: 1,
+              boxShadow: isWorkInProgressList
+                ? "0 0 12px rgba(0,200,255,0.18)"
+                : `0 0 12px ${completionPercentageColor}24`,
+            }}
+          >
+            {isWorkInProgressList ? (
+              <svg
+                aria-label="Work in progress"
+                role="img"
+                width="13"
+                height="13"
+                viewBox="0 0 13 13"
+                fill="none"
               >
-                SP
-              </span>
-            </>
-          ) : null}
+                <circle
+                  cx="6.5"
+                  cy="6.5"
+                  r="5"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeDasharray="2 1.6"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M6.5 3.7v3l2.2 1.3"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              `${task.completionPercentage}%`
+            )}
+          </span>
         </span>
       </div>
 
@@ -588,7 +659,7 @@ export default function SprintKanbanBoard({
         const [taskRows, memberRows, projectTypeRows] = await Promise.all([
           getSupabaseRows<TaskRow>("tasks", {
             select:
-              "id,sprint_id,project_type,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,title,priority,status,story_points,severity,sp_type",
+              "id,sprint_id,project_type,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,title,priority,status,story_points,completion_percentage,severity,sp_type",
             eq: selectedMemberId
               ? { sprint_id: currentSprint.id, assigned_to: selectedMemberId }
               : { sprint_id: currentSprint.id },

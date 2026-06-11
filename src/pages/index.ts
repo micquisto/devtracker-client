@@ -6,3 +6,4 @@ export { default as StatisticsPage } from "./Accountabilities/Statistics.page";
 export { default as TasksListPage } from "./Scrum/TasksList.page";
 export { default as TestPage } from "./Test.page";
 export { default as AppFlowPage } from "./AppFlow.page";
+export { default as RequirementsDataPage } from "./Admin/RequirementsData.page";

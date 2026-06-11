@@ -10,6 +10,13 @@
   }
 }
 
+@media (max-width: 1180px) {
+  .task-count-row {
+    grid-template-columns: repeat(9, minmax(118px, 1fr)) !important;
+    overflow-x: auto !important;
+  }
+}
+
 @media (max-width: 700px) {
   .dash-2col {
     grid-template-columns: 1fr !important;
