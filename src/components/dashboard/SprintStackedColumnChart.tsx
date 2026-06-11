@@ -113,7 +113,7 @@ const SprintStackedColumnChart = () => {
         const total = tasks.reduce((sum, task) => sum + task.points, 0);
 
         return {
-          id: member.id,
+          id: member.initials,
           name: member.name,
           color: member.color,
           plannedStoryPoints: total,
