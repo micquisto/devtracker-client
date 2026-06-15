@@ -3,6 +3,7 @@ export {
   SPRINT_STATUS_STYLE,
   getSprintFilterOption,
   sprintFilterOptions,
+  type SprintFilterOption,
   type SprintStatus,
 } from "./sprint/SprintFilter";
 export { default as SprintKanbanBoard } from "./sprint/SprintKanbanBoard";

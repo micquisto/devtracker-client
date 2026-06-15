@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   SprintFilter,
   SPRINT_STATUS_STYLE,
-  getSprintFilterOption,
   SprintScoreboard,
+  type SprintFilterOption,
   type SprintStatus,
 } from "@/components/scrum";
 import SprintKanbanBoard from "@/components/scrum/sprint/SprintKanbanBoard";
@@ -56,7 +56,7 @@ type CurrentSprintRow = {
   total_planned_points: number;
   total_completed_points: number;
   status: string | null;
-  is_current: number;
+  is_current: number | boolean;
 };
 
 type SprintMemberFilterRow = {
@@ -64,6 +64,7 @@ type SprintMemberFilterRow = {
   full_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  sprint_approved: boolean | null;
 };
 
 type CurrentMemberRow = {
@@ -86,8 +87,14 @@ type SprintConfirmationDialog = {
     label: string;
     value: string;
   }>;
+  disableConfirm?: boolean;
   showNextSprintForm?: boolean;
   onConfirm: () => void;
+};
+
+type SprintApprovalSummary = {
+  approvedCount: number;
+  requiredCount: number;
 };
 
 type NextSprintDraft = {
@@ -134,6 +141,20 @@ function isRestrictedSprintActionRole(role: string | null): boolean {
   );
 }
 
+function usesEqualScoreboardTopColumns(role: string | null): boolean {
+  const normalizedRole = role?.trim().toLowerCase() ?? "";
+
+  return (
+    normalizedRole === "developer" ||
+    normalizedRole === "senior_developer" ||
+    normalizedRole === "tech_lead" ||
+    normalizedRole === "project_manager" ||
+    normalizedRole === "qa_engineer" ||
+    normalizedRole === "desinger" ||
+    normalizedRole === "designer"
+  );
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
 
@@ -175,6 +196,22 @@ function getSprintStatusStyleKey(status: string | null): SprintStatus {
   }
 
   return "open";
+}
+
+function buildSprintFilterLabel(sprint: CurrentSprintRow): string {
+  return isCurrentSprint(sprint) ? `${sprint.name} (Current)` : sprint.name;
+}
+
+function buildSprintFilterOptions(sprints: CurrentSprintRow[]): SprintFilterOption[] {
+  return sprints.map((sprint) => ({
+    value: sprint.id,
+    label: buildSprintFilterLabel(sprint),
+    status: getSprintStatusStyleKey(sprint.status),
+  }));
+}
+
+function isCurrentSprint(sprint: CurrentSprintRow): boolean {
+  return sprint.is_current === 1 || sprint.is_current === true;
 }
 
 function parseDateOnly(value: string): Date {
@@ -221,6 +258,30 @@ function getLatestTaskSyncDate(tasks: SprintTaskCountRow[]): string | null {
   }, null);
 
   return latestTimestamp === null ? null : new Date(latestTimestamp).toISOString();
+}
+
+function formatSprintPeriodDate(value: string | null | undefined): string {
+  if (!value) return "-";
+
+  const parsedDate = parseDateOnly(value);
+  const timestamp = parsedDate.getTime();
+
+  if (!Number.isFinite(timestamp)) return value;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(parsedDate);
+}
+
+function formatSprintPeriod(sprint: CurrentSprintRow | null): string {
+  if (!sprint) return "No sprint period available";
+
+  return `${formatSprintPeriodDate(sprint.start_date)} - ${formatSprintPeriodDate(
+    sprint.end_date,
+  )}`;
 }
 
 function getSprintActionProgressLabel(action: string): string {
@@ -367,7 +428,8 @@ function buildNextSprintPayload(
 export default function SprintPage() {
   const sprintActionsRef = useRef<HTMLDivElement | null>(null);
   const approvalButtonRef = useRef<HTMLDivElement | null>(null);
-  const [selectedSprint, setSelectedSprint] = useState("current");
+  const [selectedSprint, setSelectedSprint] = useState("");
+  const [sprints, setSprints] = useState<CurrentSprintRow[]>([]);
   const [taskCount, setTaskCount] = useState(0);
   const [lastTrelloSyncAt, setLastTrelloSyncAt] = useState<string | null>(null);
   const [currentSprint, setCurrentSprint] = useState<CurrentSprintRow | null>(null);
@@ -383,23 +445,28 @@ export default function SprintPage() {
   const [currentMember, setCurrentMember] = useState<CurrentMemberRow | null>(null);
   const [approveLoading, setApproveLoading] = useState(false);
   const [approveMessage, setApproveMessage] = useState<string | null>(null);
+  const [sprintApprovalSummary, setSprintApprovalSummary] =
+    useState<SprintApprovalSummary>({
+      approvedCount: 0,
+      requiredCount: 0,
+    });
   const [confirmationDialog, setConfirmationDialog] =
     useState<SprintConfirmationDialog | null>(null);
   const [nextSprintDraft, setNextSprintDraft] = useState<NextSprintDraft | null>(
     null,
   );
-  const selectedSprintOption = getSprintFilterOption(selectedSprint);
-  const selectedSprintStatus =
-    selectedSprint === "current"
-      ? currentSprint?.status ?? selectedSprintOption.status
-      : selectedSprintOption.status;
+  const sprintFilterOptions = buildSprintFilterOptions(sprints);
+  const selectedSprintRow =
+    sprints.find((sprint) => sprint.id === selectedSprint) ??
+    currentSprint ??
+    sprints[0] ??
+    null;
+  const selectedSprintStatus = selectedSprintRow?.status ?? null;
   const currentSprintStatus = normalizeSprintStatus(currentSprint?.status ?? null);
   const selectedSprintStatusStyle =
     SPRINT_STATUS_STYLE[getSprintStatusStyleKey(selectedSprintStatus)];
   const sprintTitle =
-    selectedSprint === "current"
-      ? `${currentSprint?.name ?? "Current Sprint"} Kanban`
-      : `${selectedSprintOption.label} Kanban`;
+    `${selectedSprintRow?.name ?? currentSprint?.name ?? "Current Sprint"} Kanban`;
   const nextSprintQuarterOptions =
     currentSprint && nextSprintDraft
       ? getNextSprintQuarterOptions(currentSprint, nextSprintDraft.year)
@@ -423,10 +490,16 @@ export default function SprintPage() {
   const hasRestrictedSprintActions = isRestrictedSprintActionRole(
     currentMember?.role ?? null,
   );
+  const shouldUseEqualScoreboardColumns = usesEqualScoreboardTopColumns(
+    currentMember?.role ?? null,
+  );
   const restrictedMemberId = hasRestrictedSprintActions ? currentMember?.id ?? "" : "";
   const effectiveSelectedMemberId = restrictedMemberId || selectedMemberId;
   const canApproveAssignedTasks =
     hasRestrictedSprintActions && currentMember?.sprint_approved === false;
+  const isSprintApprovalReady =
+    sprintApprovalSummary.requiredCount === 0 ||
+    sprintApprovalSummary.approvedCount >= sprintApprovalSummary.requiredCount;
 
   useEffect(() => {
     let cancelled = false;
@@ -434,20 +507,21 @@ export default function SprintPage() {
 
     async function loadCurrentSprintData() {
       try {
-        const [currentSprints, members, session] = await Promise.all([
+        const [sprintRows, members, session] = await Promise.all([
           getSupabaseRows<CurrentSprintRow>("sprints", {
             select:
               "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
-            eq: { is_current: 1 },
-            limit: 1,
+            order: { column: "start_date", ascending: false },
           }),
           getSupabaseRows<SprintMemberFilterRow>("members", {
-            select: "id,full_name,first_name,last_name",
+            select: "id,full_name,first_name,last_name,sprint_approved",
             order: { column: "full_name", ascending: true },
           }),
           getSupabaseSession(),
         ]);
-        const sprint = currentSprints[0] ?? null;
+        const sprint = sprintRows.find(isCurrentSprint) ?? null;
+        const selectedSprintForData =
+          sprintRows.find((row) => row.id === selectedSprint) ?? sprint ?? sprintRows[0] ?? null;
         const [memberByEmail] = session?.user.email
           ? await getSupabaseRows<CurrentMemberRow>("members", {
               select: "id,auth_user_id,email,role,sprint_approved",
@@ -464,10 +538,10 @@ export default function SprintPage() {
               })
             : [];
         const loggedInMember = memberByEmail ?? memberByAuthUserId ?? null;
-        const tasks = sprint
+        const tasks = selectedSprintForData
           ? await getSupabaseRows<SprintTaskCountRow>("tasks", {
               select: "assigned_to,trello_list_name,trello_last_synced_at",
-              eq: { sprint_id: sprint.id },
+              eq: { sprint_id: selectedSprintForData.id },
             })
           : [];
         const restrictedDataMemberId = isRestrictedSprintActionRole(
@@ -482,14 +556,38 @@ export default function SprintPage() {
         const count = visibleTasks.filter((task) =>
           countedListNames.has(normalizeListName(task.trello_list_name)),
         ).length;
+        const memberApprovalById = new Map(
+          members
+            .filter((member): member is SprintMemberFilterRow & { id: string } =>
+              Boolean(member.id),
+            )
+            .map((member) => [member.id, member.sprint_approved === true]),
+        );
+        const requiredApprovalMemberIds = new Set(
+          tasks
+            .map((task) => task.assigned_to)
+            .filter((memberId): memberId is string => Boolean(memberId)),
+        );
+        const approvedRequiredMemberCount = Array.from(requiredApprovalMemberIds)
+          .filter((memberId) => memberApprovalById.get(memberId) === true).length;
 
         if (!cancelled) {
           setTaskCount(count);
           setLastTrelloSyncAt(
             getLatestTaskSyncDate(restrictedDataMemberId ? visibleTasks : tasks),
           );
+          setSprints(sprintRows);
           setCurrentSprint(sprint);
+          setSelectedSprint((currentValue) =>
+            currentValue && sprintRows.some((row) => row.id === currentValue)
+              ? currentValue
+              : selectedSprintForData?.id ?? "",
+          );
           setCurrentMember(loggedInMember ?? null);
+          setSprintApprovalSummary({
+            approvedCount: approvedRequiredMemberCount,
+            requiredCount: requiredApprovalMemberIds.size,
+          });
           setMemberFilterOptions(
             restrictedDataMemberId
               ? members.filter((member) => member.id === restrictedDataMemberId)
@@ -500,8 +598,13 @@ export default function SprintPage() {
         if (!cancelled) {
           setTaskCount(0);
           setLastTrelloSyncAt(null);
+          setSprints([]);
           setCurrentSprint(null);
           setCurrentMember(null);
+          setSprintApprovalSummary({
+            approvedCount: 0,
+            requiredCount: 0,
+          });
           setMemberFilterOptions([]);
         }
       }
@@ -585,11 +688,7 @@ export default function SprintPage() {
           assigned_to: currentMember.id,
         },
       });
-      const approvalTasks = assignedTasks.filter((task) =>
-        task.sp_type === "planned" ||
-        task.sp_type === "adhoc" ||
-        task.sp_type === "blocked",
-      );
+      const approvalTasks = assignedTasks.filter((task) => task.sp_type === "planned");
       const assignedStoryPoints = approvalTasks.reduce(
         (total, task) => total + Number(task.story_points ?? 0),
         0,
@@ -603,11 +702,11 @@ export default function SprintPage() {
         sprintDetail: currentSprint.name,
         metricDetails: [
           {
-            label: "Assigned Tasks",
+            label: "Planned Tasks",
             value: String(approvalTasks.length),
           },
           {
-            label: "Assigned Story Points",
+            label: "Planned Story Points",
             value: assignedStoryPoints.toLocaleString(undefined, {
               maximumFractionDigits: 2,
             }),
@@ -653,8 +752,25 @@ export default function SprintPage() {
     }
   }
 
+  function getSelectedCurrentSprintForProcessing(): CurrentSprintRow | null {
+    if (!currentSprint || selectedSprint !== currentSprint.id) {
+      setSprintActionError("Please select the current sprint before processing sprint data.");
+      return null;
+    }
+
+    return currentSprint;
+  }
+
   async function startSprint(): Promise<void> {
-    if (!currentSprint) return;
+    const sprintToProcess = getSelectedCurrentSprintForProcessing();
+    if (!sprintToProcess) return;
+
+    if (!isSprintApprovalReady) {
+      setSprintActionError(
+        `Cannot start sprint yet. ${sprintApprovalSummary.approvedCount}/${sprintApprovalSummary.requiredCount} required members have approved their assigned tasks.`,
+      );
+      return;
+    }
 
     setSprintActionLoading("start-sync");
     setSprintActionError(null);
@@ -666,10 +782,10 @@ export default function SprintPage() {
         {
           select:
             "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
-          eq: { id: currentSprint.id },
+          eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await syncCurrentSprintTasks();
+      await syncCurrentSprintTasks(sprintToProcess.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -683,7 +799,8 @@ export default function SprintPage() {
   }
 
   async function reopenSprint(): Promise<void> {
-    if (!currentSprint) return;
+    const sprintToProcess = getSelectedCurrentSprintForProcessing();
+    if (!sprintToProcess) return;
 
     setSprintActionLoading("reopen-sync");
     setSprintActionError(null);
@@ -695,10 +812,10 @@ export default function SprintPage() {
         {
           select:
             "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
-          eq: { id: currentSprint.id },
+          eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await syncCurrentSprintTasks();
+      await syncCurrentSprintTasks(sprintToProcess.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -712,7 +829,8 @@ export default function SprintPage() {
   }
 
   async function endSprint(): Promise<void> {
-    if (!currentSprint) return;
+    const sprintToProcess = getSelectedCurrentSprintForProcessing();
+    if (!sprintToProcess) return;
 
     setSprintActionLoading("end-sync");
     setSprintActionError(null);
@@ -724,10 +842,10 @@ export default function SprintPage() {
         {
           select:
             "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
-          eq: { id: currentSprint.id },
+          eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await syncCurrentSprintTasks();
+      await syncCurrentSprintTasks(sprintToProcess.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -741,11 +859,14 @@ export default function SprintPage() {
   }
 
   async function syncSprintData(): Promise<void> {
+    const sprintToProcess = getSelectedCurrentSprintForProcessing();
+    if (!sprintToProcess) return;
+
     setSprintActionLoading("sync-data");
     setSprintActionError(null);
 
     try {
-      await syncCurrentSprintTasks();
+      await syncCurrentSprintTasks(sprintToProcess.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -757,8 +878,10 @@ export default function SprintPage() {
   }
 
   async function openNewSprint(): Promise<void> {
-    if (!currentSprint) return;
-    const draft = nextSprintDraft ?? buildDefaultNextSprintDraft(currentSprint);
+    const sprintToProcess = getSelectedCurrentSprintForProcessing();
+    if (!sprintToProcess) return;
+
+    const draft = nextSprintDraft ?? buildDefaultNextSprintDraft(sprintToProcess);
 
     if (
       !draft.year ||
@@ -782,12 +905,12 @@ export default function SprintPage() {
         {
           select:
             "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
-          eq: { id: currentSprint.id },
+          eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
       const [newSprint] = await insertSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
-        buildNextSprintPayload(currentSprint, draft),
+        buildNextSprintPayload(sprintToProcess, draft),
         "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
       );
 
@@ -795,6 +918,7 @@ export default function SprintPage() {
         throw new Error("Unable to create the new sprint.");
       }
 
+      // Open New Sprint intentionally does not run Trello sync or Sync Data.
       await buildSprintRequirementsFromCurrentRequirements(newSprint.id);
       refreshSprintPageElements();
     } catch (error) {
@@ -948,7 +1072,7 @@ export default function SprintPage() {
   );
 
   const sprintActions =
-    selectedSprint === "current" && currentSprint ? (
+    selectedSprint === currentSprint?.id && currentSprint ? (
       <div
         ref={sprintActionsRef}
         style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
@@ -961,10 +1085,22 @@ export default function SprintPage() {
               onClick={() => {
                 requestSprintConfirmation({
                   title: "Start Sprint",
-                  message:
-                    "This will set the current sprint to active and sync Trello cards, including Ad hoc cards.",
+                  message: isSprintApprovalReady
+                    ? "This will set the current sprint to active and sync Trello cards, including Ad hoc cards."
+                    : "Start Sprint is locked until all members with current sprint tasks approve their assigned work.",
                   confirmLabel: "Start Sprint",
                   accent: "#00e5a0",
+                  metricDetails: [
+                    {
+                      label: "Approved Members",
+                      value: String(sprintApprovalSummary.approvedCount),
+                    },
+                    {
+                      label: "Required Approvals",
+                      value: String(sprintApprovalSummary.requiredCount),
+                    },
+                  ],
+                  disableConfirm: !isSprintApprovalReady,
                   onConfirm: () => void startSprint(),
                 });
               }}
@@ -1082,7 +1218,7 @@ export default function SprintPage() {
                 requestSprintConfirmation({
                   title: "Open New Sprint",
                   message:
-                    "This will mark the current sprint as done and create a new current sprint in planning status.",
+                    "This will mark the current sprint as done and create a new current sprint in planning status. No Trello sync or Sync Data process will run.",
                   confirmLabel: "Open New Sprint",
                   accent: "#00c8ff",
                   sprintDetail: buildSprintName(draft),
@@ -1143,6 +1279,7 @@ export default function SprintPage() {
       <SprintFilter
         selectedSprint={selectedSprint}
         onSprintChange={setSelectedSprint}
+        options={sprintFilterOptions}
         actions={hasRestrictedSprintActions ? undefined : sprintActions}
       />
       {sprintActionError ? (
@@ -1319,7 +1456,7 @@ export default function SprintPage() {
               </button>
               <button
                 className="sprint-confirmation-button sprint-confirmation-button--primary"
-                disabled={Boolean(sprintActionLoading)}
+                disabled={Boolean(sprintActionLoading) || confirmationDialog.disableConfirm}
                 onClick={confirmSprintDialogAction}
                 style={{
                   borderColor: `${confirmationDialog.accent}88`,
@@ -1347,21 +1484,41 @@ export default function SprintPage() {
           marginBottom: 10,
         }}
       >
-        <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            alignItems: "center",
+            color: "rgba(160,210,255,0.68)",
+            display: "flex",
+            flexBasis: "100%",
+            fontFamily: "'DM Mono', monospace",
+            fontSize: 10,
+            fontWeight: 900,
+            justifyContent: "space-between",
+            letterSpacing: "0.08em",
+            marginBottom: -2,
+            textTransform: "uppercase",
+            width: "100%",
+          }}
+        >
           <div
             style={{
-              color: "rgba(160,210,255,0.68)",
-              fontFamily: "'DM Mono', monospace",
-              fontSize: 10,
-              fontWeight: 900,
-              letterSpacing: "0.08em",
-              marginBottom: 5,
+              minWidth: 0,
               textAlign: "left",
-              textTransform: "uppercase",
             }}
           >
             Last Sync: {formatLastSyncDate(lastTrelloSyncAt)}
           </div>
+          <div
+            style={{
+              marginLeft: 16,
+              minWidth: 0,
+              textAlign: "right",
+            }}
+          >
+            Sprint Period: {formatSprintPeriod(selectedSprintRow)}
+          </div>
+        </div>
+        <div style={{ minWidth: 0 }}>
           <Title
             eyebrow="Scrum Board"
             title={sprintTitle}
@@ -1470,12 +1627,15 @@ export default function SprintPage() {
       </div>
 
       <SprintKanbanBoard
-        key={`${currentSprint?.id ?? "no-current-sprint"}-${refreshKey}`}
+        key={`${selectedSprintRow?.id ?? "no-selected-sprint"}-${refreshKey}`}
+        sprintId={selectedSprintRow?.id}
         selectedMemberId={effectiveSelectedMemberId}
       />
 
       <SprintScoreboard
-        key={`scoreboard-${currentSprint?.id ?? "no-current-sprint"}-${effectiveSelectedMemberId || "all"}-${refreshKey}`}
+        equalTopColumnWidths={shouldUseEqualScoreboardColumns}
+        key={`scoreboard-${selectedSprintRow?.id ?? "no-selected-sprint"}-${effectiveSelectedMemberId || "all"}-${refreshKey}`}
+        sprintId={selectedSprintRow?.id}
         selectedMemberId={effectiveSelectedMemberId}
       />
     </div>

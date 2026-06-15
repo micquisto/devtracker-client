@@ -496,6 +496,7 @@ async function replaceSprintTasks(
     const { data: deletedRows, error: deleteError } = await supabase
       .from("tasks")
       .delete()
+      .eq("sprint_id", sprint.id)
       .in("id", taskIdsToDelete)
       .select("id");
 
@@ -530,15 +531,28 @@ async function replaceSprintTasks(
     throw existingRowsError;
   }
 
+  // Rows from non-current sprints are historical records. They may be read only to
+  // avoid unique trello_card_id conflicts, but must never be updated, moved, or deleted.
   const existingTasksByTrelloCardId = new Map(
-    ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[]).map((task) => [
-      task.trello_card_id,
-      task,
-    ]),
+    ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
+      .filter((task) => task.sprint_id === sprint.id)
+      .map((task) => [
+        task.trello_card_id,
+        task,
+      ]),
+  );
+  const nonCurrentSprintTrelloCardIds = new Set(
+    ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
+      .filter((task) => task.sprint_id !== sprint.id)
+      .map((task) => task.trello_card_id),
   );
   const tasksToInsert: TaskRow[] = [];
 
   for (const task of tasks) {
+    if (task.sprint_id !== sprint.id) {
+      continue;
+    }
+
     const existingTask =
       preservedTasksByTrelloCardId.get(task.trello_card_id) ??
       existingTasksByTrelloCardId.get(task.trello_card_id);
@@ -547,6 +561,10 @@ async function replaceSprintTasks(
       preservedSpTypes.has(existingTask.sp_type);
 
     if (!existingTask) {
+      if (nonCurrentSprintTrelloCardIds.has(task.trello_card_id)) {
+        continue;
+      }
+
       tasksToInsert.push(task);
       continue;
     }
@@ -588,6 +606,7 @@ async function replaceSprintTasks(
       .from("tasks")
       .update(taskUpdate)
       .eq("id", existingTask.id)
+      .eq("sprint_id", sprint.id)
       .select("id,trello_list_name");
 
     if (updateError) {
@@ -699,7 +718,7 @@ async function replaceSprintStoryPoints(
         0,
       ),
     };
-  });
+  }).filter((row) => row.sprint_id === sprint.id);
 
   const { error } = await supabase.rpc("replace_story_points_for_sprint", {
     p_sprint_id: sprint.id,
@@ -728,7 +747,7 @@ async function updateSprintBlockedCount(
   }
 }
 
-export async function syncCurrentSprintTasks(): Promise<{
+export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise<{
   cards: TrelloSprintCard[];
   result: SprintSyncResult;
 }> {
@@ -741,6 +760,20 @@ export async function syncCurrentSprintTasks(): Promise<{
         action: "skipped",
         message: "No current sprint found, so Trello sync was stopped.",
         sprint: null,
+        cardsFetched: 0,
+        tasksDeleted: 0,
+        tasksInserted: 0,
+      },
+    };
+  }
+
+  if (expectedSprintId && sprint.id !== expectedSprintId) {
+    return {
+      cards: [],
+      result: {
+        action: "skipped",
+        message: "Selected sprint is not the current sprint, so Trello sync was stopped.",
+        sprint,
         cardsFetched: 0,
         tasksDeleted: 0,
         tasksInserted: 0,

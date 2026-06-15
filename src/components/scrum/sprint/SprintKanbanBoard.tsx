@@ -89,6 +89,7 @@ type KanbanTask = {
 };
 
 type SprintKanbanBoardProps = {
+  sprintId?: string;
   selectedMemberId?: string;
 };
 
@@ -634,6 +635,7 @@ function SprintTaskCard({
 }
 
 export default function SprintKanbanBoard({
+  sprintId = "",
   selectedMemberId = "",
 }: SprintKanbanBoardProps) {
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
@@ -648,11 +650,13 @@ export default function SprintKanbanBoard({
       setError(null);
 
       try {
-        const [currentSprint] = await getSupabaseRows<SprintRow>("sprints", {
-          select: "id",
-          eq: { is_current: 1 },
-          limit: 1,
-        });
+        const [currentSprint] = sprintId
+          ? [{ id: sprintId }]
+          : await getSupabaseRows<SprintRow>("sprints", {
+              select: "id",
+              eq: { is_current: 1 },
+              limit: 1,
+            });
 
         if (!currentSprint) {
           if (!cancelled) setTasks([]);
@@ -706,7 +710,7 @@ export default function SprintKanbanBoard({
     return () => {
       cancelled = true;
     };
-  }, [selectedMemberId]);
+  }, [selectedMemberId, sprintId]);
 
   if (loading) {
     return (

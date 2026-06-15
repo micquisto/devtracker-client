@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 export type SprintStatus = "open" | "active" | "closed";
 
-type SprintFilterOption = {
+export type SprintFilterOption = {
   value: string;
   label: string;
   status: SprintStatus;
@@ -13,6 +13,7 @@ type SprintFilterOption = {
 type SprintFilterProps = {
   selectedSprint: string;
   onSprintChange: (value: string) => void;
+  options?: SprintFilterOption[];
   actions?: ReactNode;
 };
 
@@ -55,9 +56,13 @@ export const getSprintFilterOption = (selectedSprint: string) =>
 export default function SprintFilter({
   selectedSprint,
   onSprintChange,
+  options = sprintFilterOptions,
   actions,
 }: SprintFilterProps) {
-  const selectedSprintOption = getSprintFilterOption(selectedSprint);
+  const selectedSprintOption =
+    options.find((option) => option.value === selectedSprint) ??
+    options[0] ??
+    getSprintFilterOption(selectedSprint);
   const selectedSprintStatusStyle =
     SPRINT_STATUS_STYLE[selectedSprintOption.status];
 
@@ -78,7 +83,7 @@ export default function SprintFilter({
         onChange={onSprintChange}
         accent={selectedSprintStatusStyle.color}
       >
-        {sprintFilterOptions.map((option) => (
+        {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>

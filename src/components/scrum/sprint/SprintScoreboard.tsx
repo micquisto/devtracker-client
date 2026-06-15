@@ -83,6 +83,8 @@ type StoryPointRow = {
 };
 
 type SprintScoreboardProps = {
+  equalTopColumnWidths?: boolean;
+  sprintId?: string;
   selectedMemberId?: string;
 };
 
@@ -238,6 +240,8 @@ function getCompletionSummaryColor(percent: number): string {
 }
 
 export default function SprintScoreboard({
+  equalTopColumnWidths = false,
+  sprintId = "",
   selectedMemberId = "",
 }: SprintScoreboardProps) {
   const scoreboardRef = useRef<HTMLElement | null>(null);
@@ -357,11 +361,17 @@ export default function SprintScoreboard({
 
     async function loadStoryPointTotals() {
       try {
-        const [currentSprint] = await getSupabaseRows<SprintRow>("sprints", {
-          select: "id,blocked_count",
-          eq: { is_current: 1 },
-          limit: 1,
-        });
+        const [currentSprint] = sprintId
+          ? await getSupabaseRows<SprintRow>("sprints", {
+              select: "id,blocked_count",
+              eq: { id: sprintId },
+              limit: 1,
+            })
+          : await getSupabaseRows<SprintRow>("sprints", {
+              select: "id,blocked_count",
+              eq: { is_current: 1 },
+              limit: 1,
+            });
 
         if (!currentSprint) {
           if (!cancelled) {
@@ -574,7 +584,7 @@ export default function SprintScoreboard({
     return () => {
       cancelled = true;
     };
-  }, [selectedMemberId]);
+  }, [selectedMemberId, sprintId]);
 
   const scrollToScoreboard = () => {
     const target = scoreboardRef.current;
@@ -880,8 +890,9 @@ export default function SprintScoreboard({
           className="sprint-scoreboard-top"
           style={{
             display: "grid",
-            gridTemplateColumns:
-              "minmax(260px, 0.75fr) minmax(420px, 1.35fr)",
+            gridTemplateColumns: equalTopColumnWidths
+              ? "repeat(2, minmax(0, 1fr))"
+              : "minmax(260px, 0.75fr) minmax(420px, 1.35fr)",
             gap: 10,
           }}
         >
