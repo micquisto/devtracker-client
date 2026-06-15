@@ -10,10 +10,12 @@ const TRELLO_CUSTOM_FIELD_NAMES = [
   "Status",
   "Date Added",
   "Project Type",
+  "Project",
   "Completion Rate",
 ];
 
-const TRELLO_LIST_NAMES = [
+const ORIGINAL_TRELLO_BOARD_IDS = ["5oj0clmi"];
+const ORIGINAL_TRELLO_LIST_NAMES = [
   "Current Sprint",
   "In Development",
   "For Dev Deployment",
@@ -24,6 +26,25 @@ const TRELLO_LIST_NAMES = [
   "Project Refinement",
   "On-Deck Sprint Backlog",
   "Done QA",
+];
+
+const EXTRA_TRELLO_BOARD_IDS = ["l7BOmeGw"];
+const EXTRA_TRELLO_LIST_NAMES = [
+  "Project Refinement",
+  "Backlog",
+  "Next Sprint",
+  "Current Sprint",
+  "In Development",
+  "For Dev Deployment",
+  "On Dev Environment",
+  "For Live Deployment",
+  "On Live",
+  "Blocked",
+  "Done Sprint",
+];
+const TRELLO_LIST_MERGE_ORDER = [
+  ...ORIGINAL_TRELLO_LIST_NAMES,
+  ...EXTRA_TRELLO_LIST_NAMES,
 ];
 
 const PLANNING_SP_TYPE_LIST_NAMES = new Set([
@@ -72,6 +93,7 @@ type TaskRow = {
   sprint_id: string;
   project_id: string;
   project_type: string;
+  project: string;
   assigned_to: string | null;
   trello_card_id: string;
   trello_short_id: number;
@@ -95,6 +117,7 @@ type TaskRow = {
 
 type ExistingTaskRow = {
   id: string;
+  sprint_id: string;
   trello_card_id: string;
   sp_type: TaskRow["sp_type"];
 };
@@ -132,6 +155,38 @@ type MemberAssigneeRow = {
 
 function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function mergeTrelloCardsByListName(cardGroups: TrelloSprintCard[][]): TrelloSprintCard[] {
+  const cardsByListName = new Map<string, TrelloSprintCard[]>();
+
+  for (const cards of cardGroups) {
+    for (const card of cards) {
+      const listName = normalizeLabel(card.list.name);
+      const groupedCards = cardsByListName.get(listName) ?? [];
+
+      groupedCards.push(card);
+      cardsByListName.set(listName, groupedCards);
+    }
+  }
+
+  const mergedCards: TrelloSprintCard[] = [];
+  const mergedListNames = new Set<string>();
+
+  for (const listName of TRELLO_LIST_MERGE_ORDER) {
+    const normalizedListName = normalizeLabel(listName);
+    if (mergedListNames.has(normalizedListName)) continue;
+
+    const groupedCards = cardsByListName.get(normalizedListName);
+    if (groupedCards) mergedCards.push(...groupedCards);
+    mergedListNames.add(normalizedListName);
+  }
+
+  for (const [listName, groupedCards] of cardsByListName) {
+    if (!mergedListNames.has(listName)) mergedCards.push(...groupedCards);
+  }
+
+  return mergedCards;
 }
 
 function hasCardLabel(card: TrelloSprintCard, label: string): boolean {
@@ -247,7 +302,7 @@ function getTaskPriority(card: TrelloSprintCard): TaskRow["priority"] {
 }
 
 function getTaskSeverity(card: TrelloSprintCard): number {
-  const severity = getCustomFieldValue(card, "Severity")?.toUpperCase();
+  const severity = getCustomFieldValue(card, "Severity")?.trim().toUpperCase();
 
   if (severity === "P4") return 1.0;
   if (severity === "P3") return 1.1;
@@ -351,6 +406,10 @@ function resolveProjectType(
   throw new Error('Missing "General" project type in Supabase project_type table.');
 }
 
+function getTaskProject(card: TrelloSprintCard): string {
+  return getCustomFieldValue(card, "Project")?.trim() || "General";
+}
+
 function mapCardToTask(
   card: TrelloSprintCard,
   sprint: SprintRow,
@@ -363,6 +422,7 @@ function mapCardToTask(
     sprint_id: sprint.id,
     project_id: TASK_PROJECT_ID,
     project_type: resolveProjectType(card, projectTypeLookup),
+    project: getTaskProject(card),
     assigned_to: resolveAssignedTo(card, assigneeLookup),
     trello_card_id: card.id,
     trello_short_id: card.idShort ?? 0,
@@ -412,7 +472,7 @@ async function replaceSprintTasks(
   }
 
   const existingTasks = await getSupabaseRows<ExistingTaskRow>("tasks", {
-    select: "id,trello_card_id,sp_type",
+    select: "id,sprint_id,trello_card_id,sp_type",
     eq: { sprint_id: sprint.id },
   });
   const shouldPreserveExistingPlannedTasks =
@@ -450,13 +510,41 @@ async function replaceSprintTasks(
     return { deleted: deletedCount, inserted: 0 };
   }
 
-  const tasks = cards.map((card) =>
-    mapCardToTask(card, sprint, assigneeLookup, projectTypeLookup),
+  const tasks = Array.from(
+    new Map(
+      cards.map((card) => {
+        const task = mapCardToTask(card, sprint, assigneeLookup, projectTypeLookup);
+        return [task.trello_card_id, task];
+      }),
+    ).values(),
+  );
+  const incomingTrelloCardIds = tasks.map((task) => task.trello_card_id);
+  const { data: existingRowsForIncomingCards, error: existingRowsError } = incomingTrelloCardIds.length > 0
+    ? await supabase
+        .from("tasks")
+        .select("id,sprint_id,trello_card_id,sp_type")
+        .in("trello_card_id", incomingTrelloCardIds)
+    : { data: [], error: null };
+
+  if (existingRowsError) {
+    throw existingRowsError;
+  }
+
+  const existingTasksByTrelloCardId = new Map(
+    ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[]).map((task) => [
+      task.trello_card_id,
+      task,
+    ]),
   );
   const tasksToInsert: TaskRow[] = [];
 
   for (const task of tasks) {
-    const existingTask = preservedTasksByTrelloCardId.get(task.trello_card_id);
+    const existingTask =
+      preservedTasksByTrelloCardId.get(task.trello_card_id) ??
+      existingTasksByTrelloCardId.get(task.trello_card_id);
+    const shouldPreserveSpType =
+      existingTask?.sprint_id === sprint.id &&
+      preservedSpTypes.has(existingTask.sp_type);
 
     if (!existingTask) {
       tasksToInsert.push(task);
@@ -467,6 +555,7 @@ async function replaceSprintTasks(
       sprint_id: task.sprint_id,
       project_id: task.project_id,
       project_type: task.project_type,
+      project: task.project,
       assigned_to: task.assigned_to,
       trello_card_id: task.trello_card_id,
       trello_short_id: task.trello_short_id,
@@ -486,6 +575,10 @@ async function replaceSprintTasks(
       completion_percentage: task.completion_percentage,
       real_story_points: task.real_story_points,
     };
+
+    if (!shouldPreserveSpType) {
+      taskUpdate.sp_type = task.sp_type;
+    }
 
     if (normalizeLabel(task.trello_list_name) === "blocked") {
       taskUpdate.sp_type = "blocked";
@@ -533,7 +626,7 @@ async function replaceSprintTasks(
 async function getSavedSprintTasks(sprintId: string): Promise<TaskRow[]> {
   return getSupabaseRows<TaskRow>("tasks", {
     select:
-      "id,sprint_id,project_id,project_type,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,trello_last_synced_at,title,description,task_type,priority,completed_at,story_points,severity,status,sp_type,is_completed,completion_percentage,real_story_points",
+      "id,sprint_id,project_id,project_type,project,assigned_to,trello_card_id,trello_short_id,trello_board_id,trello_card_url,trello_list_name,trello_last_synced_at,title,description,task_type,priority,completed_at,story_points,severity,status,sp_type,is_completed,completion_percentage,real_story_points",
     eq: { sprint_id: sprintId },
   });
 }
@@ -674,12 +767,21 @@ export async function syncCurrentSprintTasks(): Promise<{
     };
   }
 
-  const trelloCards = await getTrelloSprintCards({
-    boardIds: null,
-    listNames: TRELLO_LIST_NAMES,
-    customFieldNames: TRELLO_CUSTOM_FIELD_NAMES,
-    memberIds: "all",
-  });
+  const [originalBoardCards, extraBoardCards] = await Promise.all([
+    getTrelloSprintCards({
+      boardIds: ORIGINAL_TRELLO_BOARD_IDS,
+      listNames: ORIGINAL_TRELLO_LIST_NAMES,
+      customFieldNames: TRELLO_CUSTOM_FIELD_NAMES,
+      memberIds: "all",
+    }),
+    getTrelloSprintCards({
+      boardIds: EXTRA_TRELLO_BOARD_IDS,
+      listNames: EXTRA_TRELLO_LIST_NAMES,
+      customFieldNames: TRELLO_CUSTOM_FIELD_NAMES,
+      memberIds: "all",
+    }),
+  ]);
+  const trelloCards = mergeTrelloCardsByListName([originalBoardCards, extraBoardCards]);
   const [supabaseMembers, projectTypes] = await Promise.all([
     getSupabaseRows<MemberAssigneeRow>("members", {
       select: "id,auth_user_id,trello_username,email,full_name,first_name,last_name",

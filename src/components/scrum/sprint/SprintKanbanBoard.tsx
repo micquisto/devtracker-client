@@ -20,7 +20,10 @@ const SPRINT_KANBAN_COLUMNS = [
 const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
   "project refinement",
   "on-deck sprint backlog",
+  "backlog",
+  "next sprint",
   "done qa",
+  "done sprint",
 ]);
 
 type BoardColumnId = (typeof SPRINT_BOARD_COLUMNS)[number]["id"];
@@ -177,7 +180,7 @@ function getBoardColumn(listName: string | null): BoardColumnId {
   if (normalized === "for dev deployment") return "for-dev-deployment";
   if (normalized === "on dev environment") return "on-dev-environment";
   if (normalized === "for live deployment") return "for-live-deployment";
-  if (normalized === "on live🎉" || normalized === "live") return "live";
+  if (normalized === "on live" || normalized === "on live🎉" || normalized === "live") return "live";
   if (normalized === "blocked") return "blocked";
 
   return "planned";

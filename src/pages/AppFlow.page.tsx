@@ -63,9 +63,14 @@ const TRELLO_LISTS = [
   "On Dev Environment",
   "For Live Deployment",
   "On Live🎉",
+  "On Live",
   "Blocked",
   "Project Refinement",
   "On-Deck Sprint Backlog",
+  "Backlog",
+  "Next Sprint",
+  "Done QA",
+  "Done Sprint",
 ];
 
 const FLOW_STEPS: FlowStep[] = [
@@ -86,9 +91,10 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Fetch Trello Cards",
     summary: "Pull cards from the supported Trello lists.",
     details: [
+      "Fetch from Trello boards 5oj0clmi and l7BOmeGw.",
       "Fetch cards, members, labels, list names, and custom fields.",
-      "Include Project Refinement and On-Deck Sprint Backlog in the Trello fetch.",
-      "Keep these extra lists hidden from the Kanban board.",
+      "Keep the original board fetch and merge the additional l7BOmeGw cards into the same sync flow.",
+      "Keep fetched-only lists hidden from the Kanban board.",
     ],
     output: "Raw Trello cards with custom field data.",
     accent: Palette.purple,

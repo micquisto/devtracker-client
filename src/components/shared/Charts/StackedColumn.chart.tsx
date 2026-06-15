@@ -84,7 +84,7 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
       <div
         style={{
           display: "flex",
-          alignItems: "flex-end",
+          alignItems: "flex-start",
           gap,
           height: barAreaHeight + 60,
           position: "relative",
@@ -124,12 +124,11 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
         <div
           style={{
             display: "flex",
-            alignItems: "flex-end",
+            alignItems: "flex-start",
             gap,
             width: "100%",
-            height: barAreaHeight + 40,
+            height: barAreaHeight + 52,
             paddingLeft: chartPaddingLeft,
-            paddingBottom: 40,
             position: "relative",
             zIndex: 1,
           }}
@@ -149,7 +148,7 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  justifyContent: "flex-end",
+                  justifyContent: "flex-start",
                   height: "100%",
                   cursor: renderTooltip ? "pointer" : undefined,
                 }}
@@ -158,50 +157,66 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
               >
                 {hov === i && renderTooltip?.(s, i)}
 
-                {s.topLabel && (
-                  <div
-                    style={{
-                      color: labelColor,
-                      fontFamily: "'DM Mono',monospace",
-                      fontSize: 9,
-                      fontWeight: 900,
-                      marginBottom: 6,
-                      textShadow: `0 0 10px ${labelColor}44`,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {s.topLabel}
-                  </div>
-                )}
-
-                {s.stacks.map((layer, li) => {
-                  const h = getStackPixelHeight(layer.value, max, barAreaHeight);
-                  const isTop = li === 0;
-                  const layerStyle: CSSProperties = {
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    height: barAreaHeight,
                     width: "100%",
-                    height: `${anim ? h : 0}px`,
-                    transition: `height 0.9s cubic-bezier(0.23,1,0.32,1) ${i * 0.08 + li * 0.05}s`,
-                    background: isHighlight
-                      ? layer.highlightColor ?? layer.defaultColor
-                      : layer.defaultColor,
-                    boxShadow:
-                      hov === i
-                        ? layer.highlightBoxShadow ?? "none"
-                        : "none",
-                  };
-                  if (isTop && layer.borderRadius) {
-                    layerStyle.borderRadius = layer.borderRadius;
-                  }
+                  }}
+                >
+                  {s.topLabel && (
+                    <div
+                      style={{
+                        color: labelColor,
+                        fontFamily: "'DM Mono',monospace",
+                        fontSize: 9,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textShadow: `0 0 10px ${labelColor}44`,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {s.topLabel}
+                    </div>
+                  )}
 
-                  return <div key={li} style={layerStyle} />;
-                })}
+                  {s.stacks.map((layer, li) => {
+                    const h = getStackPixelHeight(layer.value, max, barAreaHeight);
+                    const isTop = li === 0;
+                    const layerStyle: CSSProperties = {
+                      width: "100%",
+                      height: `${anim ? h : 0}px`,
+                      transition: `height 0.9s cubic-bezier(0.23,1,0.32,1) ${i * 0.08 + li * 0.05}s`,
+                      background: isHighlight
+                        ? layer.highlightColor ?? layer.defaultColor
+                        : layer.defaultColor,
+                      boxShadow:
+                        hov === i
+                          ? layer.highlightBoxShadow ?? "none"
+                          : "none",
+                    };
+                    if (isTop && layer.borderRadius) {
+                      layerStyle.borderRadius = layer.borderRadius;
+                    }
 
-                <div style={{ marginTop: 8, textAlign: "center" as const }}>
+                    return <div key={li} style={layerStyle} />;
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 8,
+                    textAlign: "center" as const,
+                  }}
+                >
                   <div
                     style={{
-                      fontSize: 8,
-                      fontFamily: "'DM Mono',monospace",
                       color: labelColor,
+                      fontFamily: "'DM Mono',monospace",
+                      fontSize: 8,
                       fontWeight: 700,
                       lineHeight: 1.15,
                       maxWidth: 72,

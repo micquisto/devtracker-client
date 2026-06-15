@@ -7,3 +7,6 @@ export { default as TasksListPage } from "./Scrum/TasksList.page";
 export { default as TestPage } from "./Test.page";
 export { default as AppFlowPage } from "./AppFlow.page";
 export { default as RequirementsDataPage } from "./Admin/RequirementsData.page";
+export { default as SprintRequirementsPage } from "./Admin/SprintRequirements.page";
+export { default as AccessControlListsPage } from "./Admin/AccessControlLists.page";
+export { default as ChangePasswordsPage } from "./Admin/ChangePasswords.page";

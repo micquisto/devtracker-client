@@ -39,7 +39,9 @@ type ScoreboardTaskRow = {
   story_points: number;
   real_story_points: number | null;
   sp_type: string | null;
+  trello_list_name: string | null;
   project_type: string | null;
+  project: string | null;
   assigned_to: string | null;
   is_completed: string | null;
 };
@@ -47,6 +49,9 @@ type ScoreboardTaskRow = {
 type ScoreboardStoryPointTotals = {
   planned: number;
   adhoc: number;
+  plannedTasks: number;
+  adhocTasks: number;
+  completedTasks: number;
 };
 
 type ProjectTypeRow = {
@@ -77,6 +82,10 @@ type StoryPointRow = {
   completed_story_points: number | null;
 };
 
+type SprintScoreboardProps = {
+  selectedMemberId?: string;
+};
+
 type MemberStoryPointCard = {
   id: string;
   name: string;
@@ -97,6 +106,17 @@ const PROJECT_TYPE_FALLBACK_COLORS = [
   "#ff9f43",
   "#6b89ff",
   "#ff6b6b",
+];
+
+const TASK_PROJECT_COLORS = [
+  "#00c8ff",
+  "#ff6b6b",
+  "#f5c842",
+  "#00e5a0",
+  "#a78bfa",
+  "#ff6eb4",
+  "#ff9f43",
+  "#6b89ff",
 ];
 
 const ASSIGNEE_COLORS = [
@@ -149,8 +169,21 @@ function getProjectTypeColor(projectTypeName: string): string {
   return PROJECT_TYPE_FALLBACK_COLORS[hash % PROJECT_TYPE_FALLBACK_COLORS.length];
 }
 
+function getTaskProjectColor(index: number): string {
+  return TASK_PROJECT_COLORS[index % TASK_PROJECT_COLORS.length];
+}
+
 function isProjectStoryPointTask(task: ScoreboardTaskRow): boolean {
   return task.sp_type === "planned" || task.sp_type === "adhoc";
+}
+
+function isCompletedList(listName: string): boolean {
+  const normalizedListName = listName.trim().toLowerCase();
+
+  return (
+    normalizedListName !== "current sprint" &&
+    normalizedListName !== "in development"
+  );
 }
 
 function getMemberName(member: MemberRow): string {
@@ -204,16 +237,29 @@ function getCompletionSummaryColor(percent: number): string {
   return "#ff4757";
 }
 
-export default function SprintScoreboard() {
+export default function SprintScoreboard({
+  selectedMemberId = "",
+}: SprintScoreboardProps) {
   const scoreboardRef = useRef<HTMLElement | null>(null);
   const [supabaseStoryPointTotals, setSupabaseStoryPointTotals] =
     useState<ScoreboardStoryPointTotals>({
-      planned: plannedStoryPoints,
-      adhoc: adhocStoryPoints,
+      planned: selectedMemberId ? 0 : plannedStoryPoints,
+      adhoc: selectedMemberId ? 0 : adhocStoryPoints,
+      plannedTasks: selectedMemberId
+        ? 0
+        : sprintBoardTasks.filter((task) => !task.isAdhoc).length,
+      adhocTasks: selectedMemberId
+        ? 0
+        : sprintBoardTasks.filter((task) => task.isAdhoc).length,
+      completedTasks: 0,
     });
   const [projectStoryPointSegments, setProjectStoryPointSegments] = useState<
     ProjectStoryPointSegment[]
-  >(initialProjectStoryPointSegments);
+  >(selectedMemberId ? [] : initialProjectStoryPointSegments);
+  const [taskProjectStoryPointSegments, setTaskProjectStoryPointSegments] =
+    useState<ProjectStoryPointSegment[]>(
+      selectedMemberId ? [] : initialProjectStoryPointSegments,
+    );
   const [memberStoryPointCards, setMemberStoryPointCards] =
     useState<MemberStoryPointCard[]>([]);
   const [blockedCount, setBlockedCount] = useState(0);
@@ -221,6 +267,11 @@ export default function SprintScoreboard() {
   const displayedAdhocStoryPoints = supabaseStoryPointTotals.adhoc;
   const displayedTotalBoardStoryPoints =
     displayedPlannedStoryPoints + displayedAdhocStoryPoints;
+  const displayedPlannedTaskCount = supabaseStoryPointTotals.plannedTasks;
+  const displayedAdhocTaskCount = supabaseStoryPointTotals.adhocTasks;
+  const displayedTotalTaskCount =
+    displayedPlannedTaskCount + displayedAdhocTaskCount;
+  const displayedCompletedTaskCount = supabaseStoryPointTotals.completedTasks;
   const displayedCompletedBoardStoryPoints = Math.min(
     memberStoryPointCards.reduce(
       (sum, member) => sum + member.completedStoryPoints,
@@ -247,6 +298,9 @@ export default function SprintScoreboard() {
   const projectStoryPointChartSegments = projectStoryPointSegments.filter(
     (project) => project.storyPoints > 0,
   );
+  const taskProjectStoryPointChartSegments = taskProjectStoryPointSegments.filter(
+    (project) => project.storyPoints > 0,
+  );
   const assigneeCompletionSegments = memberStoryPointCards
     .map((member) => {
       const total = member.plannedStoryPoints + member.adhocStoryPoints;
@@ -269,7 +323,6 @@ export default function SprintScoreboard() {
         label: member.name,
         labelColor: member.color,
         topLabel: `${completedPercent}%`,
-        sublabel: `${completed}/${total} SP`,
         stacks: [
           {
             value: notDone,
@@ -312,18 +365,33 @@ export default function SprintScoreboard() {
 
         if (!currentSprint) {
           if (!cancelled) {
-            setSupabaseStoryPointTotals({ planned: 0, adhoc: 0 });
+            setSupabaseStoryPointTotals({
+              planned: 0,
+              adhoc: 0,
+              plannedTasks: 0,
+              adhocTasks: 0,
+              completedTasks: 0,
+            });
             setProjectStoryPointSegments([]);
+            setTaskProjectStoryPointSegments([]);
             setMemberStoryPointCards([]);
             setBlockedCount(0);
           }
           return;
         }
 
+        const taskFilters: Record<string, string> = { sprint_id: currentSprint.id };
+        const storyPointFilters: Record<string, string> = { sprint_id: currentSprint.id };
+
+        if (selectedMemberId) {
+          taskFilters.assigned_to = selectedMemberId;
+          storyPointFilters.member_id = selectedMemberId;
+        }
+
         const [tasks, projectTypes, members, storyPoints] = await Promise.all([
           getSupabaseRows<ScoreboardTaskRow>("tasks", {
-            select: "story_points,real_story_points,sp_type,project_type,assigned_to,is_completed",
-            eq: { sprint_id: currentSprint.id },
+            select: "story_points,real_story_points,sp_type,trello_list_name,project_type,project,assigned_to,is_completed",
+            eq: taskFilters,
           }),
           getSupabaseRows<ProjectTypeRow>("project_type", {
             select: "id,name",
@@ -334,22 +402,38 @@ export default function SprintScoreboard() {
           getSupabaseRows<StoryPointRow>("story_points", {
             select:
               "member_id,assigned_story_points,adhoc_story_points,completed_story_points",
-            eq: { sprint_id: currentSprint.id },
+            eq: storyPointFilters,
           }),
         ]);
+        const currentSprintStoryPointTasks = tasks.filter(isProjectStoryPointTask);
         const totals = tasks.reduce<ScoreboardStoryPointTotals>(
           (sum, task) => {
             if (task.sp_type === "planned") {
               sum.planned += task.story_points;
+              sum.plannedTasks += 1;
             }
 
             if (task.sp_type === "adhoc") {
               sum.adhoc += task.story_points;
+              sum.adhocTasks += 1;
+            }
+
+            if (
+              isProjectStoryPointTask(task) &&
+              isCompletedList(task.trello_list_name ?? "")
+            ) {
+              sum.completedTasks += 1;
             }
 
             return sum;
           },
-          { planned: 0, adhoc: 0 },
+          {
+            planned: 0,
+            adhoc: 0,
+            plannedTasks: 0,
+            adhocTasks: 0,
+            completedTasks: 0,
+          },
         );
         const storyPointsByProjectTypeId = tasks.reduce<Map<string, number>>(
           (sum, task) => {
@@ -374,7 +458,28 @@ export default function SprintScoreboard() {
               storyPoints,
               value: storyPoints,
             };
-          });
+          })
+          .filter((projectType) => !selectedMemberId || projectType.storyPoints > 0);
+        const taskCountByTaskProject = currentSprintStoryPointTasks.reduce<Map<string, number>>(
+          (sum, task) => {
+            const projectName = task.project?.trim() || "General";
+            sum.set(projectName, (sum.get(projectName) ?? 0) + 1);
+
+            return sum;
+          },
+          new Map(),
+        );
+        const taskProjectSegments = Array.from(taskCountByTaskProject.entries())
+          .sort(([projectNameA, taskCountA], [projectNameB, taskCountB]) => {
+            if (taskCountB !== taskCountA) return taskCountB - taskCountA;
+            return projectNameA.localeCompare(projectNameB);
+          })
+          .map(([projectName, taskCount], index) => ({
+            label: projectName,
+            color: getTaskProjectColor(index),
+            storyPoints: taskCount,
+            value: taskCount,
+          }));
         const storyPointsByMemberId = new Map(
           storyPoints.map((storyPoint) => [storyPoint.member_id, storyPoint]),
         );
@@ -400,6 +505,7 @@ export default function SprintScoreboard() {
           .filter(
             (member): member is MemberRow & { id: string } =>
               Boolean(member.id) &&
+              (!selectedMemberId || member.id === selectedMemberId) &&
               !EXCLUDED_SCOREBOARD_MEMBER_IDS.has(member.id as string) &&
               !EXCLUDED_SCOREBOARD_MEMBER_ROLES.has(
                 member.role?.trim().toLowerCase() ?? "",
@@ -430,16 +536,33 @@ export default function SprintScoreboard() {
         if (!cancelled) {
           setSupabaseStoryPointTotals(totals);
           setProjectStoryPointSegments(projectSegments);
+          setTaskProjectStoryPointSegments(taskProjectSegments);
           setMemberStoryPointCards(memberCards);
-          setBlockedCount(currentSprint.blocked_count ?? 0);
+          setBlockedCount(
+            selectedMemberId
+              ? tasks.filter((task) => task.sp_type === "blocked").length
+              : currentSprint.blocked_count ?? 0,
+          );
         }
       } catch {
         if (!cancelled) {
           setSupabaseStoryPointTotals({
-            planned: plannedStoryPoints,
-            adhoc: adhocStoryPoints,
+            planned: selectedMemberId ? 0 : plannedStoryPoints,
+            adhoc: selectedMemberId ? 0 : adhocStoryPoints,
+            plannedTasks: selectedMemberId
+              ? 0
+              : sprintBoardTasks.filter((task) => !task.isAdhoc).length,
+            adhocTasks: selectedMemberId
+              ? 0
+              : sprintBoardTasks.filter((task) => task.isAdhoc).length,
+            completedTasks: 0,
           });
-          setProjectStoryPointSegments(initialProjectStoryPointSegments);
+          setProjectStoryPointSegments(
+            selectedMemberId ? [] : initialProjectStoryPointSegments,
+          );
+          setTaskProjectStoryPointSegments(
+            selectedMemberId ? [] : initialProjectStoryPointSegments,
+          );
           setMemberStoryPointCards([]);
           setBlockedCount(0);
         }
@@ -451,7 +574,7 @@ export default function SprintScoreboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedMemberId]);
 
   const scrollToScoreboard = () => {
     const target = scoreboardRef.current;
@@ -459,6 +582,192 @@ export default function SprintScoreboard() {
 
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  const renderStoryPointDoughnutCard = ({
+    title,
+    segments,
+    chartSegments,
+    gradientIdPrefix,
+    totalValue = displayedTotalBoardStoryPoints,
+    totalLabel = "TOTAL SP",
+    unitLabel = "SP",
+  }: {
+    title: string;
+    segments: ProjectStoryPointSegment[];
+    chartSegments: ProjectStoryPointSegment[];
+    gradientIdPrefix: string;
+    totalValue?: number;
+    totalLabel?: string;
+    unitLabel?: string;
+  }) => (
+    <div
+      className="sprint-project-chart-card"
+      style={{
+        padding: 11,
+        borderRadius: 13,
+        border: "1px solid rgba(167,139,250,0.24)",
+        background:
+          "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(0,200,255,0.06), rgba(6,13,31,0.46))",
+        boxShadow: "0 0 24px rgba(167,139,250,0.1)",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          color: "rgba(100,180,255,0.55)",
+          fontFamily: "'DM Mono', monospace",
+          fontSize: 9,
+          fontWeight: 900,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          marginBottom: 8,
+        }}
+      >
+        {title}
+      </div>
+      <DoughnutChart
+        segments={chartSegments}
+        geometry={{
+          cx: 120,
+          cy: 120,
+          outerR: 102,
+          innerR: 58,
+          gap: 2.5,
+        }}
+        gradientIdPrefix={gradientIdPrefix}
+        maxWidth="clamp(280px, 34vw, 380px)"
+        popOffset={4}
+        renderCenter={({ hovered, cx, cy }) => {
+          const active = hovered ?? null;
+          const activeValue = active?.storyPoints ?? totalValue;
+          const activePercent =
+            totalValue > 0
+              ? Math.round((activeValue / totalValue) * 100)
+              : 0;
+
+          return (
+            <>
+              <text
+                x={cx}
+                y={cy - 8}
+                textAnchor="middle"
+                fill={active?.color ?? "#00e5a0"}
+                fontFamily="'DM Mono', monospace"
+                fontSize="28"
+                fontWeight="900"
+              >
+                {activeValue}
+              </text>
+              <text
+                x={cx}
+                y={cy + 10}
+                textAnchor="middle"
+                fill="rgba(160,210,255,0.66)"
+                fontFamily="'DM Mono', monospace"
+                fontSize="10"
+                fontWeight="900"
+              >
+                {active ? `${activePercent}%` : totalLabel}
+              </text>
+            </>
+          );
+        }}
+        renderLegend={({ segments: builtSegments, hov, setHov }) => {
+          const chartSegmentByLabel = new Map(
+            builtSegments.map((project) => [project.label, project]),
+          );
+
+          return (
+            <div
+              style={{
+                flex: "1 1 260px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                minWidth: 0,
+              }}
+            >
+              {segments.map((project) => {
+                const chartSegment = chartSegmentByLabel.get(project.label);
+                const percent =
+                  totalValue > 0
+                    ? Math.round(
+                        (project.storyPoints / totalValue) * 100,
+                      )
+                    : 0;
+                const isActive = chartSegment ? hov === chartSegment.i : false;
+
+                return (
+                  <button
+                    className="project-score-legend-item"
+                    key={project.label}
+                    type="button"
+                    onMouseEnter={() => setHov(chartSegment?.i ?? null)}
+                    onMouseLeave={() => setHov(null)}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                      alignItems: "center",
+                      gap: 7,
+                      padding: "5px 7px",
+                      borderRadius: 10,
+                      border: `1px solid ${
+                        isActive ? project.color : "rgba(100,180,255,0.08)"
+                      }`,
+                      background: isActive
+                        ? `${project.color}16`
+                        : "rgba(255,255,255,0.025)",
+                      cursor: chartSegment ? "pointer" : "default",
+                      opacity: project.storyPoints > 0 ? 1 : 0.62,
+                      textAlign: "left",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background: project.color,
+                        boxShadow:
+                          project.storyPoints > 0
+                            ? `0 0 8px ${project.color}88`
+                            : "none",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: "rgba(220,238,255,0.82)",
+                        fontFamily: "'DM Sans', sans-serif",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        lineHeight: 1.15,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {project.label}
+                    </span>
+                    <span
+                      className="project-score-legend-value"
+                      style={{
+                        color: project.color,
+                        fontFamily: "'DM Mono', monospace",
+                        fontSize: 11,
+                        fontWeight: 900,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {project.storyPoints} {unitLabel} · {percent}%
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        }}
+      />
+    </div>
+  );
 
   return (
     <>
@@ -620,6 +929,7 @@ export default function SprintScoreboard() {
                   label: "Adhoc",
                   value: displayedAdhocStoryPoints,
                   color: "#ff9f43",
+                  taskCount: displayedAdhocTaskCount,
                   footer:
                     displayedTotalBoardStoryPoints > 0
                       ? `${Math.round(
@@ -633,6 +943,7 @@ export default function SprintScoreboard() {
                   label: "SP Total",
                   value: displayedTotalBoardStoryPoints,
                   color: "#00e5a0",
+                  taskCount: displayedTotalTaskCount,
                   footer: "planned + adhoc",
                   blockedCount,
                 },
@@ -640,15 +951,18 @@ export default function SprintScoreboard() {
                   label: "Completed",
                   value: displayedCompletedBoardStoryPoints,
                   color: displayedCompletedBoardColor,
+                  taskCount: displayedCompletedTaskCount,
                   footer: "",
                   percent: displayedCompletedBoardRate,
                 },
               ].map((item) => {
-                const { label, value, color, footer, percent, blockedCount: itemBlockedCount } = item;
+                const { label, value, color, footer, percent, taskCount, blockedCount: itemBlockedCount } = item;
                 const labelText = label as string;
                 const storyPoints = value as number;
                 const accentColor = color as string;
                 const isCompleted = labelText === "Completed";
+                const isPlanned = labelText === "Planned";
+                const hasTaskCount = typeof taskCount === "number";
                 const isSpTotal = labelText === "SP Total";
 
                 return (
@@ -734,6 +1048,36 @@ export default function SprintScoreboard() {
                         </>
                       )}
                     </div>
+                    {isPlanned ||
+                    (hasTaskCount && (labelText === "Adhoc" || isSpTotal || isCompleted)) ? (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          color: "rgba(160,210,255,0.68)",
+                          fontFamily: "'DM Mono', monospace",
+                          fontSize: 10,
+                          fontWeight: 900,
+                          letterSpacing: "0.02em",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {(isPlanned ? displayedPlannedTaskCount : taskCount) ?? 0} TASKS
+                      </div>
+                    ) : null}
+                    {isCompleted ? (
+                      <div
+                        style={{
+                          marginTop: 4,
+                          color: accentColor,
+                          fontFamily: "'DM Mono', monospace",
+                          fontSize: 9,
+                          fontWeight: 900,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {displayedCompletedBoardStoryPoints} SP COMPLETED
+                      </div>
+                    ) : null}
                     {footer ? (
                       <div
                         style={{
@@ -878,18 +1222,27 @@ export default function SprintScoreboard() {
           </div>
 
           <div
-            className="sprint-project-chart-card"
+            className="sprint-project-chart-row"
             style={{
-              padding: 11,
-              borderRadius: 13,
-              border: "1px solid rgba(167,139,250,0.24)",
-              background:
-                "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(0,200,255,0.06), rgba(6,13,31,0.46))",
-              boxShadow: "0 0 24px rgba(167,139,250,0.1)",
               gridColumn: "1 / -1",
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 10,
               minWidth: 0,
             }}
           >
+            <div
+              className="sprint-project-chart-card"
+              style={{
+                padding: 11,
+                borderRadius: 13,
+                border: "1px solid rgba(167,139,250,0.24)",
+                background:
+                  "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(0,200,255,0.06), rgba(6,13,31,0.46))",
+                boxShadow: "0 0 24px rgba(167,139,250,0.1)",
+                minWidth: 0,
+              }}
+            >
             <div
               style={{
                 color: "rgba(100,180,255,0.55)",
@@ -1046,6 +1399,17 @@ export default function SprintScoreboard() {
                 );
               }}
             />
+            </div>
+
+            {renderStoryPointDoughnutCard({
+              title: "Story Points By Project",
+              segments: taskProjectStoryPointSegments,
+              chartSegments: taskProjectStoryPointChartSegments,
+              gradientIdPrefix: "task-project-sp",
+              totalValue: displayedTotalTaskCount,
+              totalLabel: "TOTAL TASKS",
+              unitLabel: "TASKS",
+            })}
           </div>
         </div>
 

@@ -29,7 +29,10 @@ import "@/assets/styles/Dashboard.page.css";
 const DASHBOARD_HIDDEN_TRELLO_LIST_NAMES = new Set([
   "project refinement",
   "on-deck sprint backlog",
+  "backlog",
+  "next sprint",
   "done qa",
+  "done sprint",
 ]);
 
 type DashboardTaskCountRow = {

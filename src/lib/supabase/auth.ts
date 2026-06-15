@@ -13,6 +13,20 @@ export type CreateSupabaseAuthUserResult = {
   };
 };
 
+export type UpdateSupabaseAuthUserPasswordResult = {
+  memberId: string;
+  authUserId: string;
+  email: string;
+  message: string;
+};
+
+export type ConfirmSupabaseAuthUserEmailResult = {
+  memberId: string;
+  authUserId: string;
+  email: string;
+  message: string;
+};
+
 function isAlreadyRegisteredMessage(message: string): boolean {
   const normalized = message.toLowerCase();
 
@@ -29,6 +43,32 @@ function getCreateUsersFunctionErrorMessage(message: string): string {
       "Failed to reach the create-users Edge Function.",
       "Make sure the function is deployed with `supabase functions deploy create-users`,",
       "or served locally with `supabase functions serve create-users`.",
+      "Also confirm VITE_SUPABASE_URL points to the Supabase project URL.",
+    ].join(" ");
+  }
+
+  return message;
+}
+
+function getUpdatePasswordFunctionErrorMessage(message: string): string {
+  if (message.toLowerCase().includes("failed to send a request")) {
+    return [
+      "Failed to reach the update-user-password Edge Function.",
+      "Make sure the function is deployed with `supabase functions deploy update-user-password`,",
+      "or served locally with `supabase functions serve update-user-password`.",
+      "Also confirm VITE_SUPABASE_URL points to the Supabase project URL.",
+    ].join(" ");
+  }
+
+  return message;
+}
+
+function getConfirmUserEmailFunctionErrorMessage(message: string): string {
+  if (message.toLowerCase().includes("failed to send a request")) {
+    return [
+      "Failed to reach the confirm-user-email Edge Function.",
+      "Make sure the function is deployed with `supabase functions deploy confirm-user-email`,",
+      "or served locally with `supabase functions serve confirm-user-email`.",
       "Also confirm VITE_SUPABASE_URL points to the Supabase project URL.",
     ].join(" ");
   }
@@ -68,6 +108,56 @@ export async function createSupabaseAuthUsers(
   }
 
   return data ?? [];
+}
+
+export async function updateSupabaseAuthUserPassword(
+  memberId: string,
+  password: string,
+): Promise<UpdateSupabaseAuthUserPasswordResult> {
+  const { data, error } =
+    await supabase.functions.invoke<UpdateSupabaseAuthUserPasswordResult>(
+      "update-user-password",
+      {
+        body: {
+          memberId,
+          password,
+        },
+      },
+    );
+
+  if (error) {
+    throw new Error(getUpdatePasswordFunctionErrorMessage(error.message));
+  }
+
+  if (!data) {
+    throw new Error("No response returned from update-user-password.");
+  }
+
+  return data;
+}
+
+export async function confirmSupabaseAuthUserEmail(
+  memberId: string,
+): Promise<ConfirmSupabaseAuthUserEmailResult> {
+  const { data, error } =
+    await supabase.functions.invoke<ConfirmSupabaseAuthUserEmailResult>(
+      "confirm-user-email",
+      {
+        body: {
+          memberId,
+        },
+      },
+    );
+
+  if (error) {
+    throw new Error(getConfirmUserEmailFunctionErrorMessage(error.message));
+  }
+
+  if (!data) {
+    throw new Error("No response returned from confirm-user-email.");
+  }
+
+  return data;
 }
 
 export async function signInWithEmailPassword(

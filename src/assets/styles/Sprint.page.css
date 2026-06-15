@@ -26,12 +26,97 @@
   box-shadow: 0 0 12px rgba(0, 200, 255, 0.16);
 }
 
+.sprint-approval-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.sprint-approval-bar--floating {
+  position: fixed;
+  top: 68px;
+  right: 24px;
+  z-index: 12;
+}
+
+.sprint-approval-button {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 190px;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 200, 255, 0.5);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.2), rgba(0, 229, 160, 0.12)),
+    rgba(6, 13, 31, 0.9);
+  box-shadow: 0 0 22px rgba(0, 200, 255, 0.16);
+  color: #00c8ff;
+  cursor: pointer;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(12px);
+}
+
+.sprint-approval-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.sprint-approval-message {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 .sprint-action-loader {
   width: 10px;
   height: 10px;
   border: 2px solid rgba(160, 210, 255, 0.34);
   border-radius: 50%;
   animation: sprint-action-spin 0.75s linear infinite;
+}
+
+.sprint-floating-sync-indicator {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 10px 12px;
+  border: 1px solid rgba(0, 200, 255, 0.42);
+  border-right: 0;
+  border-radius: 999px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.18), rgba(0, 229, 160, 0.1)),
+    rgba(6, 13, 31, 0.9);
+  box-shadow: 0 0 24px rgba(0, 200, 255, 0.18);
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: translateY(-50%);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+
+.sprint-floating-sync-indicator .sprint-action-loader {
+  border-top-color: #00c8ff;
 }
 
 .sprint-confirmation-overlay {
@@ -144,6 +229,70 @@
   white-space: nowrap;
 }
 
+.sprint-next-form {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.sprint-next-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sprint-next-field span {
+  color: rgba(100, 180, 255, 0.62);
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sprint-next-field input,
+.sprint-next-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(100, 180, 255, 0.18);
+  border-radius: 11px;
+  background: rgba(9, 18, 38, 0.84);
+  color: rgba(232, 244, 255, 0.9);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  outline: none;
+  padding: 9px 10px;
+}
+
+.sprint-next-field select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 32px;
+}
+
+.sprint-next-select-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.sprint-next-select-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  color: rgba(140, 185, 230, 0.72) !important;
+  font-family: "DM Mono", monospace;
+  font-size: 9px !important;
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
+  text-transform: none !important;
+  transform: translateY(-50%);
+}
+
 .sprint-confirmation-actions {
   position: relative;
   display: flex;
@@ -197,6 +346,10 @@
     grid-template-columns: 1fr !important;
   }
 
+  .sprint-project-chart-row {
+    grid-template-columns: 1fr !important;
+  }
+
   .sprint-assignee-grid {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
   }
@@ -224,6 +377,32 @@
 }
 
 @media (max-width: 640px) {
+  .sprint-approval-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sprint-approval-bar--floating {
+    left: 10px;
+    right: 10px;
+    top: 62px;
+  }
+
+  .sprint-approval-button {
+    width: 100%;
+  }
+
+  .sprint-floating-sync-indicator {
+    right: 0;
+    top: auto;
+    bottom: 18px;
+    transform: none;
+  }
+
+  .sprint-next-form {
+    grid-template-columns: 1fr;
+  }
+
   .sprint-selector-row {
     align-items: stretch !important;
   }

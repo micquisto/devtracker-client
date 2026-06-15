@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
@@ -11,9 +11,17 @@ import {
   TestPage,
   AppFlowPage,
   RequirementsDataPage,
+  SprintRequirementsPage,
+  AccessControlListsPage,
+  ChangePasswordsPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
-import { getSupabaseSession, signOutSupabaseUser, supabase } from "@/lib/supabase";
+import {
+  getSupabaseRows,
+  getSupabaseSession,
+  signOutSupabaseUser,
+  supabase,
+} from "@/lib/supabase";
 import { Icon, type IconKey } from "@/lib/theme";
 import "@/assets/styles/AppShell.css";
 
@@ -25,6 +33,24 @@ type NavEntry = {
   children?: NavEntry[];
 };
 type SetActivePage = Dispatch<SetStateAction<string>>;
+
+type LoggedInMemberAccessRow = {
+  role: string | null;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type SidebarMemberProfile = {
+  displayName: string;
+  roleLabel: string;
+  initials: string;
+};
+
+type AccessControlRow = {
+  page_id: string;
+  can_access: boolean;
+};
 
 /* ─────────────────────────────────────────────
    NAV STRUCTURE
@@ -71,8 +97,17 @@ const NAV: NavEntry[] = [
         label: "Data Override",
         children: [
           { id: "admin-requirements-data", label: "Requirements Data" },
+          { id: "admin-sprint-requirements", label: "Sprint Requirements" },
         ],
       },
+      {
+        id: "admin-user",
+        label: "Users",
+        children: [
+          { id: "admin-user-change-passwords", label: "Change Passwords" },
+        ],
+      },
+      { id: "admin-access-control-lists", label: "Access Control Lists" },
     ],
   },
 ];
@@ -87,6 +122,71 @@ function flattenNavItems(items: NavEntry[]): NavEntry[] {
 
 const NAV_ITEMS = flattenNavItems(NAV);
 const VALID_NAV_IDS = new Set(NAV_ITEMS.map((item) => item.id));
+
+function getFirstAccessiblePage(items: NavEntry[]): string {
+  for (const item of items) {
+    if (item.children?.length) {
+      const childPage = getFirstAccessiblePage(item.children);
+      if (childPage) return childPage;
+    } else {
+      return item.id;
+    }
+  }
+
+  return "dashboard";
+}
+
+function formatRoleLabel(role: string | null | undefined): string {
+  if (!role?.trim()) return "Member";
+
+  return role
+    .trim()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function getMemberDisplayName(member: LoggedInMemberAccessRow | null | undefined, fallbackEmail?: string): string {
+  const fullName = member?.full_name?.trim();
+  const composedName = [member?.first_name, member?.last_name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  return fullName || composedName || fallbackEmail || "Member";
+}
+
+function getMemberInitials(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1
+    ? `${parts[0]?.charAt(0) ?? ""}${parts[parts.length - 1]?.charAt(0) ?? ""}`
+    : displayName.slice(0, 2);
+
+  return initials.toUpperCase() || "MB";
+}
+
+function filterNavByAccess(items: NavEntry[], allowedPageIds: Set<string> | null): NavEntry[] {
+  if (!allowedPageIds) return items;
+
+  return items.reduce<NavEntry[]>((filteredItems, item) => {
+    const filteredChildren = item.children
+      ? filterNavByAccess(item.children, allowedPageIds)
+      : undefined;
+    const itemAllowed = allowedPageIds.has(item.id);
+
+    if (!itemAllowed && (!filteredChildren || filteredChildren.length === 0)) {
+      return filteredItems;
+    }
+
+    filteredItems.push({
+      ...item,
+      children: filteredChildren,
+    });
+
+    return filteredItems;
+  }, []);
+}
 
 function getInitialActivePage(): string {
   if (typeof window === "undefined") return "dashboard";
@@ -201,12 +301,16 @@ function SidebarContent({
   active,
   setActive,
   onClose,
+  navItems,
+  memberProfile,
   collapsed = false,
   onToggleCollapse,
 }: {
   active: string;
   setActive: SetActivePage;
   onClose?: () => void;
+  navItems: NavEntry[];
+  memberProfile: SidebarMemberProfile;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
@@ -305,7 +409,7 @@ function SidebarContent({
 
       {/* Nav items */}
       <nav style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-        {NAV.map((item) => (
+        {navItems.map((item) => (
           <NavItem
             key={item.id}
             item={item}
@@ -335,17 +439,17 @@ function SidebarContent({
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 12, fontWeight: 800, color: "#060d1f",
               fontFamily: "'DM Mono', monospace", flexShrink: 0,
-            }}>JD</div>
+            }}>{memberProfile.initials}</div>
             <div style={{ overflow: "hidden" }}>
               <div style={{
                 fontSize: 12, fontWeight: 700, color: "#e8f4ff",
                 fontFamily: "'DM Sans', sans-serif",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-              }}>John Doe</div>
+              }}>{memberProfile.displayName}</div>
               <div style={{
                 fontSize: 10, color: "rgba(0,200,255,0.6)",
                 fontFamily: "'DM Mono', monospace",
-              }}>Senior Dev · Grade A</div>
+              }}>{memberProfile.roleLabel} · Grade A</div>
             </div>
           </div>
         </div>
@@ -504,6 +608,18 @@ function PageContent({ active }: { active: string }) {
     return <RequirementsDataPage />;
   }
 
+  if (active === "admin-sprint-requirements") {
+    return <SprintRequirementsPage />;
+  }
+
+  if (active === "admin-access-control-lists") {
+    return <AccessControlListsPage />;
+  }
+
+  if (active === "admin-user-change-passwords") {
+    return <ChangePasswordsPage />;
+  }
+
   return (
     <div style={{
       display: "flex", flexDirection: "column",
@@ -551,7 +667,16 @@ export default function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [memberRole, setMemberRole] = useState<string | null>(null);
+  const [memberProfile, setMemberProfile] = useState<SidebarMemberProfile>({
+    displayName: "Member",
+    roleLabel: "Member",
+    initials: "MB",
+  });
+  const [allowedPageIds, setAllowedPageIds] = useState<Set<string> | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -585,14 +710,120 @@ export default function AppShell() {
     window.localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, active);
   }, [active]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMemberRole(): Promise<void> {
+      if (!session?.user.id) {
+        setMemberRole(null);
+        setMemberProfile({
+          displayName: "Member",
+          roleLabel: "Member",
+          initials: "MB",
+        });
+        return;
+      }
+
+      try {
+        const [memberByEmail] = session.user.email
+          ? await getSupabaseRows<LoggedInMemberAccessRow>("members", {
+              select: "role,full_name,first_name,last_name",
+              eq: { email: session.user.email },
+              limit: 1,
+            })
+          : [];
+        const [memberByAuthUserId] =
+          !memberByEmail
+            ? await getSupabaseRows<LoggedInMemberAccessRow>("members", {
+                select: "role,full_name,first_name,last_name",
+                eq: { auth_user_id: session.user.id },
+                limit: 1,
+              })
+            : [];
+        const member = memberByEmail ?? memberByAuthUserId ?? null;
+        const role = (member?.role ?? null)
+          ?.trim()
+          .toLowerCase() ?? null;
+
+        if (!cancelled) {
+          const displayName = getMemberDisplayName(member, session.user.email);
+
+          setMemberRole(role);
+          setMemberProfile({
+            displayName,
+            roleLabel: formatRoleLabel(role),
+            initials: getMemberInitials(displayName),
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setMemberRole(null);
+          setMemberProfile({
+            displayName: session.user.email ?? "Member",
+            roleLabel: "Member",
+            initials: getMemberInitials(session.user.email ?? "Member"),
+          });
+        }
+      }
+    }
+
+    void loadMemberRole();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.email, session?.user.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAcl(): Promise<void> {
+      if (!memberRole) {
+        setAllowedPageIds(null);
+        return;
+      }
+
+      try {
+        const rows = await getSupabaseRows<AccessControlRow>(
+          "access_control_lists",
+          {
+            select: "page_id,can_access",
+            eq: { role: memberRole },
+          },
+        );
+
+        if (cancelled) return;
+
+        setAllowedPageIds(
+          rows.length === 0
+            ? null
+            : new Set(rows.filter((row) => row.can_access).map((row) => row.page_id)),
+        );
+      } catch {
+        if (!cancelled) setAllowedPageIds(null);
+      }
+    }
+
+    void loadAcl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [memberRole]);
+
   // Close drawer on ESC
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && logoutConfirmOpen) {
+        setLogoutConfirmOpen(false);
+        return;
+      }
+
       if (e.key === "Escape") setDrawerOpen(false);
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, []);
+  }, [logoutConfirmOpen]);
 
   // Prevent body scroll when drawer open
   useEffect(() => {
@@ -600,10 +831,28 @@ export default function AppShell() {
     return () => { document.body.style.overflow = ""; };
   }, [drawerOpen]);
 
+  const visibleNav = useMemo(
+    () => filterNavByAccess(NAV, allowedPageIds),
+    [allowedPageIds],
+  );
+
+  useEffect(() => {
+    if (!allowedPageIds) return;
+    if (allowedPageIds.has(active)) return;
+
+    setActive(getFirstAccessiblePage(visibleNav));
+  }, [active, allowedPageIds, visibleNav]);
+
   const handleLogout = async () => {
-    await signOutSupabaseUser();
-    setSession(null);
-    setDrawerOpen(false);
+    try {
+      setLogoutLoading(true);
+      await signOutSupabaseUser();
+      setSession(null);
+      setDrawerOpen(false);
+      setLogoutConfirmOpen(false);
+    } finally {
+      setLogoutLoading(false);
+    }
   };
 
   if (sessionLoading) {
@@ -657,6 +906,8 @@ export default function AppShell() {
         <SidebarContent
           active={active}
           setActive={setActive}
+          navItems={visibleNav}
+          memberProfile={memberProfile}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
         />
@@ -693,6 +944,8 @@ export default function AppShell() {
         <SidebarContent
           active={active}
           setActive={setActive}
+          navItems={visibleNav}
+          memberProfile={memberProfile}
           onClose={() => setDrawerOpen(false)}
         />
       </aside>
@@ -706,7 +959,7 @@ export default function AppShell() {
           onBurger={() => setDrawerOpen(true)}
           active={active}
           userEmail={session.user.email}
-          onLogout={() => void handleLogout()}
+          onLogout={() => setLogoutConfirmOpen(true)}
         />
         <main className="app-main" style={{
           flex: 1, overflowY: "auto",
@@ -716,6 +969,150 @@ export default function AppShell() {
           <PageContent active={active} />
         </main>
       </div>
+      {logoutConfirmOpen && (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            background: "rgba(0,0,0,0.58)",
+            backdropFilter: "blur(8px)",
+          }}
+          onClick={() => {
+            if (!logoutLoading) setLogoutConfirmOpen(false);
+          }}
+        >
+          <div
+            aria-modal="true"
+            role="dialog"
+            aria-labelledby="logout-confirmation-title"
+            style={{
+              position: "relative",
+              width: "min(420px, 100%)",
+              overflow: "hidden",
+              borderRadius: 18,
+              border: "1px solid rgba(0,200,255,0.3)",
+              background: "linear-gradient(145deg, rgba(8,16,34,0.98), rgba(6,13,31,0.96))",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.46), 0 0 30px rgba(0,200,255,0.12)",
+              padding: 24,
+              color: "#e8f4ff",
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: "0 0 auto",
+                height: 3,
+                background: "linear-gradient(90deg, #00c8ff, #00e5a0)",
+              }}
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+              <div
+                aria-hidden="true"
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 14,
+                  border: "1px solid rgba(0,200,255,0.36)",
+                  background: "rgba(0,200,255,0.1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#00c8ff",
+                  fontFamily: "'DM Mono', monospace",
+                  fontSize: 18,
+                  fontWeight: 900,
+                }}
+              >
+                ?
+              </div>
+              <div>
+                <div
+                  style={{
+                    color: "rgba(0,200,255,0.68)",
+                    fontFamily: "'DM Mono', monospace",
+                    fontSize: 10,
+                    fontWeight: 900,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Confirm Action
+                </div>
+                <h2
+                  id="logout-confirmation-title"
+                  style={{
+                    margin: "4px 0 0",
+                    color: "#e8f4ff",
+                    fontSize: 20,
+                    fontWeight: 900,
+                    letterSpacing: "-0.02em",
+                  }}
+                >
+                  Logout from DevTracker?
+                </h2>
+              </div>
+            </div>
+            <p
+              style={{
+                margin: "0 0 20px",
+                color: "rgba(190,220,255,0.72)",
+                fontSize: 13,
+                lineHeight: 1.6,
+              }}
+            >
+              Are you sure you want to end your current session?
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                disabled={logoutLoading}
+                onClick={() => setLogoutConfirmOpen(false)}
+                style={{
+                  border: "1px solid rgba(160,210,255,0.18)",
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.04)",
+                  color: "rgba(190,220,255,0.76)",
+                  cursor: logoutLoading ? "not-allowed" : "pointer",
+                  fontFamily: "'DM Mono', monospace",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  padding: "9px 16px",
+                  textTransform: "uppercase",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={logoutLoading}
+                onClick={() => void handleLogout()}
+                style={{
+                  border: "1px solid rgba(0,200,255,0.5)",
+                  borderRadius: 999,
+                  background: "linear-gradient(135deg, rgba(0,200,255,0.22), rgba(0,229,160,0.12))",
+                  color: "#00c8ff",
+                  cursor: logoutLoading ? "not-allowed" : "pointer",
+                  fontFamily: "'DM Mono', monospace",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  padding: "9px 16px",
+                  textTransform: "uppercase",
+                }}
+              >
+                {logoutLoading ? "Logging out..." : "Logout"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

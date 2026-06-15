@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   SprintFilter,
   SPRINT_STATUS_STYLE,
@@ -10,11 +10,15 @@ import SprintKanbanBoard from "@/components/scrum/sprint/SprintKanbanBoard";
 import { StyledSelect } from "@/components/shared/Elements";
 import { Title } from "@/components/shared/page";
 import {
+  getSupabaseSession,
   getSupabaseRows,
   insertSupabaseRows,
   updateSupabaseRows,
 } from "@/lib/supabase";
-import { syncCurrentSprintTasks } from "@/lib/utils";
+import {
+  buildSprintRequirementsFromCurrentRequirements,
+  syncCurrentSprintTasks,
+} from "@/lib/utils";
 import { Text } from "@/lib/theme";
 import "@/assets/styles/Sprint.page.css";
 
@@ -27,7 +31,15 @@ const TASK_COUNT_LIST_NAMES = [
 ];
 
 type SprintTaskCountRow = {
+  assigned_to: string | null;
   trello_list_name: string | null;
+  trello_last_synced_at: string | null;
+};
+
+type SprintApprovalTaskRow = {
+  id: string;
+  story_points: number | null;
+  sp_type: "planned" | "adhoc" | "done" | "blocked" | null;
 };
 
 type CurrentSprintRow = {
@@ -35,9 +47,12 @@ type CurrentSprintRow = {
   project_id: string;
   name: string;
   sprint_number: number;
+  sprint_year: number | null;
   start_date: string;
   end_date: string;
   sprint_quarter: number | null;
+  sprint_month: number | null;
+  month: number | null;
   total_planned_points: number;
   total_completed_points: number;
   status: string | null;
@@ -51,6 +66,14 @@ type SprintMemberFilterRow = {
   last_name: string | null;
 };
 
+type CurrentMemberRow = {
+  id: string;
+  auth_user_id: string | null;
+  email: string | null;
+  role: string | null;
+  sprint_approved: boolean | null;
+};
+
 type SprintMutationRow = Record<string, string | number | boolean | null>;
 
 type SprintConfirmationDialog = {
@@ -58,8 +81,38 @@ type SprintConfirmationDialog = {
   message: string;
   confirmLabel: string;
   accent: string;
+  sprintDetail?: string;
+  metricDetails?: Array<{
+    label: string;
+    value: string;
+  }>;
+  showNextSprintForm?: boolean;
   onConfirm: () => void;
 };
+
+type NextSprintDraft = {
+  year: number;
+  quarter: number;
+  sprintNumber: number;
+  startDate: string;
+  endDate: string;
+  month: number;
+};
+
+const MONTH_OPTIONS = [
+  { value: 1, label: "Jan" },
+  { value: 2, label: "Feb" },
+  { value: 3, label: "Mar" },
+  { value: 4, label: "Apr" },
+  { value: 5, label: "May" },
+  { value: 6, label: "Jun" },
+  { value: 7, label: "Jul" },
+  { value: 8, label: "Aug" },
+  { value: 9, label: "Sep" },
+  { value: 10, label: "Oct" },
+  { value: 11, label: "Nov" },
+  { value: 12, label: "Dec" },
+];
 
 function normalizeListName(value: string | null): string {
   return value?.trim().toLowerCase() ?? "";
@@ -67,6 +120,37 @@ function normalizeListName(value: string | null): string {
 
 function normalizeSprintStatus(value: string | null): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function isRestrictedSprintActionRole(role: string | null): boolean {
+  const normalizedRole = role?.trim().toLowerCase() ?? "";
+  return (
+    normalizedRole === "developer" ||
+    normalizedRole === "mid_level_developer" ||
+    normalizedRole === "senior_developer" ||
+    normalizedRole === "qa_engineer" ||
+    normalizedRole === "designer" ||
+    normalizedRole === "intern"
+  );
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+
+  if (error && typeof error === "object") {
+    const { message, details, hint } = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+    };
+
+    return [message, details, hint]
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .join(" ")
+      || fallback;
+  }
+
+  return fallback;
 }
 
 function getMemberFilterName(member: SprintMemberFilterRow): string {
@@ -103,6 +187,52 @@ function formatDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function formatLastSyncDate(value: string | null): string {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+    .formatToParts(date)
+    .reduce<Record<string, string>>((accumulator, part) => {
+      accumulator[part.type] = part.value;
+      return accumulator;
+    }, {});
+
+  return `${parts.month} ${parts.day}, ${parts.year} at ${parts.hour}:${parts.minute} ${parts.dayPeriod.toUpperCase()}`;
+}
+
+function getLatestTaskSyncDate(tasks: SprintTaskCountRow[]): string | null {
+  const latestTimestamp = tasks.reduce<number | null>((latest, task) => {
+    if (!task.trello_last_synced_at) return latest;
+
+    const timestamp = new Date(task.trello_last_synced_at).getTime();
+    if (!Number.isFinite(timestamp)) return latest;
+
+    return latest === null ? timestamp : Math.max(latest, timestamp);
+  }, null);
+
+  return latestTimestamp === null ? null : new Date(latestTimestamp).toISOString();
+}
+
+function getSprintActionProgressLabel(action: string): string {
+  if (action === "start-sync") return "Starting sprint";
+  if (action === "sync-data") return "Syncing data";
+  if (action === "end-sync") return "Ending sprint";
+  if (action === "reopen-sync") return "Reopening sprint";
+  if (action === "open-new") return "Opening new sprint";
+
+  return "Processing";
+}
+
 function addDays(date: Date, days: number): Date {
   const nextDate = new Date(date);
   nextDate.setUTCDate(nextDate.getUTCDate() + days);
@@ -114,23 +244,119 @@ function getQuarterFromDate(date: Date): number {
   return Math.floor(date.getUTCMonth() / 3) + 1;
 }
 
-function buildNextSprintPayload(currentSprint: CurrentSprintRow): SprintMutationRow {
+function getSprintYear(currentSprint: CurrentSprintRow): number {
+  if (currentSprint.sprint_year) return currentSprint.sprint_year;
+
+  const yearFromName = currentSprint.name.match(/^(\d{4})\b/u)?.[1];
+  if (yearFromName) return Number(yearFromName);
+
+  return parseDateOnly(currentSprint.start_date).getUTCFullYear();
+}
+
+function getSprintQuarter(currentSprint: CurrentSprintRow): number {
+  if (currentSprint.sprint_quarter) return currentSprint.sprint_quarter;
+
+  const quarterFromName = currentSprint.name.match(/\bQ([1-4])\b/iu)?.[1];
+  if (quarterFromName) return Number(quarterFromName);
+
+  return getQuarterFromDate(parseDateOnly(currentSprint.start_date));
+}
+
+function buildSprintName({ year, quarter, sprintNumber }: NextSprintDraft): string {
+  return `${year} Q${quarter} Sprint ${sprintNumber}`;
+}
+
+function buildDefaultNextSprintDraft(currentSprint: CurrentSprintRow): NextSprintDraft {
   const startDate = addDays(parseDateOnly(currentSprint.end_date), 1);
   const endDate = addDays(startDate, 13);
-  const nextSprintNumber =
-    currentSprint.sprint_number === 7 ? 1 : currentSprint.sprint_number + 1;
-  const currentQuarter =
-    currentSprint.sprint_quarter ?? getQuarterFromDate(parseDateOnly(currentSprint.start_date));
-  const nextQuarter =
-    currentSprint.sprint_number === 7 ? currentQuarter + 1 : currentQuarter;
+  const currentYear = getSprintYear(currentSprint);
+  const currentQuarter = getSprintQuarter(currentSprint);
+  const isSprintCycleEnd = currentSprint.sprint_number === 7;
+  const nextSprintNumber = isSprintCycleEnd ? 1 : currentSprint.sprint_number + 1;
+  const nextQuarter = isSprintCycleEnd
+    ? currentQuarter === 4
+      ? 1
+      : currentQuarter + 1
+    : currentQuarter;
+  const nextYear = isSprintCycleEnd && currentQuarter === 4
+    ? currentYear + 1
+    : currentYear;
+  const startDateMonth = startDate.getUTCMonth() + 1;
+  const monthOptions = getNextSprintMonthOptions(nextYear);
 
   return {
+    year: nextYear,
+    quarter: nextQuarter,
+    sprintNumber: nextSprintNumber,
+    startDate: formatDateOnly(startDate),
+    endDate: formatDateOnly(endDate),
+    month: monthOptions.some((month) => month.value === startDateMonth)
+      ? startDateMonth
+      : monthOptions[0].value,
+  };
+}
+
+function buildNextSprintName(currentSprint: CurrentSprintRow): string {
+  return buildSprintName(buildDefaultNextSprintDraft(currentSprint));
+}
+
+function getNextSprintQuarterOptions(
+  currentSprint: CurrentSprintRow,
+  draftYear: number,
+): number[] {
+  const currentYear = getSprintYear(currentSprint);
+  const currentQuarter = getSprintQuarter(currentSprint);
+  const minimumQuarter = draftYear === currentYear
+    ? currentSprint.sprint_number === 7
+      ? currentQuarter + 1
+      : currentQuarter
+    : 1;
+
+  return [1, 2, 3, 4].filter((quarter) => quarter >= minimumQuarter);
+}
+
+function getNextSprintNumberOptions(
+  currentSprint: CurrentSprintRow,
+  draftYear: number,
+  draftQuarter: number,
+): number[] {
+  if (currentSprint.sprint_number === 7) {
+    return [1, 2, 3, 4, 5, 6, 7];
+  }
+
+  const currentYear = getSprintYear(currentSprint);
+  const currentQuarter = getSprintQuarter(currentSprint);
+  const minimumSprint =
+    draftYear === currentYear && draftQuarter === currentQuarter
+      ? Math.min(currentSprint.sprint_number + 1, 7)
+      : 1;
+
+  return [1, 2, 3, 4, 5, 6, 7].filter(
+    (sprintNumber) => sprintNumber >= minimumSprint,
+  );
+}
+
+function getNextSprintMonthOptions(draftYear: number): typeof MONTH_OPTIONS {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+
+  return MONTH_OPTIONS.filter(
+    (month) => draftYear > currentYear || month.value >= currentMonth,
+  );
+}
+
+function buildNextSprintPayload(
+  currentSprint: CurrentSprintRow,
+  draft: NextSprintDraft,
+): SprintMutationRow {
+  return {
     project_id: currentSprint.project_id,
-    name: `${startDate.getUTCFullYear()} Q${nextQuarter} Sprint ${nextSprintNumber}`,
-    sprint_number: nextSprintNumber,
-    start_date: formatDateOnly(startDate),
-    end_date: formatDateOnly(endDate),
-    sprint_quarter: nextQuarter,
+    name: buildSprintName(draft),
+    sprint_number: draft.sprintNumber,
+    start_date: draft.startDate,
+    end_date: draft.endDate,
+    month: draft.month,
     total_planned_points: 0,
     total_completed_points: 0,
     status: "planning",
@@ -139,8 +365,11 @@ function buildNextSprintPayload(currentSprint: CurrentSprintRow): SprintMutation
 }
 
 export default function SprintPage() {
+  const sprintActionsRef = useRef<HTMLDivElement | null>(null);
+  const approvalButtonRef = useRef<HTMLDivElement | null>(null);
   const [selectedSprint, setSelectedSprint] = useState("current");
   const [taskCount, setTaskCount] = useState(0);
+  const [lastTrelloSyncAt, setLastTrelloSyncAt] = useState<string | null>(null);
   const [currentSprint, setCurrentSprint] = useState<CurrentSprintRow | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [memberFilterOptions, setMemberFilterOptions] = useState<SprintMemberFilterRow[]>(
@@ -148,9 +377,17 @@ export default function SprintPage() {
   );
   const [refreshKey, setRefreshKey] = useState(0);
   const [sprintActionLoading, setSprintActionLoading] = useState<string | null>(null);
+  const [sprintActionsVisible, setSprintActionsVisible] = useState(true);
+  const [approvalButtonVisible, setApprovalButtonVisible] = useState(true);
   const [sprintActionError, setSprintActionError] = useState<string | null>(null);
+  const [currentMember, setCurrentMember] = useState<CurrentMemberRow | null>(null);
+  const [approveLoading, setApproveLoading] = useState(false);
+  const [approveMessage, setApproveMessage] = useState<string | null>(null);
   const [confirmationDialog, setConfirmationDialog] =
     useState<SprintConfirmationDialog | null>(null);
+  const [nextSprintDraft, setNextSprintDraft] = useState<NextSprintDraft | null>(
+    null,
+  );
   const selectedSprintOption = getSprintFilterOption(selectedSprint);
   const selectedSprintStatus =
     selectedSprint === "current"
@@ -163,6 +400,33 @@ export default function SprintPage() {
     selectedSprint === "current"
       ? `${currentSprint?.name ?? "Current Sprint"} Kanban`
       : `${selectedSprintOption.label} Kanban`;
+  const nextSprintQuarterOptions =
+    currentSprint && nextSprintDraft
+      ? getNextSprintQuarterOptions(currentSprint, nextSprintDraft.year)
+      : [1, 2, 3, 4];
+  const nextSprintNumberOptions =
+    currentSprint && nextSprintDraft
+      ? getNextSprintNumberOptions(
+          currentSprint,
+          nextSprintDraft.year,
+          nextSprintDraft.quarter,
+        )
+      : [1, 2, 3, 4, 5, 6, 7];
+  const nextSprintMonthOptions = nextSprintDraft
+    ? getNextSprintMonthOptions(nextSprintDraft.year)
+    : getNextSprintMonthOptions(new Date().getFullYear());
+  const nextSprintDraftName = nextSprintDraft
+    ? buildSprintName(nextSprintDraft)
+    : currentSprint
+      ? buildNextSprintName(currentSprint)
+      : "Next Sprint";
+  const hasRestrictedSprintActions = isRestrictedSprintActionRole(
+    currentMember?.role ?? null,
+  );
+  const restrictedMemberId = hasRestrictedSprintActions ? currentMember?.id ?? "" : "";
+  const effectiveSelectedMemberId = restrictedMemberId || selectedMemberId;
+  const canApproveAssignedTasks =
+    hasRestrictedSprintActions && currentMember?.sprint_approved === false;
 
   useEffect(() => {
     let cancelled = false;
@@ -170,10 +434,10 @@ export default function SprintPage() {
 
     async function loadCurrentSprintData() {
       try {
-        const [currentSprints, members] = await Promise.all([
+        const [currentSprints, members, session] = await Promise.all([
           getSupabaseRows<CurrentSprintRow>("sprints", {
             select:
-              "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
+              "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
             eq: { is_current: 1 },
             limit: 1,
           }),
@@ -181,31 +445,63 @@ export default function SprintPage() {
             select: "id,full_name,first_name,last_name",
             order: { column: "full_name", ascending: true },
           }),
+          getSupabaseSession(),
         ]);
         const sprint = currentSprints[0] ?? null;
-        const tasks = sprint
-          ? await getSupabaseRows<SprintTaskCountRow>("tasks", {
-              select: "trello_list_name",
-              eq: selectedMemberId
-                ? { sprint_id: sprint.id, assigned_to: selectedMemberId }
-                : { sprint_id: sprint.id },
+        const [memberByEmail] = session?.user.email
+          ? await getSupabaseRows<CurrentMemberRow>("members", {
+              select: "id,auth_user_id,email,role,sprint_approved",
+              eq: { email: session.user.email },
+              limit: 1,
             })
           : [];
-        const count = tasks.filter((task) =>
+        const [memberByAuthUserId] =
+          !memberByEmail && session?.user.id
+            ? await getSupabaseRows<CurrentMemberRow>("members", {
+                select: "id,auth_user_id,email,role,sprint_approved",
+                eq: { auth_user_id: session.user.id },
+                limit: 1,
+              })
+            : [];
+        const loggedInMember = memberByEmail ?? memberByAuthUserId ?? null;
+        const tasks = sprint
+          ? await getSupabaseRows<SprintTaskCountRow>("tasks", {
+              select: "assigned_to,trello_list_name,trello_last_synced_at",
+              eq: { sprint_id: sprint.id },
+            })
+          : [];
+        const restrictedDataMemberId = isRestrictedSprintActionRole(
+          loggedInMember?.role ?? null,
+        )
+          ? loggedInMember?.id ?? ""
+          : "";
+        const activeMemberFilterId = restrictedDataMemberId || selectedMemberId;
+        const visibleTasks = activeMemberFilterId
+          ? tasks.filter((task) => task.assigned_to === activeMemberFilterId)
+          : tasks;
+        const count = visibleTasks.filter((task) =>
           countedListNames.has(normalizeListName(task.trello_list_name)),
         ).length;
 
         if (!cancelled) {
           setTaskCount(count);
+          setLastTrelloSyncAt(
+            getLatestTaskSyncDate(restrictedDataMemberId ? visibleTasks : tasks),
+          );
           setCurrentSprint(sprint);
+          setCurrentMember(loggedInMember ?? null);
           setMemberFilterOptions(
-            members.filter((member) => Boolean(member.id)),
+            restrictedDataMemberId
+              ? members.filter((member) => member.id === restrictedDataMemberId)
+              : members.filter((member) => Boolean(member.id)),
           );
         }
       } catch {
         if (!cancelled) {
           setTaskCount(0);
+          setLastTrelloSyncAt(null);
           setCurrentSprint(null);
+          setCurrentMember(null);
           setMemberFilterOptions([]);
         }
       }
@@ -218,8 +514,143 @@ export default function SprintPage() {
     };
   }, [refreshKey, selectedMemberId]);
 
+  useEffect(() => {
+    const target = sprintActionsRef.current;
+    if (!target) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      const rect = target.getBoundingClientRect();
+      setSprintActionsVisible(rect.bottom >= 0 && rect.top <= window.innerHeight);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setSprintActionsVisible(entry.isIntersecting);
+      },
+      { threshold: 0.1 },
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [currentSprint?.id, currentSprintStatus, selectedSprint]);
+
+  useEffect(() => {
+    if (!canApproveAssignedTasks) {
+      setApprovalButtonVisible(true);
+      return;
+    }
+
+    const target = approvalButtonRef.current;
+    if (!target) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      const rect = target.getBoundingClientRect();
+      setApprovalButtonVisible(rect.bottom >= 0 && rect.top <= window.innerHeight);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setApprovalButtonVisible(entry.isIntersecting);
+      },
+      { threshold: 0.1 },
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [canApproveAssignedTasks, currentMember?.id]);
+
   function refreshSprintPageElements(): void {
     setRefreshKey((value) => value + 1);
+  }
+
+  async function requestApproveAssignedTasksConfirmation(): Promise<void> {
+    if (!currentMember || !currentSprint) return;
+
+    setApproveLoading(true);
+    setApproveMessage(null);
+
+    try {
+      const assignedTasks = await getSupabaseRows<SprintApprovalTaskRow>("tasks", {
+        select: "id,story_points,sp_type",
+        eq: {
+          sprint_id: currentSprint.id,
+          assigned_to: currentMember.id,
+        },
+      });
+      const approvalTasks = assignedTasks.filter((task) =>
+        task.sp_type === "planned" ||
+        task.sp_type === "adhoc" ||
+        task.sp_type === "blocked",
+      );
+      const assignedStoryPoints = approvalTasks.reduce(
+        (total, task) => total + Number(task.story_points ?? 0),
+        0,
+      );
+
+      requestSprintConfirmation({
+        title: "Approve Assigned Tasks",
+        message: "Please confirm that you reviewed and approve your assigned sprint tasks.",
+        confirmLabel: "Approve Tasks",
+        accent: "#00e5a0",
+        sprintDetail: currentSprint.name,
+        metricDetails: [
+          {
+            label: "Assigned Tasks",
+            value: String(approvalTasks.length),
+          },
+          {
+            label: "Assigned Story Points",
+            value: assignedStoryPoints.toLocaleString(undefined, {
+              maximumFractionDigits: 2,
+            }),
+          },
+        ],
+        onConfirm: () => void approveAssignedTasks(),
+      });
+    } catch (error) {
+      setApproveMessage(
+        getErrorMessage(error, "Unable to load assigned tasks for approval."),
+      );
+    } finally {
+      setApproveLoading(false);
+    }
+  }
+
+  async function approveAssignedTasks(): Promise<void> {
+    if (!currentMember) return;
+
+    setApproveLoading(true);
+    setApproveMessage(null);
+
+    try {
+      const memberId = currentMember.id;
+      const [updatedMember] = await updateSupabaseRows<
+        CurrentMemberRow,
+        SprintMutationRow
+      >("members", { sprint_approved: true }, {
+        select: "id,auth_user_id,email,role,sprint_approved",
+        eq: { id: memberId },
+      });
+
+      if (!updatedMember) {
+        throw new Error(`No matching member row was updated for ${memberId}.`);
+      }
+
+      setCurrentMember(updatedMember);
+      setApproveMessage("Assigned tasks approved.");
+    } catch (error) {
+      setApproveMessage(getErrorMessage(error, "Unable to approve assigned tasks."));
+    } finally {
+      setApproveLoading(false);
+    }
   }
 
   async function startSprint(): Promise<void> {
@@ -234,7 +665,7 @@ export default function SprintPage() {
         { status: "active" },
         {
           select:
-            "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
           eq: { id: currentSprint.id },
         },
       );
@@ -263,7 +694,7 @@ export default function SprintPage() {
         { status: "active" },
         {
           select:
-            "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
           eq: { id: currentSprint.id },
         },
       );
@@ -292,7 +723,7 @@ export default function SprintPage() {
         { status: "completed" },
         {
           select:
-            "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
           eq: { id: currentSprint.id },
         },
       );
@@ -327,6 +758,19 @@ export default function SprintPage() {
 
   async function openNewSprint(): Promise<void> {
     if (!currentSprint) return;
+    const draft = nextSprintDraft ?? buildDefaultNextSprintDraft(currentSprint);
+
+    if (
+      !draft.year ||
+      !draft.quarter ||
+      !draft.sprintNumber ||
+      !draft.month ||
+      !draft.startDate ||
+      !draft.endDate
+    ) {
+      setSprintActionError("Please complete all Open New Sprint fields.");
+      return;
+    }
 
     setSprintActionLoading("open-new");
     setSprintActionError(null);
@@ -334,33 +778,27 @@ export default function SprintPage() {
     try {
       await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
-        { status: "done" },
-        {
-          select:
-            "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
-          eq: { id: currentSprint.id },
-        },
-      );
-      await syncCurrentSprintTasks();
-      await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
-        "sprints",
         { is_current: 0 },
         {
           select:
-            "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
           eq: { id: currentSprint.id },
         },
       );
-      await insertSupabaseRows<CurrentSprintRow, SprintMutationRow>(
+      const [newSprint] = await insertSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
-        buildNextSprintPayload(currentSprint),
-        "id,project_id,name,sprint_number,start_date,end_date,sprint_quarter,total_planned_points,total_completed_points,status,is_current",
+        buildNextSprintPayload(currentSprint, draft),
+        "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
       );
+
+      if (!newSprint?.id) {
+        throw new Error("Unable to create the new sprint.");
+      }
+
+      await buildSprintRequirementsFromCurrentRequirements(newSprint.id);
       refreshSprintPageElements();
     } catch (error) {
-      setSprintActionError(
-        error instanceof Error ? error.message : "Unable to open a new sprint.",
-      );
+      setSprintActionError(getErrorMessage(error, "Unable to open a new sprint."));
     } finally {
       setSprintActionLoading(null);
     }
@@ -370,16 +808,106 @@ export default function SprintPage() {
     setConfirmationDialog(dialog);
   }
 
+  function updateNextSprintYear(value: string): void {
+    if (!currentSprint) return;
+
+    const parsedYear = Number(value);
+    if (!Number.isFinite(parsedYear)) return;
+
+    const currentDraft = nextSprintDraft ?? buildDefaultNextSprintDraft(currentSprint);
+    const minimumYear = buildDefaultNextSprintDraft(currentSprint).year;
+    const nextYear = Math.max(Math.round(parsedYear), minimumYear);
+    const quarterOptions = getNextSprintQuarterOptions(currentSprint, nextYear);
+    const nextQuarter = quarterOptions.includes(currentDraft.quarter)
+      ? currentDraft.quarter
+      : quarterOptions[0];
+    const sprintOptions = getNextSprintNumberOptions(
+      currentSprint,
+      nextYear,
+      nextQuarter,
+    );
+    const monthOptions = getNextSprintMonthOptions(nextYear);
+
+    setNextSprintDraft({
+      ...currentDraft,
+      year: nextYear,
+      quarter: nextQuarter,
+      sprintNumber: sprintOptions.includes(currentDraft.sprintNumber)
+        ? currentDraft.sprintNumber
+        : sprintOptions[0],
+      month: monthOptions.some((month) => month.value === currentDraft.month)
+        ? currentDraft.month
+        : monthOptions[0].value,
+    });
+  }
+
+  function updateNextSprintQuarter(value: string): void {
+    if (!currentSprint || !nextSprintDraft) return;
+
+    const nextQuarter = Number(value);
+    const sprintOptions = getNextSprintNumberOptions(
+      currentSprint,
+      nextSprintDraft.year,
+      nextQuarter,
+    );
+
+    setNextSprintDraft({
+      ...nextSprintDraft,
+      quarter: nextQuarter,
+      sprintNumber: sprintOptions.includes(nextSprintDraft.sprintNumber)
+        ? nextSprintDraft.sprintNumber
+        : sprintOptions[0],
+    });
+  }
+
+  function updateNextSprintNumber(value: string): void {
+    if (!nextSprintDraft) return;
+
+    setNextSprintDraft({
+      ...nextSprintDraft,
+      sprintNumber: Number(value),
+    });
+  }
+
+  function updateNextSprintStartDate(value: string): void {
+    if (!nextSprintDraft) return;
+
+    const parsedDate = value ? parseDateOnly(value) : null;
+    const monthFromDate = parsedDate ? parsedDate.getUTCMonth() + 1 : nextSprintDraft.month;
+    const monthOptions = getNextSprintMonthOptions(nextSprintDraft.year);
+    const nextMonth = monthOptions.some((month) => month.value === monthFromDate)
+      ? monthFromDate
+      : monthOptions[0].value;
+
+    setNextSprintDraft({
+      ...nextSprintDraft,
+      startDate: value,
+      month: nextMonth,
+    });
+  }
+
+  function updateNextSprintEndDate(value: string): void {
+    if (!nextSprintDraft) return;
+
+    setNextSprintDraft({
+      ...nextSprintDraft,
+      endDate: value,
+    });
+  }
+
+  function updateNextSprintMonth(value: string): void {
+    if (!nextSprintDraft) return;
+
+    setNextSprintDraft({
+      ...nextSprintDraft,
+      month: Number(value),
+    });
+  }
+
   function confirmSprintDialogAction(): void {
     const action = confirmationDialog?.onConfirm;
     setConfirmationDialog(null);
     action?.();
-  }
-
-  function scrollToScoreboard(): void {
-    document
-      .getElementById("sprint-scoreboard")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   const sprintActionButtonStyle = (accent: string): React.CSSProperties => ({
@@ -421,7 +949,10 @@ export default function SprintPage() {
 
   const sprintActions =
     selectedSprint === "current" && currentSprint ? (
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <div
+        ref={sprintActionsRef}
+        style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+      >
         {currentSprintStatus === "planning" ? (
           <>
             <button
@@ -546,12 +1077,16 @@ export default function SprintPage() {
               type="button"
               disabled={Boolean(sprintActionLoading)}
               onClick={() => {
+                const draft = buildDefaultNextSprintDraft(currentSprint);
+                setNextSprintDraft(draft);
                 requestSprintConfirmation({
                   title: "Open New Sprint",
                   message:
                     "This will mark the current sprint as done and create a new current sprint in planning status.",
                   confirmLabel: "Open New Sprint",
                   accent: "#00c8ff",
+                  sprintDetail: buildSprintName(draft),
+                  showNextSprintForm: true,
                   onConfirm: () => void openNewSprint(),
                 });
               }}
@@ -580,10 +1115,35 @@ export default function SprintPage() {
         padding: "16px 0 0",
       }}
     >
+      {sprintActionLoading && !sprintActionsVisible ? (
+        <div
+          aria-live="polite"
+          className="sprint-floating-sync-indicator"
+          role="status"
+        >
+          <span className="sprint-action-loader" aria-hidden="true" />
+          <span>{getSprintActionProgressLabel(sprintActionLoading)} in progress</span>
+        </div>
+      ) : null}
+      {canApproveAssignedTasks && !approvalButtonVisible ? (
+        <div className="sprint-approval-bar sprint-approval-bar--floating">
+          <div className="sprint-approval-message">
+            {approveMessage}
+          </div>
+          <button
+            className="sprint-approval-button"
+            disabled={approveLoading}
+            onClick={() => void requestApproveAssignedTasksConfirmation()}
+            type="button"
+          >
+            {approveLoading ? "Loading..." : "Approve Assigned Tasks"}
+          </button>
+        </div>
+      ) : null}
       <SprintFilter
         selectedSprint={selectedSprint}
         onSprintChange={setSelectedSprint}
-        actions={sprintActions}
+        actions={hasRestrictedSprintActions ? undefined : sprintActions}
       />
       {sprintActionError ? (
         <div
@@ -644,8 +1204,110 @@ export default function SprintPage() {
             </p>
             <div className="sprint-confirmation-details">
               <span style={{ color: Text.faint }}>Sprint</span>
-              <strong>{currentSprint?.name ?? "Current Sprint"}</strong>
+              <strong>
+                {confirmationDialog.showNextSprintForm
+                  ? nextSprintDraftName
+                  : confirmationDialog.sprintDetail ??
+                  currentSprint?.name ??
+                  "Current Sprint"}
+              </strong>
             </div>
+            {confirmationDialog.metricDetails?.map((detail) => (
+              <div className="sprint-confirmation-details" key={detail.label}>
+                <span style={{ color: Text.faint }}>{detail.label}</span>
+                <strong>{detail.value}</strong>
+              </div>
+            ))}
+            {confirmationDialog.showNextSprintForm && currentSprint && nextSprintDraft ? (
+              <div className="sprint-next-form">
+                <label className="sprint-next-field">
+                  <span>Year</span>
+                  <input
+                    min={buildDefaultNextSprintDraft(currentSprint).year}
+                    onChange={(event) => updateNextSprintYear(event.target.value)}
+                    required
+                    type="number"
+                    value={nextSprintDraft.year}
+                  />
+                </label>
+                <label className="sprint-next-field">
+                  <span>Quarter</span>
+                  <div className="sprint-next-select-wrap">
+                    <select
+                      onChange={(event) => updateNextSprintQuarter(event.target.value)}
+                      required
+                      value={nextSprintDraft.quarter}
+                    >
+                      {nextSprintQuarterOptions.map((quarter) => (
+                        <option key={quarter} value={quarter}>
+                          Q{quarter}
+                        </option>
+                      ))}
+                    </select>
+                    <span aria-hidden="true" className="sprint-next-select-arrow">
+                      v
+                    </span>
+                  </div>
+                </label>
+                <label className="sprint-next-field">
+                  <span>Sprint</span>
+                  <div className="sprint-next-select-wrap">
+                    <select
+                      onChange={(event) => updateNextSprintNumber(event.target.value)}
+                      required
+                      value={nextSprintDraft.sprintNumber}
+                    >
+                      {nextSprintNumberOptions.map((sprintNumber) => (
+                        <option key={sprintNumber} value={sprintNumber}>
+                          Sprint {sprintNumber}
+                        </option>
+                      ))}
+                    </select>
+                    <span aria-hidden="true" className="sprint-next-select-arrow">
+                      v
+                    </span>
+                  </div>
+                </label>
+                <label className="sprint-next-field">
+                  <span>Start Date</span>
+                  <input
+                    onChange={(event) => updateNextSprintStartDate(event.target.value)}
+                    required
+                    type="date"
+                    value={nextSprintDraft.startDate}
+                  />
+                </label>
+                <label className="sprint-next-field">
+                  <span>End Date</span>
+                  <input
+                    min={nextSprintDraft.startDate}
+                    onChange={(event) => updateNextSprintEndDate(event.target.value)}
+                    required
+                    type="date"
+                    value={nextSprintDraft.endDate}
+                  />
+                </label>
+                <label className="sprint-next-field">
+                  <span>Month</span>
+                  <div className="sprint-next-select-wrap">
+                    <select
+                      onChange={(event) => updateNextSprintMonth(event.target.value)}
+                      required
+                      value={nextSprintDraft.month}
+                    >
+                      {nextSprintMonthOptions.map((month) => (
+                        <option key={month.value} value={month.value}>
+                          {month.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span aria-hidden="true" className="sprint-next-select-arrow">
+                      v
+                    </span>
+                  </div>
+                </label>
+              </div>
+            ) : null}
             <div className="sprint-confirmation-actions">
               <button
                 className="sprint-confirmation-button sprint-confirmation-button--secondary"
@@ -685,14 +1347,29 @@ export default function SprintPage() {
           marginBottom: 10,
         }}
       >
-        <Title
-          eyebrow="Scrum Board"
-          title={sprintTitle}
-          align="left"
-          size="sprint"
-          rowClassName="sprint-title-row"
-          meta={
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              color: "rgba(160,210,255,0.68)",
+              fontFamily: "'DM Mono', monospace",
+              fontSize: 10,
+              fontWeight: 900,
+              letterSpacing: "0.08em",
+              marginBottom: 5,
+              textAlign: "left",
+              textTransform: "uppercase",
+            }}
+          >
+            Last Sync: {formatLastSyncDate(lastTrelloSyncAt)}
+          </div>
+          <Title
+            eyebrow="Scrum Board"
+            title={sprintTitle}
+            align="left"
+            size="sprint"
+            rowClassName="sprint-title-row"
+            meta={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span
                 style={{
                   display: "inline-flex",
@@ -722,88 +1399,85 @@ export default function SprintPage() {
                 />
                 {selectedSprintStatus}
               </span>
-              <a
-                href="#sprint-scoreboard"
-                onClick={(event) => {
-                  event.preventDefault();
-                  scrollToScoreboard();
-                }}
-                style={{
-                  alignItems: "center",
-                  color: "#00c8ff",
-                  display: "inline-flex",
-                  gap: 4,
-                  fontFamily: "'DM Mono', monospace",
-                  fontSize: 9,
-                  fontWeight: 900,
-                  letterSpacing: "0.08em",
-                  textDecoration: "none",
-                  textTransform: "uppercase",
-                  textShadow: "0 0 12px rgba(0,200,255,0.28)",
-                }}
-              >
-                <span>Scoreboard</span>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    color: "#00e5a0",
-                    display: "inline-block",
-                    fontSize: 11,
-                    lineHeight: 1,
-                    transform: "translateY(-1px)",
-                  }}
-                >
-                  ↓
-                </span>
-              </a>
             </span>
-          }
-        />
+            }
+          />
+        </div>
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-end",
+            flexDirection: "column",
             gap: 8,
-            flexWrap: "wrap",
             justifyContent: "flex-end",
           }}
         >
-          <StyledSelect
-            value={selectedMemberId}
-            onChange={setSelectedMemberId}
-            placeholder="All members"
-            accent={selectedSprintStatusStyle.color}
-          >
-            {memberFilterOptions.map((member) => (
-              <option key={member.id} value={member.id ?? ""}>
-                {getMemberFilterName(member)}
-              </option>
-            ))}
-          </StyledSelect>
+          {canApproveAssignedTasks ? (
+            <div className="sprint-approval-bar" ref={approvalButtonRef}>
+              <div className="sprint-approval-message">
+                {approveMessage}
+              </div>
+              <button
+                className="sprint-approval-button"
+                disabled={approveLoading}
+                onClick={() => void requestApproveAssignedTasksConfirmation()}
+                type="button"
+              >
+                {approveLoading ? "Loading..." : "Approve Assigned Tasks"}
+              </button>
+            </div>
+          ) : null}
           <div
-            className="sprint-task-count"
             style={{
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(0,200,255,0.18)",
-              background: "rgba(0,200,255,0.07)",
-              color: "rgba(160,210,255,0.75)",
-              fontFamily: "'DM Mono', monospace",
-              fontSize: 11,
-              fontWeight: 800,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
             }}
           >
-            {taskCount} tasks
+            {!hasRestrictedSprintActions ? (
+              <StyledSelect
+                value={selectedMemberId}
+                onChange={setSelectedMemberId}
+                placeholder="All members"
+                accent={selectedSprintStatusStyle.color}
+              >
+                {memberFilterOptions.map((member) => (
+                  <option key={member.id} value={member.id ?? ""}>
+                    {getMemberFilterName(member)}
+                  </option>
+                ))}
+              </StyledSelect>
+            ) : null}
+            <div
+              className="sprint-task-count"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(0,200,255,0.18)",
+                background: "rgba(0,200,255,0.07)",
+                color: "rgba(160,210,255,0.75)",
+                fontFamily: "'DM Mono', monospace",
+                fontSize: 11,
+                fontWeight: 800,
+              }}
+            >
+              {taskCount} tasks
+            </div>
           </div>
         </div>
       </div>
 
       <SprintKanbanBoard
         key={`${currentSprint?.id ?? "no-current-sprint"}-${refreshKey}`}
-        selectedMemberId={selectedMemberId}
+        selectedMemberId={effectiveSelectedMemberId}
       />
 
-      <SprintScoreboard key={`scoreboard-${currentSprint?.id ?? "no-current-sprint"}-${refreshKey}`} />
+      <SprintScoreboard
+        key={`scoreboard-${currentSprint?.id ?? "no-current-sprint"}-${effectiveSelectedMemberId || "all"}-${refreshKey}`}
+        selectedMemberId={effectiveSelectedMemberId}
+      />
     </div>
   );
 }
