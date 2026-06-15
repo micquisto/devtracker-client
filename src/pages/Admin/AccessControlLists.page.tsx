@@ -104,7 +104,6 @@ const ACCESS_CONTROL_PAGES = flattenResources(ACCESS_CONTROL_TREE);
 const CONFIGURABLE_ROLES = [
   "developer",
   "senior_developer",
-  "tech_lead",
   "project_manager",
   "qa_engineer",
   "desinger",
