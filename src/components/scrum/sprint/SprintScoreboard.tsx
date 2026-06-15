@@ -84,6 +84,7 @@ type StoryPointRow = {
 
 type SprintScoreboardProps = {
   equalTopColumnWidths?: boolean;
+  useDialCompletionChart?: boolean;
   sprintId?: string;
   selectedMemberId?: string;
 };
@@ -241,6 +242,7 @@ function getCompletionSummaryColor(percent: number): string {
 
 export default function SprintScoreboard({
   equalTopColumnWidths = false,
+  useDialCompletionChart = false,
   sprintId = "",
   selectedMemberId = "",
 }: SprintScoreboardProps) {
@@ -355,6 +357,23 @@ export default function SprintScoreboard({
   const assigneeCompletionGridTicks = Array.from({ length: 5 }, (_, index) =>
     Math.min(index * assigneeCompletionGridStep, maxAssigneeCompletionTotal),
   ).filter((value, index, values) => values.indexOf(value) === index);
+  const dialCompletedPoints = assigneeCompletionSegments.reduce(
+    (sum, member) => sum + member.completed,
+    0,
+  );
+  const dialTotalPoints = assigneeCompletionSegments.reduce(
+    (sum, member) => sum + member.total,
+    0,
+  );
+  const dialNotCompletedPoints = Math.max(dialTotalPoints - dialCompletedPoints, 0);
+  const dialCompletionPercent =
+    dialTotalPoints > 0
+      ? Math.min(Math.round((dialCompletedPoints / dialTotalPoints) * 100), 100)
+      : 0;
+  const dialAccentColor = getCompletionSummaryColor(dialCompletionPercent);
+  const dialCircumference = 2 * Math.PI * 72;
+  const dialDashOffset =
+    dialCircumference - (dialCompletionPercent / 100) * dialCircumference;
 
   useEffect(() => {
     let cancelled = false;
@@ -1156,23 +1175,177 @@ export default function SprintScoreboard({
                 border: "1px solid rgba(100,180,255,0.08)",
               }}
             >
-              <StackedColumnChart
-                segments={assigneeCompletionSegments}
-                max={maxAssigneeCompletionTotal}
-                barAreaHeight={280}
-                gap={10}
-                gridTicks={assigneeCompletionGridTicks}
-                legend={[
-                  {
-                    color: Chart.completed,
-                    label: "Completed portion uses assignee color",
-                  },
-                  {
-                    color: Chart.remaining,
-                    label: "Remaining uses muted assignee color",
-                  },
-                ]}
-                renderTooltip={(member) => (
+              {useDialCompletionChart ? (
+                <div
+                  style={{
+                    alignItems: "center",
+                    display: "grid",
+                    gap: 14,
+                    gridTemplateColumns: "minmax(180px, 0.9fr) minmax(0, 1.1fr)",
+                    minHeight: 302,
+                  }}
+                >
+                  <div
+                    style={{
+                      alignItems: "center",
+                      display: "flex",
+                      justifyContent: "center",
+                      minWidth: 0,
+                    }}
+                  >
+                    <svg
+                      aria-label={`Completion dial ${dialCompletionPercent}%`}
+                      role="img"
+                      style={{ maxWidth: "100%", overflow: "visible" }}
+                      viewBox="0 0 190 190"
+                      width="220"
+                    >
+                      <defs>
+                        <filter id="completion-dial-glow" x="-40%" y="-40%" width="180%" height="180%">
+                          <feGaussianBlur stdDeviation="4" result="blur" />
+                          <feMerge>
+                            <feMergeNode in="blur" />
+                            <feMergeNode in="SourceGraphic" />
+                          </feMerge>
+                        </filter>
+                      </defs>
+                      <circle
+                        cx="95"
+                        cy="95"
+                        fill="rgba(255,255,255,0.025)"
+                        r="78"
+                        stroke="rgba(160,210,255,0.12)"
+                        strokeWidth="10"
+                      />
+                      <circle
+                        cx="95"
+                        cy="95"
+                        fill="none"
+                        r="72"
+                        stroke="rgba(160,210,255,0.14)"
+                        strokeLinecap="round"
+                        strokeWidth="13"
+                      />
+                      <circle
+                        cx="95"
+                        cy="95"
+                        fill="none"
+                        filter="url(#completion-dial-glow)"
+                        r="72"
+                        stroke={dialAccentColor}
+                        strokeDasharray={dialCircumference}
+                        strokeDashoffset={dialDashOffset}
+                        strokeLinecap="round"
+                        strokeWidth="13"
+                        style={{
+                          transform: "rotate(-90deg)",
+                          transformOrigin: "95px 95px",
+                          transition: "stroke-dashoffset 0.35s ease",
+                        }}
+                      />
+                      <text
+                        fill={dialAccentColor}
+                        fontFamily="'DM Mono', monospace"
+                        fontSize="34"
+                        fontWeight="900"
+                        textAnchor="middle"
+                        x="95"
+                        y="91"
+                      >
+                        {dialCompletionPercent}%
+                      </text>
+                      <text
+                        fill="rgba(160,210,255,0.68)"
+                        fontFamily="'DM Mono', monospace"
+                        fontSize="10"
+                        fontWeight="900"
+                        letterSpacing="1"
+                        textAnchor="middle"
+                        x="95"
+                        y="113"
+                      >
+                        COMPLETED
+                      </text>
+                    </svg>
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                      minWidth: 0,
+                    }}
+                  >
+                    {[
+                      {
+                        label: "Completed",
+                        value: `${dialCompletedPoints} SP`,
+                        color: dialAccentColor,
+                      },
+                      {
+                        label: "Not Completed",
+                        value: `${dialNotCompletedPoints} SP`,
+                        color: "rgba(160,210,255,0.68)",
+                      },
+                      {
+                        label: "Total Assigned",
+                        value: `${dialTotalPoints} SP`,
+                        color: "#00c8ff",
+                      },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        style={{
+                          border: `1px solid ${item.color}44`,
+                          borderRadius: 12,
+                          background: `linear-gradient(135deg, ${item.color}1f, rgba(255,255,255,0.025))`,
+                          padding: "10px 12px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: "rgba(160,210,255,0.6)",
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: 9,
+                            fontWeight: 900,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {item.label}
+                        </div>
+                        <div
+                          style={{
+                            color: item.color,
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: 22,
+                            fontWeight: 900,
+                            marginTop: 4,
+                          }}
+                        >
+                          {item.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <StackedColumnChart
+                  segments={assigneeCompletionSegments}
+                  max={maxAssigneeCompletionTotal}
+                  barAreaHeight={280}
+                  gap={10}
+                  gridTicks={assigneeCompletionGridTicks}
+                  legend={[
+                    {
+                      color: Chart.completed,
+                      label: "Completed portion uses assignee color",
+                    },
+                    {
+                      color: Chart.remaining,
+                      label: "Remaining uses muted assignee color",
+                    },
+                  ]}
+                  renderTooltip={(member) => (
                   <div
                     style={{
                       position: "absolute",
@@ -1227,8 +1400,9 @@ export default function SprintScoreboard({
                       Not Completed: {member.notDone} SP
                     </div>
                   </div>
-                )}
-              />
+                  )}
+                />
+              )}
             </div>
           </div>
 

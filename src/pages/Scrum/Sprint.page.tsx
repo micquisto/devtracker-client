@@ -1637,6 +1637,7 @@ export default function SprintPage() {
         key={`scoreboard-${selectedSprintRow?.id ?? "no-selected-sprint"}-${effectiveSelectedMemberId || "all"}-${refreshKey}`}
         sprintId={selectedSprintRow?.id}
         selectedMemberId={effectiveSelectedMemberId}
+        useDialCompletionChart={shouldUseEqualScoreboardColumns}
       />
     </div>
   );
