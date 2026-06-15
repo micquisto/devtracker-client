@@ -12,6 +12,7 @@ import {
   AppFlowPage,
   RequirementsDataPage,
   SprintRequirementsPage,
+  SprintDataPage,
   AccessControlListsPage,
   ChangePasswordsPage,
 } from "./pages";
@@ -98,6 +99,7 @@ const NAV: NavEntry[] = [
         children: [
           { id: "admin-requirements-data", label: "Requirements Data" },
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
+          { id: "admin-sprint-data", label: "Sprint Data" },
         ],
       },
       {
@@ -228,7 +230,13 @@ function NavItem({
         style={{
           width: "100%", display: "flex", alignItems: "center", gap: collapsed ? 0 : 10,
           justifyContent: collapsed ? "center" : "flex-start",
-          padding: collapsed ? "10px 0" : depth === 0 ? "10px 16px" : "7px 16px 7px 38px",
+          padding: collapsed
+            ? "10px 0"
+            : depth === 0
+              ? "10px 16px"
+              : depth === 1
+                ? "7px 16px 7px 38px"
+                : "7px 16px 7px 54px",
           background: active === item.id
             ? "linear-gradient(90deg, rgba(0,200,255,0.18) 0%, rgba(0,200,255,0.04) 100%)"
             : "transparent",
@@ -256,8 +264,17 @@ function NavItem({
         )}
         {!item.icon && depth > 0 && (
           <span style={{
-            width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-            background: active === item.id ? "#00c8ff" : "rgba(100,160,210,0.4)",
+            width: depth >= 2 ? 10 : 6,
+            height: depth >= 2 ? 1 : 6,
+            borderRadius: depth >= 2 ? 999 : "50%",
+            flexShrink: 0,
+            background: active === item.id
+              ? "#00c8ff"
+              : depth >= 2
+                ? "rgba(0,229,160,0.48)"
+                : "rgba(100,160,210,0.4)",
+            boxShadow: depth >= 2 ? "0 0 6px rgba(0,229,160,0.14)" : "none",
+            transform: "none",
             transition: "background 0.2s",
           }}/>
         )}
@@ -610,6 +627,10 @@ function PageContent({ active }: { active: string }) {
 
   if (active === "admin-sprint-requirements") {
     return <SprintRequirementsPage />;
+  }
+
+  if (active === "admin-sprint-data") {
+    return <SprintDataPage />;
   }
 
   if (active === "admin-access-control-lists") {

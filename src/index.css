@@ -7,6 +7,11 @@
   --accent: #aa3bff;
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
+  --date-input-bg: rgba(9, 18, 38, 0.84);
+  --date-input-border: rgba(100, 180, 255, 0.18);
+  --date-input-border-focus: #00c8ff;
+  --date-input-color: rgba(232, 244, 255, 0.9);
+  --date-input-icon: rgba(0, 200, 255, 0.85);
   --social-bg: rgba(244, 243, 236, 0.5);
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
@@ -64,6 +69,44 @@
 
 body {
   margin: 0;
+}
+
+input[type="date"] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--date-input-bg);
+  border-color: var(--date-input-border);
+  color: var(--date-input-color);
+  color-scheme: dark;
+}
+
+input[type="date"]:focus {
+  border-color: var(--date-input-border-focus);
+  box-shadow: 0 0 0 2px rgba(0, 200, 255, 0.16);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(66%) sepia(87%) saturate(2623%) hue-rotate(152deg) brightness(104%) contrast(102%);
+  opacity: 0.9;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  color: var(--date-input-color);
+}
+
+input[type="date"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
 }
 
 h1,

@@ -232,7 +232,8 @@
   text-transform: uppercase;
 }
 
-.requirements-data-filter-field select {
+.requirements-data-filter-field select,
+.requirements-data-filter-field input {
   appearance: none;
   -webkit-appearance: none;
   background: rgba(9, 18, 38, 0.84);
@@ -245,8 +246,16 @@
   font-weight: 800;
   outline: none;
   padding: 8px 34px 8px 12px;
-  text-transform: capitalize;
   width: 100%;
+}
+
+.requirements-data-filter-field select {
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.requirements-data-filter-field input::placeholder {
+  color: rgba(140, 185, 230, 0.42);
 }
 
 .requirements-data-kicker {
@@ -367,6 +376,63 @@
 .sprint-requirements-table th:nth-child(9),
 .sprint-requirements-table td:nth-child(9) {
   width: 12%;
+}
+
+.sprint-data-page .requirements-data-table-tools {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+.sprint-data-page .requirements-data-table-tools .requirements-data-filter-field:first-child {
+  flex: 1 1 320px;
+  min-width: 280px;
+}
+
+.sprint-data-page .requirements-data-table-tools .requirements-data-filter-field:not(:first-child) {
+  flex: 0 0 142px;
+}
+
+.sprint-data-page .requirements-data-table-tools > span {
+  flex: 0 0 auto;
+}
+
+.sprint-data-table {
+  min-width: 1080px;
+}
+
+.sprint-data-table th:nth-child(1),
+.sprint-data-table td:nth-child(1) {
+  width: 18%;
+}
+
+.sprint-data-table th:nth-child(2),
+.sprint-data-table td:nth-child(2) {
+  width: 7%;
+}
+
+.sprint-data-table th:nth-child(3),
+.sprint-data-table td:nth-child(3),
+.sprint-data-table th:nth-child(4),
+.sprint-data-table td:nth-child(4),
+.sprint-data-table th:nth-child(5),
+.sprint-data-table td:nth-child(5),
+.sprint-data-table th:nth-child(9),
+.sprint-data-table td:nth-child(9) {
+  width: 8%;
+}
+
+.sprint-data-table th:nth-child(6),
+.sprint-data-table td:nth-child(6),
+.sprint-data-table th:nth-child(7),
+.sprint-data-table td:nth-child(7),
+.sprint-data-table th:nth-child(8),
+.sprint-data-table td:nth-child(8) {
+  width: 11%;
+}
+
+.sprint-data-table th:nth-child(10),
+.sprint-data-table td:nth-child(10) {
+  width: 10%;
 }
 
 .requirements-data-table td {
@@ -839,6 +905,10 @@
     margin-top: 14px;
   }
 
+  .sprint-data-page .requirements-data-card {
+    overflow: hidden;
+  }
+
   .requirements-data-grid {
     grid-template-columns: 1fr;
   }
@@ -865,6 +935,11 @@
     min-width: 0;
   }
 
+  .sprint-data-page .requirements-data-table-tools .requirements-data-filter-field:first-child {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
   .requirements-data-table-tools > span {
     align-self: flex-end;
   }
@@ -880,7 +955,11 @@
 
   .sprint-requirements-table {
     min-width: 0;
-   }
+  }
+
+  .sprint-data-table {
+    min-width: 0;
+  }
 
   .requirements-data-table thead {
     display: none;
@@ -936,6 +1015,12 @@
 
   .requirements-data-table td:last-child {
     border-bottom: 0;
+  }
+
+  .sprint-data-table td[data-label="Name"] {
+    color: #e8f4ff;
+    font-size: 13px;
+    font-weight: 900;
   }
 
   .requirements-data-row-actions {
@@ -1002,6 +1087,23 @@
 }
 
 @media (max-width: 460px) {
+  .sprint-data-page {
+    padding-bottom: 22px;
+  }
+
+  .sprint-data-page .requirements-data-table-tools {
+    gap: 8px;
+  }
+
+  .sprint-data-page .requirements-data-table-tools .requirements-data-filter-field {
+    flex: 1 1 100%;
+  }
+
+  .sprint-data-page .requirements-data-table-tools > span {
+    align-self: stretch;
+    text-align: center;
+  }
+
   .requirements-data-field input,
   .requirements-data-field select {
     font-size: 12px;

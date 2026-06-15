@@ -7,7 +7,7 @@ import {
   type SprintStatus,
 } from "@/components/scrum";
 import SprintKanbanBoard from "@/components/scrum/sprint/SprintKanbanBoard";
-import { StyledSelect } from "@/components/shared/Elements";
+import { StyledSelect, ThemedDatePicker } from "@/components/shared/Elements";
 import { Title } from "@/components/shared/page";
 import {
   getSupabaseSession,
@@ -152,6 +152,17 @@ function usesEqualScoreboardTopColumns(role: string | null): boolean {
     normalizedRole === "qa_engineer" ||
     normalizedRole === "desinger" ||
     normalizedRole === "designer"
+  );
+}
+
+function usesDialCompletionChart(role: string | null): boolean {
+  const normalizedRole = role?.trim().toLowerCase() ?? "";
+
+  return (
+    normalizedRole === "qa_engineer" ||
+    normalizedRole === "developer" ||
+    normalizedRole === "senior_developer" ||
+    normalizedRole === "desinger"
   );
 }
 
@@ -491,6 +502,9 @@ export default function SprintPage() {
     currentMember?.role ?? null,
   );
   const shouldUseEqualScoreboardColumns = usesEqualScoreboardTopColumns(
+    currentMember?.role ?? null,
+  );
+  const shouldUseDialCompletionChart = usesDialCompletionChart(
     currentMember?.role ?? null,
   );
   const restrictedMemberId = hasRestrictedSprintActions ? currentMember?.id ?? "" : "";
@@ -1407,20 +1421,16 @@ export default function SprintPage() {
                 </label>
                 <label className="sprint-next-field">
                   <span>Start Date</span>
-                  <input
-                    onChange={(event) => updateNextSprintStartDate(event.target.value)}
-                    required
-                    type="date"
+                  <ThemedDatePicker
+                    onChange={updateNextSprintStartDate}
                     value={nextSprintDraft.startDate}
                   />
                 </label>
                 <label className="sprint-next-field">
                   <span>End Date</span>
-                  <input
+                  <ThemedDatePicker
                     min={nextSprintDraft.startDate}
-                    onChange={(event) => updateNextSprintEndDate(event.target.value)}
-                    required
-                    type="date"
+                    onChange={updateNextSprintEndDate}
                     value={nextSprintDraft.endDate}
                   />
                 </label>
@@ -1637,7 +1647,7 @@ export default function SprintPage() {
         key={`scoreboard-${selectedSprintRow?.id ?? "no-selected-sprint"}-${effectiveSelectedMemberId || "all"}-${refreshKey}`}
         sprintId={selectedSprintRow?.id}
         selectedMemberId={effectiveSelectedMemberId}
-        useDialCompletionChart={shouldUseEqualScoreboardColumns}
+        useDialCompletionChart={shouldUseDialCompletionChart}
       />
     </div>
   );

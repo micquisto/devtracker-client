@@ -70,6 +70,7 @@ const ACCESS_CONTROL_TREE: AccessControlResource[] = [
         children: [
           { id: "admin-requirements-data", label: "Requirements Data" },
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
+          { id: "admin-sprint-data", label: "Sprint Data" },
         ],
       },
       {
