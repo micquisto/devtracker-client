@@ -57,6 +57,30 @@
   text-shadow: 0 0 12px rgba(0, 200, 255, 0.3);
 }
 
+.sprint-task-toolbar button,
+.sprint-task-filters button,
+.sprint-task-pagination button {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 8px 20px rgba(0, 0, 0, 0.18);
+  min-height: 34px;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.sprint-task-toolbar button:hover:not(:disabled),
+.sprint-task-filters button:hover:not(:disabled),
+.sprint-task-pagination button:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 1px rgba(0, 200, 255, 0.12),
+    0 0 18px rgba(0, 200, 255, 0.14);
+  transform: translateY(-1px);
+}
+
 @keyframes sprintTaskSpin {
   to {
     transform: rotate(360deg);
@@ -66,6 +90,10 @@
 @media (max-width: 900px) {
   .sprint-task-header {
     align-items: flex-start !important;
+  }
+
+  .sprint-task-header > div {
+    width: 100%;
   }
 
   .sprint-task-toolbar {
@@ -123,6 +151,7 @@
 
   .sprint-task-toolbar,
   .sprint-task-filters {
+    align-items: stretch !important;
     flex-wrap: wrap !important;
     overflow-x: visible;
     padding-bottom: 0;
@@ -134,20 +163,56 @@
   }
 
   .sprint-task-pagination {
+    align-items: stretch !important;
+    flex-direction: column;
     flex-wrap: wrap !important;
     overflow-x: visible;
     padding-bottom: 0;
+    width: 100%;
   }
 
   .sprint-task-toolbar button,
   .sprint-task-filters button {
-    flex: 1 1 calc(50% - 6px);
+    flex: 1 1 100%;
     justify-content: center;
+    min-height: 46px;
+    text-align: center;
+    width: 100%;
+  }
+
+  .sprint-task-filters .styled-select-wrap {
+    width: 100%;
+  }
+
+  .sprint-task-filters .styled-select-wrap select {
+    min-height: 48px;
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .sprint-task-pagination > div {
+    width: 100%;
+  }
+
+  .sprint-task-pagination > div:first-child {
+    border: 1px solid rgba(0, 200, 255, 0.14);
+    border-radius: 12px;
+    background: rgba(0, 200, 255, 0.055);
+    padding: 10px 12px;
     text-align: center;
   }
 
+  .sprint-task-pagination > div:last-child {
+    display: grid !important;
+    gap: 8px !important;
+    grid-template-columns: 1fr;
+  }
+
   .sprint-task-pagination button {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 44px;
+    width: 100% !important;
   }
 
   .sprint-task-row {

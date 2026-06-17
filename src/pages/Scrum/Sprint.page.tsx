@@ -141,6 +141,12 @@ function isRestrictedSprintActionRole(role: string | null): boolean {
   );
 }
 
+function shouldHideSprintActionButtons(role: string | null): boolean {
+  const normalizedRole = role?.trim().toLowerCase() ?? "";
+
+  return normalizedRole === "project_manager" || isRestrictedSprintActionRole(role);
+}
+
 function usesEqualScoreboardTopColumns(role: string | null): boolean {
   const normalizedRole = role?.trim().toLowerCase() ?? "";
 
@@ -501,6 +507,9 @@ export default function SprintPage() {
   const hasRestrictedSprintActions = isRestrictedSprintActionRole(
     currentMember?.role ?? null,
   );
+  const hideSprintActionButtons = shouldHideSprintActionButtons(
+    currentMember?.role ?? null,
+  );
   const shouldUseEqualScoreboardColumns = usesEqualScoreboardTopColumns(
     currentMember?.role ?? null,
   );
@@ -509,6 +518,8 @@ export default function SprintPage() {
   );
   const restrictedMemberId = hasRestrictedSprintActions ? currentMember?.id ?? "" : "";
   const effectiveSelectedMemberId = restrictedMemberId || selectedMemberId;
+  const shouldUseDialForScoreboard =
+    Boolean(effectiveSelectedMemberId) || shouldUseDialCompletionChart;
   const canApproveAssignedTasks =
     hasRestrictedSprintActions && currentMember?.sprint_approved === false;
   const isSprintApprovalReady =
@@ -558,6 +569,15 @@ export default function SprintPage() {
               eq: { sprint_id: selectedSprintForData.id },
             })
           : [];
+        const currentSprintTasks =
+          sprint && sprint.id === selectedSprintForData?.id
+            ? tasks
+            : sprint
+              ? await getSupabaseRows<SprintTaskCountRow>("tasks", {
+                  select: "assigned_to,trello_list_name,trello_last_synced_at",
+                  eq: { sprint_id: sprint.id },
+                })
+              : [];
         const restrictedDataMemberId = isRestrictedSprintActionRole(
           loggedInMember?.role ?? null,
         )
@@ -578,7 +598,7 @@ export default function SprintPage() {
             .map((member) => [member.id, member.sprint_approved === true]),
         );
         const requiredApprovalMemberIds = new Set(
-          tasks
+          currentSprintTasks
             .map((task) => task.assigned_to)
             .filter((memberId): memberId is string => Boolean(memberId)),
         );
@@ -1049,20 +1069,21 @@ export default function SprintPage() {
   }
 
   const sprintActionButtonStyle = (accent: string): React.CSSProperties => ({
-    border: `1px solid ${accent}88`,
-    background: `${accent}18`,
+    border: `1px solid ${accent}aa`,
+    background: `linear-gradient(135deg, ${accent}30, ${accent}16), rgba(6,13,31,0.92)`,
     color: accent,
     borderRadius: 9,
-    padding: "7px 11px",
+    padding: "9px 13px",
     display: "inline-flex",
     alignItems: "center",
+    justifyContent: "center",
     gap: 7,
     fontFamily: "'DM Mono', monospace",
     fontSize: 10,
     fontWeight: 900,
     cursor: sprintActionLoading ? "not-allowed" : "pointer",
     opacity: sprintActionLoading ? 0.65 : 1,
-    boxShadow: `0 0 12px ${accent}18`,
+    boxShadow: `0 0 0 1px rgba(255,255,255,0.04), 0 10px 24px rgba(0,0,0,0.22), 0 0 18px ${accent}33`,
   });
 
   const sprintActionButtonContent = (
@@ -1088,6 +1109,7 @@ export default function SprintPage() {
   const sprintActions =
     selectedSprint === currentSprint?.id && currentSprint ? (
       <div
+        className="sprint-selector-actions"
         ref={sprintActionsRef}
         style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
       >
@@ -1294,10 +1316,11 @@ export default function SprintPage() {
         selectedSprint={selectedSprint}
         onSprintChange={setSelectedSprint}
         options={sprintFilterOptions}
-        actions={hasRestrictedSprintActions ? undefined : sprintActions}
+        actions={hideSprintActionButtons ? undefined : sprintActions}
       />
       {sprintActionError ? (
         <div
+          className="sprint-header-meta-row"
           style={{
             color: "#ff8d8d",
             fontFamily: "'DM Mono', monospace",
@@ -1528,7 +1551,7 @@ export default function SprintPage() {
             Sprint Period: {formatSprintPeriod(selectedSprintRow)}
           </div>
         </div>
-        <div style={{ minWidth: 0 }}>
+        <div className="sprint-title-block" style={{ minWidth: 0 }}>
           <Title
             eyebrow="Scrum Board"
             title={sprintTitle}
@@ -1571,6 +1594,7 @@ export default function SprintPage() {
           />
         </div>
         <div
+          className="sprint-header-controls"
           style={{
             display: "flex",
             alignItems: "flex-end",
@@ -1595,6 +1619,7 @@ export default function SprintPage() {
             </div>
           ) : null}
           <div
+            className="sprint-member-controls"
             style={{
               display: "flex",
               alignItems: "center",
@@ -1646,8 +1671,9 @@ export default function SprintPage() {
         equalTopColumnWidths={shouldUseEqualScoreboardColumns}
         key={`scoreboard-${selectedSprintRow?.id ?? "no-selected-sprint"}-${effectiveSelectedMemberId || "all"}-${refreshKey}`}
         sprintId={selectedSprintRow?.id}
+        sprintName={selectedSprintRow?.name}
         selectedMemberId={effectiveSelectedMemberId}
-        useDialCompletionChart={shouldUseDialCompletionChart}
+        useDialCompletionChart={shouldUseDialForScoreboard}
       />
     </div>
   );

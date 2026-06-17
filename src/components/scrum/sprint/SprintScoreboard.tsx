@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import { DoughnutChart, StackedColumnChart } from "@/components/shared/Charts";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
 import {
@@ -32,6 +34,7 @@ const initialProjectStoryPointSegments = PROJECT_LABELS.map((project) => ({
 
 type SprintRow = {
   id: string;
+  name: string | null;
   blocked_count: number | null;
 };
 
@@ -84,8 +87,13 @@ type StoryPointRow = {
 
 type SprintScoreboardProps = {
   equalTopColumnWidths?: boolean;
+  includeExcludedMembers?: boolean;
+  showPublicViewButton?: boolean;
+  showScrollLink?: boolean;
+  title?: string;
   useDialCompletionChart?: boolean;
   sprintId?: string;
+  sprintName?: string;
   selectedMemberId?: string;
 };
 
@@ -240,13 +248,30 @@ function getCompletionSummaryColor(percent: number): string {
   return "#ff4757";
 }
 
+function getRateProgressColor(percent: number): string {
+  if (percent >= 90) return "#00e5a0";
+  if (percent >= 75) return "#14b8a6";
+  if (percent >= 50) return "#f5c842";
+  if (percent >= 25) return "#ff9f43";
+
+  return "#ff4757";
+}
+
 export default function SprintScoreboard({
   equalTopColumnWidths = false,
+  includeExcludedMembers = false,
+  showPublicViewButton = true,
+  showScrollLink = true,
+  title,
   useDialCompletionChart = false,
   sprintId = "",
+  sprintName = "",
   selectedMemberId = "",
 }: SprintScoreboardProps) {
   const scoreboardRef = useRef<HTMLElement | null>(null);
+  const copyToastTimeoutRef = useRef<number | null>(null);
+  const [publicLinkCopied, setPublicLinkCopied] = useState(false);
+  const [isDownloadingScoreboard, setIsDownloadingScoreboard] = useState(false);
   const [supabaseStoryPointTotals, setSupabaseStoryPointTotals] =
     useState<ScoreboardStoryPointTotals>({
       planned: selectedMemberId ? 0 : plannedStoryPoints,
@@ -269,6 +294,13 @@ export default function SprintScoreboard({
   const [memberStoryPointCards, setMemberStoryPointCards] =
     useState<MemberStoryPointCard[]>([]);
   const [blockedCount, setBlockedCount] = useState(0);
+  const [resolvedSprintName, setResolvedSprintName] = useState(sprintName);
+  const [selectedMemberName, setSelectedMemberName] = useState("");
+  const scoreboardTitle =
+    title ?? `${resolvedSprintName || sprintName || "Sprint"} Story Points`;
+  const scoreboardHeading = selectedMemberId && selectedMemberName
+    ? `Scoreboard: ${selectedMemberName}`
+    : "Scoreboard";
   const displayedPlannedStoryPoints = supabaseStoryPointTotals.planned;
   const displayedAdhocStoryPoints = supabaseStoryPointTotals.adhoc;
   const displayedTotalBoardStoryPoints =
@@ -376,18 +408,26 @@ export default function SprintScoreboard({
     dialCircumference - (dialCompletionPercent / 100) * dialCircumference;
 
   useEffect(() => {
+    return () => {
+      if (copyToastTimeoutRef.current) {
+        window.clearTimeout(copyToastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadStoryPointTotals() {
       try {
         const [currentSprint] = sprintId
           ? await getSupabaseRows<SprintRow>("sprints", {
-              select: "id,blocked_count",
+              select: "id,name,blocked_count",
               eq: { id: sprintId },
               limit: 1,
             })
           : await getSupabaseRows<SprintRow>("sprints", {
-              select: "id,blocked_count",
+              select: "id,name,blocked_count",
               eq: { is_current: 1 },
               limit: 1,
             });
@@ -405,6 +445,8 @@ export default function SprintScoreboard({
             setTaskProjectStoryPointSegments([]);
             setMemberStoryPointCards([]);
             setBlockedCount(0);
+            setResolvedSprintName(sprintName);
+            setSelectedMemberName("");
           }
           return;
         }
@@ -512,6 +554,9 @@ export default function SprintScoreboard({
         const storyPointsByMemberId = new Map(
           storyPoints.map((storyPoint) => [storyPoint.member_id, storyPoint]),
         );
+        const selectedMember = selectedMemberId
+          ? members.find((member) => member.id === selectedMemberId)
+          : null;
         const incompleteStoryPointsByMemberId = tasks.reduce<Map<string, number>>(
           (sum, task) => {
             if (
@@ -535,10 +580,11 @@ export default function SprintScoreboard({
             (member): member is MemberRow & { id: string } =>
               Boolean(member.id) &&
               (!selectedMemberId || member.id === selectedMemberId) &&
-              !EXCLUDED_SCOREBOARD_MEMBER_IDS.has(member.id as string) &&
-              !EXCLUDED_SCOREBOARD_MEMBER_ROLES.has(
-                member.role?.trim().toLowerCase() ?? "",
-              ),
+              (includeExcludedMembers ||
+                (!EXCLUDED_SCOREBOARD_MEMBER_IDS.has(member.id as string) &&
+                  !EXCLUDED_SCOREBOARD_MEMBER_ROLES.has(
+                    member.role?.trim().toLowerCase() ?? "",
+                  ))),
           )
           .map((member) => {
             const memberName = getMemberName(member);
@@ -567,6 +613,8 @@ export default function SprintScoreboard({
           setProjectStoryPointSegments(projectSegments);
           setTaskProjectStoryPointSegments(taskProjectSegments);
           setMemberStoryPointCards(memberCards);
+          setResolvedSprintName(currentSprint.name?.trim() || sprintName);
+          setSelectedMemberName(selectedMember ? getMemberName(selectedMember) : "");
           setBlockedCount(
             selectedMemberId
               ? tasks.filter((task) => task.sp_type === "blocked").length
@@ -594,6 +642,8 @@ export default function SprintScoreboard({
           );
           setMemberStoryPointCards([]);
           setBlockedCount(0);
+          setResolvedSprintName(sprintName);
+          setSelectedMemberName("");
         }
       }
     }
@@ -603,13 +653,92 @@ export default function SprintScoreboard({
     return () => {
       cancelled = true;
     };
-  }, [selectedMemberId, sprintId]);
+  }, [includeExcludedMembers, selectedMemberId, sprintId, sprintName]);
 
   const scrollToScoreboard = () => {
     const target = scoreboardRef.current;
     if (!target) return;
 
     target.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const downloadScoreboardPdf = async () => {
+    const target = scoreboardRef.current;
+    if (!target || isDownloadingScoreboard) return;
+
+    setIsDownloadingScoreboard(true);
+
+    try {
+      const canvas = await html2canvas(target, {
+        backgroundColor: "#060d1f",
+        ignoreElements: (element) =>
+          element.classList.contains("sprint-scoreboard-header-action"),
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        useCORS: true,
+      });
+      const imageData = canvas.toDataURL("image/png");
+      const bounds = target.getBoundingClientRect();
+      const padding = 24;
+      const imageWidth = Math.max(bounds.width, 1);
+      const imageHeight = Math.max(bounds.height, 1);
+      const pageWidth = imageWidth + padding * 2;
+      const pageHeight = imageHeight + padding * 2;
+      const pdf = new jsPDF({
+        orientation: pageWidth >= pageHeight ? "landscape" : "portrait",
+        unit: "px",
+        format: [pageWidth, pageHeight],
+      });
+
+      pdf.addImage(imageData, "PNG", padding, padding, imageWidth, imageHeight);
+
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      pdf.save(`sprint-scoreboard-${dateStamp}.pdf`);
+    } finally {
+      setIsDownloadingScoreboard(false);
+    }
+  };
+
+  const getPublicScoreboardUrl = () =>
+    {
+      const url = new URL("/public/current-sprint-scoreboard", window.location.origin);
+
+      if (sprintId) url.searchParams.set("sprintId", sprintId);
+      if (resolvedSprintName || sprintName) {
+        url.searchParams.set("sprintName", resolvedSprintName || sprintName);
+      }
+
+      return url.toString();
+    };
+
+  const openPublicScoreboardPage = () => {
+    window.open(getPublicScoreboardUrl(), "_blank", "noopener,noreferrer");
+  };
+
+  const copyPublicScoreboardLink = async () => {
+    const publicUrl = getPublicScoreboardUrl();
+
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = publicUrl;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+
+    setPublicLinkCopied(true);
+    if (copyToastTimeoutRef.current) {
+      window.clearTimeout(copyToastTimeoutRef.current);
+    }
+    copyToastTimeoutRef.current = window.setTimeout(() => {
+      setPublicLinkCopied(false);
+      copyToastTimeoutRef.current = null;
+    }, 2200);
   };
 
   const renderStoryPointDoughnutCard = ({
@@ -800,54 +929,67 @@ export default function SprintScoreboard({
 
   return (
     <>
-      <a
-        href="#sprint-scoreboard"
-        onClick={(event) => {
-          event.preventDefault();
-          scrollToScoreboard();
-        }}
-        aria-label="Scroll to scoreboard section"
-        style={{
-          flexShrink: 0,
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: 8,
-          alignSelf: "center",
-          marginTop: 4,
-          padding: "7px 4px",
-          color: "#00c8ff",
-          fontFamily: "'DM Mono', monospace",
-          fontSize: 10,
-          fontWeight: 900,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          cursor: "pointer",
-          textDecoration: "none",
-          textShadow: "0 0 16px rgba(0,200,255,0.35)",
-          transition: "transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = "translateY(1px)";
-          e.currentTarget.style.color = "#00e5a0";
-          e.currentTarget.style.textShadow = "0 0 18px rgba(0,229,160,0.45)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = "translateY(0)";
-          e.currentTarget.style.color = "#00c8ff";
-          e.currentTarget.style.textShadow = "0 0 16px rgba(0,200,255,0.35)";
-        }}
-      >
-        <span>Scoreboard below</span>
-        <span
+      {showScrollLink ? (
+        <a
+          href="#sprint-scoreboard"
+          onClick={(event) => {
+            event.preventDefault();
+            scrollToScoreboard();
+          }}
+          aria-label="Scroll to scoreboard section"
           style={{
-            color: "#00e5a0",
-            display: "inline-block",
+            flexShrink: 0,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 8,
+            alignSelf: "center",
+            marginTop: 4,
+            padding: "7px 4px",
+            color: "#00c8ff",
+            fontFamily: "'DM Mono', monospace",
+            fontSize: 10,
+            fontWeight: 900,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            textDecoration: "none",
+            textShadow: "0 0 16px rgba(0,200,255,0.35)",
+            transition: "transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(1px)";
+            e.currentTarget.style.color = "#00e5a0";
+            e.currentTarget.style.textShadow = "0 0 18px rgba(0,229,160,0.45)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.color = "#00c8ff";
+            e.currentTarget.style.textShadow = "0 0 16px rgba(0,200,255,0.35)";
           }}
         >
-          ↓
-        </span>
-      </a>
+          <span>Scoreboard below</span>
+          <span
+            style={{
+              color: "#00e5a0",
+              display: "inline-block",
+            }}
+          >
+            ↓
+          </span>
+        </a>
+      ) : null}
+
+      {publicLinkCopied ? (
+        <div
+          aria-live="polite"
+          className="sprint-scoreboard-copy-toast"
+          role="status"
+        >
+          <span aria-hidden="true">✓</span>
+          Public scoreboard URL copied
+        </div>
+      ) : null}
 
       <section
         className="sprint-scoreboard"
@@ -887,7 +1029,7 @@ export default function SprintScoreboard({
               textAlign: "left",
             }}
           >
-            Current Sprint Story Points
+            {scoreboardTitle}
           </div>
           <h3
             style={{
@@ -899,8 +1041,139 @@ export default function SprintScoreboard({
               textAlign: "left",
             }}
           >
-            Scoreboard
+            {scoreboardHeading}
           </h3>
+        </div>
+        <div className="sprint-scoreboard-header-actions">
+          {showPublicViewButton ? (
+            <button
+              aria-label="Open public scoreboard page"
+              className="sprint-scoreboard-header-action sprint-scoreboard-open-public"
+              onClick={openPublicScoreboardPage}
+              title="Open public scoreboard page"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="18"
+                viewBox="0 0 24 24"
+                width="18"
+              >
+                <path
+                  d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+              </svg>
+            </button>
+          ) : null}
+          {showPublicViewButton ? (
+            <button
+              aria-label={
+                publicLinkCopied
+                  ? "Public scoreboard link copied"
+                  : "Copy public scoreboard link"
+              }
+              className="sprint-scoreboard-header-action sprint-scoreboard-copy-public"
+              onClick={() => {
+                void copyPublicScoreboardLink();
+              }}
+              title={
+                publicLinkCopied
+                  ? "Public scoreboard link copied"
+                  : "Copy public scoreboard link"
+              }
+              type="button"
+            >
+              {publicLinkCopied ? (
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  width="18"
+                >
+                  <path
+                    d="m5 12 4 4L19 6"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2.3"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  width="18"
+                >
+                  <path
+                    d="M9 9h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2V9Z"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                </svg>
+              )}
+            </button>
+          ) : null}
+          <button
+            aria-label="Download scoreboard as PDF"
+            className="sprint-scoreboard-header-action sprint-scoreboard-download"
+            disabled={isDownloadingScoreboard}
+            onClick={() => {
+              void downloadScoreboardPdf();
+            }}
+            title="Download scoreboard as PDF"
+            type="button"
+          >
+            {isDownloadingScoreboard ? (
+              <span className="sprint-action-loader" aria-hidden="true" />
+            ) : (
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="18"
+                viewBox="0 0 24 24"
+                width="18"
+              >
+                <path
+                  d="M12 3v11m0 0 4-4m-4 4-4-4"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
 
@@ -1005,6 +1278,7 @@ export default function SprintScoreboard({
                       background: `linear-gradient(135deg, ${accentColor}24, ${accentColor}10)`,
                       border: `1px solid ${accentColor}66`,
                       boxShadow: `0 0 22px ${accentColor}1f, inset 0 0 0 1px rgba(255,255,255,0.04)`,
+                      color: accentColor,
                       transform: "none",
                       alignSelf: "stretch",
                       display: "flex",
@@ -1703,17 +1977,21 @@ export default function SprintScoreboard({
                   ].map(([label, value, color, unit]) => {
                     const labelText = label as string;
                     const metricValue = value as number;
-                    const accentColor = color as string;
+                    const accentColor = labelText === "Rate"
+                      ? getRateProgressColor(metricValue)
+                      : color as string;
                     const metricUnit = unit as string;
 
                     return (
                       <div
+                        className="sprint-assignee-metric-box"
                         key={labelText}
                         style={{
                           padding: "6px 7px",
                           borderRadius: 10,
                           background: `${accentColor}10`,
                           border: `1px solid ${accentColor}33`,
+                          color: accentColor,
                           minHeight: 58,
                           display: "flex",
                           flexDirection: "column",

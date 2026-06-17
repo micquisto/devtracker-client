@@ -19,7 +19,9 @@ create table if not exists public.sprint_story_points (
   sprint_id uuid not null references public.sprints(id) on delete cascade,
   model public.sprint_story_points_model not null,
   model_id uuid not null,
+  project varchar,
   points double precision,
+  real_points double precision,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

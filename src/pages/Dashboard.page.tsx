@@ -91,9 +91,15 @@ export default function DashboardPage() {
           eq: { is_current: 1 },
           limit: 1,
         });
+
+        if (!currentSprint) {
+          if (!cancelled) setTaskCountRows([]);
+          return;
+        }
+
         const tasks = await getSupabaseRows<DashboardTaskCountRow>("tasks", {
           select: "trello_list_name,sp_type",
-          ...(currentSprint ? { eq: { sprint_id: currentSprint.id } } : {}),
+          eq: { sprint_id: currentSprint.id },
         });
 
         if (!cancelled) setTaskCountRows(tasks);

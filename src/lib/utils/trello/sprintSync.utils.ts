@@ -41,6 +41,7 @@ const EXTRA_TRELLO_LIST_NAMES = [
   "On Live",
   "Blocked",
   "Done Sprint",
+  "DoneSprint",
 ];
 const TRELLO_LIST_MERGE_ORDER = [
   ...ORIGINAL_TRELLO_LIST_NAMES,
@@ -141,6 +142,17 @@ type ExistingStoryPointRow = {
   member_id: string;
   assigned_story_points: number | null;
   adhoc_story_points: number | null;
+};
+
+type SprintStoryPointModel = "member" | "project_type" | "sprint";
+
+type SprintStoryPointRow = {
+  sprint_id: string;
+  model: SprintStoryPointModel;
+  model_id: string;
+  project: string | null;
+  points: number;
+  real_points: number;
 };
 
 type MemberAssigneeRow = {
@@ -387,6 +399,9 @@ function getTaskCompletionPercentage(card: TrelloSprintCard): number {
 }
 
 function getRealStoryPoints(card: TrelloSprintCard): number {
+  if (getTaskCompletionStatus(card) !== "completed") return 0;
+  if (!isCompletedList(card.list.name)) return 0;
+
   return Math.round((getStoryPoints(card) * getTaskCompletionPercentage(card)) / 100);
 }
 
@@ -531,8 +546,6 @@ async function replaceSprintTasks(
     throw existingRowsError;
   }
 
-  // Rows from non-current sprints are historical records. They may be read only to
-  // avoid unique trello_card_id conflicts, but must never be updated, moved, or deleted.
   const existingTasksByTrelloCardId = new Map(
     ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
       .filter((task) => task.sprint_id === sprint.id)
@@ -570,7 +583,6 @@ async function replaceSprintTasks(
     }
 
     const taskUpdate: Partial<TaskRow> = {
-      sprint_id: task.sprint_id,
       project_id: task.project_id,
       project_type: task.project_type,
       project: task.project,
@@ -625,6 +637,10 @@ async function replaceSprintTasks(
       deleted: deletedCount,
       inserted: 0,
     };
+  }
+
+  if (tasksToInsert.some((task) => task.sprint_id !== sprint.id)) {
+    throw new Error("Unable to insert tasks outside the current sprint.");
   }
 
   const { data, error: insertError } = await supabase
@@ -727,6 +743,77 @@ async function replaceSprintStoryPoints(
 
   if (error) {
     throw error;
+  }
+}
+
+async function replaceSprintStoryPointBreakdown(
+  sprint: SprintRow,
+  tasks: TaskRow[],
+): Promise<void> {
+  const currentSprintTasks = tasks.filter(
+    (task) =>
+      task.sprint_id === sprint.id &&
+      (task.sp_type === "planned" || task.sp_type === "adhoc"),
+  );
+  const rowsByKey = new Map<string, SprintStoryPointRow>();
+
+  const addBreakdownPoints = (
+    model: SprintStoryPointModel,
+    modelId: string | null,
+    project: string | null,
+    task: TaskRow,
+  ) => {
+    if (!modelId || !UUID_PATTERN.test(modelId)) return;
+
+    const projectName = project?.trim() || "General";
+    const key = `${model}:${modelId}:${projectName}`;
+    const existing = rowsByKey.get(key) ?? {
+      sprint_id: sprint.id,
+      model,
+      model_id: modelId,
+      project: projectName,
+      points: 0,
+      real_points: 0,
+    };
+
+    if (task.sp_type === "planned") {
+      existing.points += task.story_points;
+    }
+
+    existing.real_points += task.real_story_points ?? 0;
+    rowsByKey.set(key, existing);
+  };
+
+  for (const task of currentSprintTasks) {
+    addBreakdownPoints("sprint", sprint.id, task.project, task);
+    addBreakdownPoints("member", task.assigned_to, task.project, task);
+    addBreakdownPoints("project_type", task.project_type, task.project, task);
+  }
+
+  const breakdownRows = Array.from(rowsByKey.values()).filter(
+    (row) => row.points > 0 || row.real_points > 0,
+  );
+  const nextRows = breakdownRows.filter(
+    (row) => row.sprint_id === sprint.id,
+  );
+
+  const { error: deleteError } = await supabase
+    .from("sprint_story_points")
+    .delete()
+    .eq("sprint_id", sprint.id);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (nextRows.length === 0) return;
+
+  const { error: insertError } = await supabase
+    .from("sprint_story_points")
+    .insert(nextRows);
+
+  if (insertError) {
+    throw insertError;
   }
 }
 
@@ -860,6 +947,7 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
   const savedTasks = await getSavedSprintTasks(sprint.id);
   await updateSprintBlockedCount(sprint, savedTasks);
   await replaceSprintStoryPoints(sprint, savedTasks);
+  await replaceSprintStoryPointBreakdown(sprint, savedTasks);
 
   return {
     cards,

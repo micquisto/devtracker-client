@@ -10,9 +10,11 @@ import {
   TasksListPage,
   TestPage,
   AppFlowPage,
+  PublicSprintScoreboardPage,
   RequirementsDataPage,
   SprintRequirementsPage,
   SprintDataPage,
+  DevVelocityPage,
   AccessControlListsPage,
   ChangePasswordsPage,
 } from "./pages";
@@ -100,6 +102,7 @@ const NAV: NavEntry[] = [
           { id: "admin-requirements-data", label: "Requirements Data" },
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
           { id: "admin-sprint-data", label: "Sprint Data" },
+          { id: "admin-dev-velocity", label: "Dev Velocity" },
         ],
       },
       {
@@ -491,7 +494,7 @@ function TopBar({
 }) {
   const label = NAV_ITEMS.find((n) => n.id === active)?.label || "Dashboard";
   return (
-    <div style={{
+    <div className="app-topbar" style={{
       height: 56, display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: "0 20px",
       background: "rgba(6,13,31,0.8)",
@@ -499,7 +502,7 @@ function TopBar({
       backdropFilter: "blur(12px)",
       position: "sticky", top: 0, zIndex: 10,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div className="app-topbar-left" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         {/* Burger — only visible on mobile */}
         <button
           onClick={onBurger}
@@ -515,7 +518,7 @@ function TopBar({
           {Icon.burger}
         </button>
         {/* Breadcrumb */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="app-topbar-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{
             fontSize: 11, color: "rgba(80,130,180,0.5)",
             fontFamily: "'DM Mono', monospace",
@@ -529,8 +532,8 @@ function TopBar({
       </div>
 
       {/* Right side badges */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{
+      <div className="app-topbar-right" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="app-topbar-status" style={{
           display: "flex", alignItems: "center", gap: 6,
           background: "rgba(0,229,160,0.08)",
           border: "1px solid rgba(0,229,160,0.2)",
@@ -546,7 +549,7 @@ function TopBar({
           }}>ACTIVE</span>
         </div>
         {userEmail && (
-          <span style={{
+          <span className="app-topbar-email" style={{
             color: "rgba(160,210,255,0.75)",
             fontFamily: "'DM Mono', monospace",
             fontSize: 10,
@@ -560,6 +563,7 @@ function TopBar({
           </span>
         )}
         <button
+          className="app-topbar-logout"
           onClick={onLogout}
           style={{
             background: "rgba(255,255,255,0.05)",
@@ -633,6 +637,10 @@ function PageContent({ active }: { active: string }) {
     return <SprintDataPage />;
   }
 
+  if (active === "admin-dev-velocity") {
+    return <DevVelocityPage />;
+  }
+
   if (active === "admin-access-control-lists") {
     return <AccessControlListsPage />;
   }
@@ -699,6 +707,9 @@ export default function AppShell() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const isPublicSprintScoreboardRoute =
+    typeof window !== "undefined" &&
+    window.location.pathname === "/public/current-sprint-scoreboard";
 
   useEffect(() => {
     let mounted = true;
@@ -875,6 +886,17 @@ export default function AppShell() {
       setLogoutLoading(false);
     }
   };
+
+  if (isPublicSprintScoreboardRoute) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg,#060d1f 0%,#0a1628 40%,#071220 100%)",
+      }}>
+        <PublicSprintScoreboardPage />
+      </div>
+    );
+  }
 
   if (sessionLoading) {
     return (

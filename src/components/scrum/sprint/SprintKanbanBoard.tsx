@@ -24,6 +24,7 @@ const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
   "next sprint",
   "done qa",
   "done sprint",
+  "donesprint",
 ]);
 
 type BoardColumnId = (typeof SPRINT_BOARD_COLUMNS)[number]["id"];

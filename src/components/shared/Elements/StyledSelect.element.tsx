@@ -16,7 +16,7 @@ const StyledSelect = ({
   }) =>{
     const isEmpty = value === "" || value === undefined;
     return (
-      <div style={{ position: "relative" as const, flexShrink: 0 }}>
+      <div className="styled-select-wrap" style={{ position: "relative" as const, flexShrink: 0 }}>
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
