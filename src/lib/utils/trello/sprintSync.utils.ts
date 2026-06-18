@@ -57,6 +57,8 @@ const PENDING_COMPLETION_LIST_NAMES = new Set([
   "current sprint",
   "in development",
 ]);
+const DONE_SPRINT_LIST_NAMES = new Set(["done sprint", "donesprint"]);
+const CANONICAL_DONE_SPRINT_LIST_NAME = "Done Sprint";
 
 const TASK_PROJECT_ID = "6142b6ec-3b4c-453f-8669-d173fc857aa1";
 const TRELLO_REQUIRED_MEMBER_USERNAME = "janmichaelquisto1";
@@ -166,6 +168,43 @@ type MemberAssigneeRow = {
 
 function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function isDoneSprintListName(listName: string): boolean {
+  return DONE_SPRINT_LIST_NAMES.has(normalizeLabel(listName));
+}
+
+function getTrelloCardListName(card: TrelloSprintCard): string {
+  const listName = card.list.name.trim();
+
+  if (isDoneSprintListName(listName)) {
+    return CANONICAL_DONE_SPRINT_LIST_NAME;
+  }
+
+  return listName;
+}
+
+function dedupeTrelloCardsById(cards: TrelloSprintCard[]): TrelloSprintCard[] {
+  const cardsById = new Map<string, TrelloSprintCard>();
+
+  for (const card of cards) {
+    const existing = cardsById.get(card.id);
+    if (!existing) {
+      cardsById.set(card.id, card);
+      continue;
+    }
+
+    const existingListMatches =
+      Boolean(existing.idList) && existing.idList === existing.list.id;
+    const cardListMatches =
+      Boolean(card.idList) && card.idList === card.list.id;
+
+    if (!existingListMatches && cardListMatches) {
+      cardsById.set(card.id, card);
+    }
+  }
+
+  return Array.from(cardsById.values());
 }
 
 function mergeTrelloCardsByListName(cardGroups: TrelloSprintCard[][]): TrelloSprintCard[] {
@@ -438,7 +477,7 @@ function mapCardToTask(
     trello_short_id: card.idShort ?? 0,
     trello_board_id: card.board.id,
     trello_card_url: card.url ?? card.shortUrl ?? "",
-    trello_list_name: card.list.name,
+    trello_list_name: getTrelloCardListName(card),
     trello_last_synced_at: syncedAt,
     title: card.name,
     description: card.desc ?? "",
@@ -471,11 +510,147 @@ async function getCurrentSprint(): Promise<SprintRow | null> {
   return data?.[0] ? (data[0] as SprintRow) : null;
 }
 
+function shouldDeleteExistingTask(
+  task: ExistingTaskRow,
+  isPlanningSprint: boolean,
+): boolean {
+  if (isPlanningSprint) {
+    return true;
+  }
+
+  return task.sp_type !== "planned" && task.sp_type !== "adhoc";
+}
+
+function isPlannedOrAdhocSpType(spType: TaskRow["sp_type"]): boolean {
+  return spType === "planned" || spType === "adhoc";
+}
+
+function buildTaskUpdateFromCard(
+  card: TrelloSprintCard,
+  task: TaskRow,
+  existingTask: ExistingTaskRow,
+  preservedSpTypes: Set<TaskRow["sp_type"]>,
+): Partial<TaskRow> {
+  const shouldPreserveSpType =
+    existingTask.sprint_id === task.sprint_id &&
+    preservedSpTypes.has(existingTask.sp_type);
+
+  const taskUpdate: Partial<TaskRow> = {
+    project_id: task.project_id,
+    project_type: task.project_type,
+    project: task.project,
+    assigned_to: task.assigned_to,
+    trello_card_id: task.trello_card_id,
+    trello_short_id: task.trello_short_id,
+    trello_board_id: task.trello_board_id,
+    trello_card_url: task.trello_card_url,
+    trello_list_name: getTrelloCardListName(card),
+    trello_last_synced_at: task.trello_last_synced_at,
+    title: task.title,
+    description: task.description,
+    task_type: task.task_type,
+    priority: task.priority,
+    completed_at: task.completed_at,
+    story_points: task.story_points,
+    severity: task.severity,
+    status: task.status,
+    is_completed: task.is_completed,
+    completion_percentage: task.completion_percentage,
+    real_story_points: task.real_story_points,
+  };
+
+  if (!shouldPreserveSpType) {
+    taskUpdate.sp_type = task.sp_type;
+  }
+
+  if (
+    normalizeLabel(getTrelloCardListName(card)) === "blocked" &&
+    !(shouldPreserveSpType && existingTask.sp_type === "planned")
+  ) {
+    taskUpdate.sp_type = "blocked";
+  }
+
+  return taskUpdate;
+}
+
+async function updateSprintTaskFromCard(
+  sprint: SprintRow,
+  existingTask: ExistingTaskRow,
+  card: TrelloSprintCard,
+  task: TaskRow,
+  preservedSpTypes: Set<TaskRow["sp_type"]>,
+): Promise<void> {
+  const taskUpdate = buildTaskUpdateFromCard(
+    card,
+    task,
+    existingTask,
+    preservedSpTypes,
+  );
+
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("tasks")
+    .update(taskUpdate)
+    .eq("id", existingTask.id)
+    .eq("sprint_id", sprint.id)
+    .select("id,trello_list_name");
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    throw new Error(
+      `Unable to update task details for Trello card ${task.trello_card_id}.`,
+    );
+  }
+}
+
+async function updatePlannedAdhocTasksFromAllTrelloCards(
+  sprint: SprintRow,
+  allTrelloCards: TrelloSprintCard[],
+  assigneeLookup: Map<string, string>,
+  projectTypeLookup: Map<string, string>,
+): Promise<void> {
+  if (sprint.status === "planning" || allTrelloCards.length === 0) {
+    return;
+  }
+
+  const preservedSpTypes = new Set<TaskRow["sp_type"]>(["planned", "adhoc"]);
+  const allCardsById = new Map(
+    dedupeTrelloCardsById(allTrelloCards).map((card) => [card.id, card]),
+  );
+  const currentSprintTasks = await getSupabaseRows<ExistingTaskRow>("tasks", {
+    select: "id,sprint_id,trello_card_id,sp_type",
+    eq: { sprint_id: sprint.id },
+  });
+
+  for (const existingTask of currentSprintTasks) {
+    if (!isPlannedOrAdhocSpType(existingTask.sp_type)) {
+      continue;
+    }
+
+    const card = allCardsById.get(existingTask.trello_card_id);
+    if (!card) {
+      continue;
+    }
+
+    const task = mapCardToTask(card, sprint, assigneeLookup, projectTypeLookup);
+    await updateSprintTaskFromCard(
+      sprint,
+      existingTask,
+      card,
+      task,
+      preservedSpTypes,
+    );
+  }
+}
+
 async function replaceSprintTasks(
   sprint: SprintRow,
   cards: TrelloSprintCard[],
   assigneeLookup: Map<string, string>,
   projectTypeLookup: Map<string, string>,
+  allTrelloCards: TrelloSprintCard[] = cards,
 ): Promise<{ deleted: number; inserted: number }> {
   if (!sprint.id) {
     throw new Error("Unable to replace tasks without a current sprint id.");
@@ -485,15 +660,12 @@ async function replaceSprintTasks(
     select: "id,sprint_id,trello_card_id,sp_type",
     eq: { sprint_id: sprint.id },
   });
-  const shouldPreserveExistingPlannedTasks =
-    sprint.status === "active" ||
-    sprint.status === "completed" ||
-    sprint.status === "done";
+  const isPlanningSprint = sprint.status === "planning";
   const preservedSpTypes = new Set<TaskRow["sp_type"]>(
-    shouldPreserveExistingPlannedTasks ? ["planned", "adhoc"] : [],
+    isPlanningSprint ? [] : ["planned", "adhoc"],
   );
   const taskIdsToDelete = existingTasks
-    .filter((task) => !preservedSpTypes.has(task.sp_type))
+    .filter((task) => shouldDeleteExistingTask(task, isPlanningSprint))
     .map((task) => task.id);
   const preservedTasksByTrelloCardId = new Map(
     existingTasks
@@ -517,117 +689,81 @@ async function replaceSprintTasks(
     deletedCount = deletedRows?.length ?? taskIdsToDelete.length;
   }
 
-  if (cards.length === 0) {
-    return { deleted: deletedCount, inserted: 0 };
-  }
-
-  const tasks = Array.from(
-    new Map(
-      cards.map((card) => {
-        const task = mapCardToTask(card, sprint, assigneeLookup, projectTypeLookup);
-        return [task.trello_card_id, task];
-      }),
-    ).values(),
-  );
-  const incomingTrelloCardIds = tasks.map((task) => task.trello_card_id);
-  const { data: existingRowsForIncomingCards, error: existingRowsError } = incomingTrelloCardIds.length > 0
-    ? await supabase
-        .from("tasks")
-        .select("id,sprint_id,trello_card_id,sp_type")
-        .in("trello_card_id", incomingTrelloCardIds)
-    : { data: [], error: null };
-
-  if (existingRowsError) {
-    throw existingRowsError;
-  }
-
-  const existingTasksByTrelloCardId = new Map(
-    ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
-      .filter((task) => task.sprint_id === sprint.id)
-      .map((task) => [
-        task.trello_card_id,
-        task,
-      ]),
-  );
-  const nonCurrentSprintTrelloCardIds = new Set(
-    ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
-      .filter((task) => task.sprint_id !== sprint.id)
-      .map((task) => task.trello_card_id),
-  );
   const tasksToInsert: TaskRow[] = [];
 
-  for (const task of tasks) {
-    if (task.sprint_id !== sprint.id) {
-      continue;
+  if (cards.length > 0) {
+    const dedupedCards = dedupeTrelloCardsById(cards);
+    const tasks = dedupedCards.map((card) =>
+      mapCardToTask(card, sprint, assigneeLookup, projectTypeLookup),
+    );
+    const incomingTrelloCardIds = tasks.map((task) => task.trello_card_id);
+    const { data: existingRowsForIncomingCards, error: existingRowsError } =
+      incomingTrelloCardIds.length > 0
+        ? await supabase
+            .from("tasks")
+            .select("id,sprint_id,trello_card_id,sp_type")
+            .in("trello_card_id", incomingTrelloCardIds)
+        : { data: [], error: null };
+
+    if (existingRowsError) {
+      throw existingRowsError;
     }
 
-    const existingTask =
-      preservedTasksByTrelloCardId.get(task.trello_card_id) ??
-      existingTasksByTrelloCardId.get(task.trello_card_id);
-    const shouldPreserveSpType =
-      existingTask?.sprint_id === sprint.id &&
-      preservedSpTypes.has(existingTask.sp_type);
+    const existingTasksByTrelloCardId = new Map(
+      ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
+        .filter((task) => task.sprint_id === sprint.id)
+        .map((task) => [task.trello_card_id, task]),
+    );
+    const nonCurrentSprintTrelloCardIds = new Set(
+      ((existingRowsForIncomingCards ?? []) as ExistingTaskRow[])
+        .filter((task) => task.sprint_id !== sprint.id)
+        .map((task) => task.trello_card_id),
+    );
 
-    if (!existingTask) {
-      if (nonCurrentSprintTrelloCardIds.has(task.trello_card_id)) {
+    for (let index = 0; index < dedupedCards.length; index++) {
+      const card = dedupedCards[index];
+      const task = tasks[index];
+
+      if (task.sprint_id !== sprint.id) {
         continue;
       }
 
-      tasksToInsert.push(task);
-      continue;
-    }
+      const existingTask =
+        preservedTasksByTrelloCardId.get(task.trello_card_id) ??
+        existingTasksByTrelloCardId.get(task.trello_card_id);
 
-    const taskUpdate: Partial<TaskRow> = {
-      project_id: task.project_id,
-      project_type: task.project_type,
-      project: task.project,
-      assigned_to: task.assigned_to,
-      trello_card_id: task.trello_card_id,
-      trello_short_id: task.trello_short_id,
-      trello_board_id: task.trello_board_id,
-      trello_card_url: task.trello_card_url,
-      trello_list_name: task.trello_list_name,
-      trello_last_synced_at: task.trello_last_synced_at,
-      title: task.title,
-      description: task.description,
-      task_type: task.task_type,
-      priority: task.priority,
-      completed_at: task.completed_at,
-      story_points: task.story_points,
-      severity: task.severity,
-      status: task.status,
-      is_completed: task.is_completed,
-      completion_percentage: task.completion_percentage,
-      real_story_points: task.real_story_points,
-    };
+      if (!existingTask) {
+        if (nonCurrentSprintTrelloCardIds.has(task.trello_card_id)) {
+          continue;
+        }
 
-    if (!shouldPreserveSpType) {
-      taskUpdate.sp_type = task.sp_type;
-    }
+        tasksToInsert.push(task);
+        continue;
+      }
 
-    if (normalizeLabel(task.trello_list_name) === "blocked") {
-      taskUpdate.sp_type = "blocked";
-    }
-
-    const { data: updatedRows, error: updateError } = await supabase
-      .from("tasks")
-      .update(taskUpdate)
-      .eq("id", existingTask.id)
-      .eq("sprint_id", sprint.id)
-      .select("id,trello_list_name");
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
-      throw new Error(
-        `Unable to update task details for Trello card ${task.trello_card_id}.`,
-      );
+      if (
+        isPlanningSprint ||
+        !isPlannedOrAdhocSpType(existingTask.sp_type)
+      ) {
+        await updateSprintTaskFromCard(
+          sprint,
+          existingTask,
+          card,
+          task,
+          preservedSpTypes,
+        );
+      }
     }
   }
 
   if (tasksToInsert.length === 0) {
+    await updatePlannedAdhocTasksFromAllTrelloCards(
+      sprint,
+      allTrelloCards,
+      assigneeLookup,
+      projectTypeLookup,
+    );
+
     return {
       deleted: deletedCount,
       inserted: 0,
@@ -646,6 +782,13 @@ async function replaceSprintTasks(
   if (insertError) {
     throw insertError;
   }
+
+  await updatePlannedAdhocTasksFromAllTrelloCards(
+    sprint,
+    allTrelloCards,
+    assigneeLookup,
+    projectTypeLookup,
+  );
 
   return {
     deleted: deletedCount,
@@ -936,6 +1079,7 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
     cards,
     assigneeLookup,
     projectTypeLookup,
+    trelloCards,
   );
 
   // Every successful Trello sync refreshes story points from the final saved task rows.
