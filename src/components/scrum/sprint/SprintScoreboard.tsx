@@ -178,6 +178,48 @@ function isCompletedList(listName: string): boolean {
   );
 }
 
+function buildCompletedStoryPointsByMemberFromTasks(
+  tasks: ScoreboardTaskRow[],
+): Map<string, number> {
+  return tasks.reduce<Map<string, number>>((sum, task) => {
+    if (!isProjectStoryPointTask(task)) return sum;
+    if (!isCompletedList(task.trello_list_name ?? "")) return sum;
+    if (!task.assigned_to) return sum;
+
+    sum.set(
+      task.assigned_to,
+      (sum.get(task.assigned_to) ?? 0) + (task.real_story_points ?? 0),
+    );
+
+    return sum;
+  }, new Map());
+}
+
+function buildSprintCompletedStoryPointsFromTasks(
+  tasks: ScoreboardTaskRow[],
+): number {
+  return tasks.reduce((sum, task) => {
+    if (!isProjectStoryPointTask(task)) return sum;
+    if (!isCompletedList(task.trello_list_name ?? "")) return sum;
+
+    return sum + (task.real_story_points ?? 0);
+  }, 0);
+}
+
+function buildCompletedStoryPointsByMemberFromBreakdown(
+  sprintStoryPoints: SprintStoryPointBreakdownRow[],
+  selectedMemberId: string,
+): Map<string, number> {
+  return sprintStoryPoints.reduce<Map<string, number>>((sum, row) => {
+    if (row.model !== "member") return sum;
+    if (selectedMemberId && row.model_id !== selectedMemberId) return sum;
+
+    sum.set(row.model_id, (sum.get(row.model_id) ?? 0) + (row.real_points ?? 0));
+
+    return sum;
+  }, new Map());
+}
+
 function getMemberName(member: MemberRow): string {
   return (
     member.full_name ||
@@ -433,7 +475,7 @@ export default function SprintScoreboard({
           storyPointFilters.member_id = selectedMemberId;
         }
 
-        const [tasks, projectTypes, members, storyPoints, sprintStoryPoints] = await Promise.all([
+        const [tasks, projectTypes, members, storyPoints] = await Promise.all([
           getSupabaseRows<ScoreboardTaskRow>("tasks", {
             select: "story_points,real_story_points,sp_type,trello_list_name,project_type,project,assigned_to,is_completed",
             eq: taskFilters,
@@ -449,11 +491,21 @@ export default function SprintScoreboard({
               "member_id,assigned_story_points,adhoc_story_points,completed_story_points",
             eq: storyPointFilters,
           }),
-          getSupabaseRows<SprintStoryPointBreakdownRow>("sprint_story_points", {
-            select: "model,model_id,real_points",
-            eq: { sprint_id: currentSprint.id },
-          }),
         ]);
+
+        let sprintStoryPoints: SprintStoryPointBreakdownRow[] = [];
+
+        try {
+          sprintStoryPoints = await getSupabaseRows<SprintStoryPointBreakdownRow>(
+            "sprint_story_points",
+            {
+              select: "model,model_id,real_points",
+              eq: { sprint_id: currentSprint.id },
+            },
+          );
+        } catch {
+          sprintStoryPoints = [];
+        }
         const currentSprintStoryPointTasks = tasks.filter(isProjectStoryPointTask);
         const totals = tasks.reduce<ScoreboardStoryPointTotals>(
           (sum, task) => {
@@ -535,23 +587,30 @@ export default function SprintScoreboard({
         const selectedMember = selectedMemberId
           ? members.find((member) => member.id === selectedMemberId)
           : null;
-        const completedStoryPointsByMemberId = sprintStoryPoints.reduce<Map<string, number>>(
-          (sum, row) => {
-            if (row.model !== "member") return sum;
-            if (selectedMemberId && row.model_id !== selectedMemberId) return sum;
-
-            sum.set(row.model_id, (sum.get(row.model_id) ?? 0) + (row.real_points ?? 0));
-            return sum;
-          },
-          new Map(),
-        );
-        const sprintCompletedStoryPoints = selectedMemberId
+        let completedStoryPointsByMemberId =
+          buildCompletedStoryPointsByMemberFromBreakdown(
+            sprintStoryPoints,
+            selectedMemberId,
+          );
+        let sprintCompletedStoryPoints = selectedMemberId
           ? completedStoryPointsByMemberId.get(selectedMemberId) ?? 0
           : sprintStoryPoints.reduce(
               (sum, row) =>
                 row.model === "sprint" ? sum + (row.real_points ?? 0) : sum,
               0,
             );
+
+        const breakdownCompletedTotal = Array.from(
+          completedStoryPointsByMemberId.values(),
+        ).reduce((sum, value) => sum + value, 0);
+
+        if (breakdownCompletedTotal === 0) {
+          completedStoryPointsByMemberId =
+            buildCompletedStoryPointsByMemberFromTasks(tasks);
+          sprintCompletedStoryPoints = selectedMemberId
+            ? completedStoryPointsByMemberId.get(selectedMemberId) ?? 0
+            : buildSprintCompletedStoryPointsFromTasks(tasks);
+        }
         const memberCards = members
           .filter(
             (member): member is MemberRow & { id: string } =>
