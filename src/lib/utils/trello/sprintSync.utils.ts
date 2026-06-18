@@ -56,7 +56,6 @@ const PLANNING_SP_TYPE_LIST_NAMES = new Set([
 const PENDING_COMPLETION_LIST_NAMES = new Set([
   "current sprint",
   "in development",
-  "for dev deployment",
 ]);
 
 const TASK_PROJECT_ID = "6142b6ec-3b4c-453f-8669-d173fc857aa1";
@@ -344,10 +343,6 @@ function isCompletedList(listName: string): boolean {
 function getTaskCompletionStatus(
   card: TrelloSprintCard,
 ): TaskRow["is_completed"] {
-  if (normalizeLabel(card.list.name) === "blocked") {
-    return "pending";
-  }
-
   if (hasCardLabel(card, "Incomplete")) {
     return "incompleted";
   }
@@ -395,14 +390,14 @@ function getTaskCompletionPercentage(card: TrelloSprintCard): number {
 
   if (!Number.isFinite(parsedValue)) return 100;
 
-  return Math.min(Math.max(Math.round(parsedValue), 0), 100);
+  return Math.min(Math.max(parsedValue, 0), 100);
 }
 
 function getRealStoryPoints(card: TrelloSprintCard): number {
   if (getTaskCompletionStatus(card) !== "completed") return 0;
   if (!isCompletedList(card.list.name)) return 0;
 
-  return Math.round((getStoryPoints(card) * getTaskCompletionPercentage(card)) / 100);
+  return (getStoryPoints(card) * getTaskCompletionPercentage(card)) / 100;
 }
 
 function resolveProjectType(
