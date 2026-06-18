@@ -3,34 +3,9 @@ import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { DoughnutChart, StackedColumnChart } from "@/components/shared/Charts";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
-import {
-  PROJECT_LABELS,
-  SPRINT_BOARD_TASKS,
-} from "@/data/SprintBoard.data";
+import { PROJECT_LABELS } from "@/data/SprintBoard.data";
 import { getSupabaseRows } from "@/lib/supabase";
 import { Background, Border, Chart } from "@/lib/theme";
-
-const sprintBoardTasks = SPRINT_BOARD_TASKS;
-
-const plannedStoryPoints = sprintBoardTasks
-  .filter((task) => !task.isAdhoc)
-  .reduce((sum, task) => sum + task.points, 0);
-
-const adhocStoryPoints = sprintBoardTasks
-  .filter((task) => task.isAdhoc)
-  .reduce((sum, task) => sum + task.points, 0);
-
-const initialProjectStoryPointSegments = PROJECT_LABELS.map((project) => ({
-  ...project,
-  storyPoints: sprintBoardTasks
-    .filter((task) => task.project === project.label)
-    .reduce((sum, task) => sum + task.points, 0),
-}))
-  .filter((project) => project.storyPoints > 0)
-  .map((project) => ({
-  ...project,
-  value: project.storyPoints,
-}));
 
 type SprintRow = {
   id: string;
@@ -280,23 +255,17 @@ export default function SprintScoreboard({
   const [isDownloadingScoreboard, setIsDownloadingScoreboard] = useState(false);
   const [supabaseStoryPointTotals, setSupabaseStoryPointTotals] =
     useState<ScoreboardStoryPointTotals>({
-      planned: selectedMemberId ? 0 : plannedStoryPoints,
-      adhoc: selectedMemberId ? 0 : adhocStoryPoints,
-      plannedTasks: selectedMemberId
-        ? 0
-        : sprintBoardTasks.filter((task) => !task.isAdhoc).length,
-      adhocTasks: selectedMemberId
-        ? 0
-        : sprintBoardTasks.filter((task) => task.isAdhoc).length,
+      planned: 0,
+      adhoc: 0,
+      plannedTasks: 0,
+      adhocTasks: 0,
       completedTasks: 0,
     });
   const [projectStoryPointSegments, setProjectStoryPointSegments] = useState<
     ProjectStoryPointSegment[]
-  >(selectedMemberId ? [] : initialProjectStoryPointSegments);
+  >([]);
   const [taskProjectStoryPointSegments, setTaskProjectStoryPointSegments] =
-    useState<ProjectStoryPointSegment[]>(
-      selectedMemberId ? [] : initialProjectStoryPointSegments,
-    );
+    useState<ProjectStoryPointSegment[]>([]);
   const [memberStoryPointCards, setMemberStoryPointCards] =
     useState<MemberStoryPointCard[]>([]);
   const [blockedCount, setBlockedCount] = useState(0);
@@ -629,22 +598,14 @@ export default function SprintScoreboard({
       } catch {
         if (!cancelled) {
           setSupabaseStoryPointTotals({
-            planned: selectedMemberId ? 0 : plannedStoryPoints,
-            adhoc: selectedMemberId ? 0 : adhocStoryPoints,
-            plannedTasks: selectedMemberId
-              ? 0
-              : sprintBoardTasks.filter((task) => !task.isAdhoc).length,
-            adhocTasks: selectedMemberId
-              ? 0
-              : sprintBoardTasks.filter((task) => task.isAdhoc).length,
+            planned: 0,
+            adhoc: 0,
+            plannedTasks: 0,
+            adhocTasks: 0,
             completedTasks: 0,
           });
-          setProjectStoryPointSegments(
-            selectedMemberId ? [] : initialProjectStoryPointSegments,
-          );
-          setTaskProjectStoryPointSegments(
-            selectedMemberId ? [] : initialProjectStoryPointSegments,
-          );
+          setProjectStoryPointSegments([]);
+          setTaskProjectStoryPointSegments([]);
           setMemberStoryPointCards([]);
           setBlockedCount(0);
           setCompletedStoryPointTotal(0);

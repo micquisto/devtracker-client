@@ -394,7 +394,7 @@ function getTaskCompletionPercentage(card: TrelloSprintCard): number {
 }
 
 function getRealStoryPoints(card: TrelloSprintCard): number {
-  if (getTaskCompletionStatus(card) !== "completed") return 0;
+  if (hasCardLabel(card, "Incomplete")) return 0;
   if (!isCompletedList(card.list.name)) return 0;
 
   return (getStoryPoints(card) * getTaskCompletionPercentage(card)) / 100;
