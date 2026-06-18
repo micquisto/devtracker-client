@@ -421,13 +421,21 @@ function getTaskCompletedAt(card: TrelloSprintCard, fallbackTimestamp: string): 
 }
 
 function getTaskCompletionPercentage(card: TrelloSprintCard): number {
-  const completionRate = getCustomFieldValue(card, "Completion Rate");
-  if (!completionRate) return 100;
+  const rawValue = card.customFields["Completion Rate"];
 
-  const normalizedValue = completionRate.replace("%", "").trim();
-  const parsedValue = Number(normalizedValue);
+  if (rawValue === undefined || rawValue === null || rawValue === "") {
+    return 100;
+  }
 
-  if (!Number.isFinite(parsedValue)) return 100;
+  const completionRate = String(rawValue).replace("%", "").trim();
+  if (!completionRate) {
+    return 100;
+  }
+
+  const parsedValue = Number(completionRate);
+  if (!Number.isFinite(parsedValue)) {
+    return 100;
+  }
 
   return Math.min(Math.max(parsedValue, 0), 100);
 }
@@ -554,9 +562,9 @@ function buildTaskUpdateFromCard(
     story_points: task.story_points,
     severity: task.severity,
     status: task.status,
-    is_completed: task.is_completed,
-    completion_percentage: task.completion_percentage,
-    real_story_points: task.real_story_points,
+    is_completed: getTaskCompletionStatus(card),
+    completion_percentage: getTaskCompletionPercentage(card),
+    real_story_points: getRealStoryPoints(card),
   };
 
   if (!shouldPreserveSpType) {
