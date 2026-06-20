@@ -17,6 +17,7 @@ import {
   DevVelocityPage,
   AccessControlListsPage,
   ChangePasswordsPage,
+  SprintStoryPointsCheckPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
 import {
@@ -103,6 +104,7 @@ const NAV: NavEntry[] = [
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
           { id: "admin-sprint-data", label: "Sprint Data" },
           { id: "admin-dev-velocity", label: "Dev Velocity" },
+          { id: "admin-sprint-story-points-check", label: "Sprint Story Points Check" },
         ],
       },
       {
@@ -639,6 +641,10 @@ function PageContent({ active }: { active: string }) {
 
   if (active === "admin-dev-velocity") {
     return <DevVelocityPage />;
+  }
+
+  if (active === "admin-sprint-story-points-check") {
+    return <SprintStoryPointsCheckPage />;
   }
 
   if (active === "admin-access-control-lists") {

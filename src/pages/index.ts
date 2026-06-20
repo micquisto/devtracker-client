@@ -13,3 +13,4 @@ export { default as SprintDataPage } from "./Admin/SprintData.page";
 export { default as DevVelocityPage } from "./Admin/DevVelocity.page";
 export { default as AccessControlListsPage } from "./Admin/AccessControlLists.page";
 export { default as ChangePasswordsPage } from "./Admin/ChangePasswords.page";
+export { default as SprintStoryPointsCheckPage } from "./Admin/SprintStoryPointsCheck.page";

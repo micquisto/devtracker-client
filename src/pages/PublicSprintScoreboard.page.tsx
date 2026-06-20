@@ -237,18 +237,6 @@ export default function PublicSprintScoreboardPage() {
           >
             {formatSprintStatus(sprintStatus)}
           </span>
-          <p
-            style={{
-              color: "rgba(160,210,255,0.68)",
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: 13,
-              fontWeight: 700,
-              marginTop: 8,
-              textAlign: "center",
-            }}
-          >
-            Showing all members, project types, and project data with no filters applied.
-          </p>
         </header>
 
         <SprintScoreboard

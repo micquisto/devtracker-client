@@ -72,6 +72,7 @@ const ACCESS_CONTROL_TREE: AccessControlResource[] = [
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
           { id: "admin-sprint-data", label: "Sprint Data" },
           { id: "admin-dev-velocity", label: "Dev Velocity" },
+          { id: "admin-sprint-story-points-check", label: "Sprint Story Points Check" },
         ],
       },
       {

@@ -77,6 +77,9 @@ export type SprintRow = {
   total_planned_points: number;
   total_completed_points: number;
   blocked_count: number;
+  planned_tasks_count: number;
+  adhoc_tasks_count: number;
+  total_tasks_count: number;
   status: string;
   is_current: number;
 };
@@ -506,7 +509,7 @@ async function getCurrentSprint(): Promise<SprintRow | null> {
   const { data, error } = await supabase
     .from("sprints")
     .select(
-      "id,project_id,name,sprint_number,start_date,end_date,sprint_year,sprint_month,total_planned_points,total_completed_points,blocked_count,status,is_current",
+      "id,project_id,name,sprint_number,start_date,end_date,sprint_year,sprint_month,total_planned_points,total_completed_points,blocked_count,planned_tasks_count,adhoc_tasks_count,total_tasks_count,status,is_current",
     )
     .eq("is_current", 1)
     .limit(1);
@@ -963,16 +966,29 @@ async function replaceSprintStoryPointBreakdown(
   }
 }
 
-async function updateSprintBlockedCount(
+async function updateSprintTaskAggregates(
   sprint: SprintRow,
   tasks: TaskRow[],
 ): Promise<void> {
-  const blockedCount = tasks.filter(
+  const sprintTasks = tasks.filter((task) => task.sprint_id === sprint.id);
+  const plannedTasksCount = sprintTasks.filter(
+    (task) => task.sp_type === "planned",
+  ).length;
+  const adhocTasksCount = sprintTasks.filter(
+    (task) => task.sp_type === "adhoc",
+  ).length;
+  const blockedCount = sprintTasks.filter(
     (task) => normalizeLabel(task.trello_list_name) === "blocked",
   ).length;
+
   const { error } = await supabase
     .from("sprints")
-    .update({ blocked_count: blockedCount })
+    .update({
+      planned_tasks_count: plannedTasksCount,
+      adhoc_tasks_count: adhocTasksCount,
+      total_tasks_count: plannedTasksCount + adhocTasksCount,
+      blocked_count: blockedCount,
+    })
     .eq("id", sprint.id);
 
   if (error) {
@@ -1092,7 +1108,7 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
 
   // Every successful Trello sync refreshes story points from the final saved task rows.
   const savedTasks = await getSavedSprintTasks(sprint.id);
-  await updateSprintBlockedCount(sprint, savedTasks);
+  await updateSprintTaskAggregates(sprint, savedTasks);
   await replaceSprintStoryPoints(sprint, savedTasks);
   await replaceSprintStoryPointBreakdown(sprint, savedTasks);
 
