@@ -1,0 +1,626 @@
+.planning-poker-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.planning-poker-card {
+  padding: 18px;
+}
+
+.planning-poker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.planning-poker-subtitle {
+  margin: -6px 0 0;
+  color: rgba(160, 210, 255, 0.68);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.planning-poker-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.planning-poker-count-badge {
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 200, 255, 0.28);
+  background: rgba(0, 200, 255, 0.1);
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.planning-poker-error {
+  margin: 0 0 12px;
+  color: #ff6b6b;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+}
+
+.planning-poker-message {
+  margin: 0 0 12px;
+  color: #00e5a0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+}
+
+.planning-poker-loading,
+.planning-poker-empty,
+.planning-poker-empty-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 120px;
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px dashed rgba(160, 210, 255, 0.18);
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+}
+
+.planning-poker-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(160, 210, 255, 0.24);
+  border-top-color: #00c8ff;
+  border-radius: 50%;
+  animation: planning-poker-spin 0.75s linear infinite;
+}
+
+@keyframes planning-poker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.planning-poker-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.planning-poker-board-column {
+  min-height: 420px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 200, 255, 0.18);
+  background: linear-gradient(
+    180deg,
+    rgba(0, 200, 255, 0.06),
+    rgba(255, 255, 255, 0.02)
+  );
+}
+
+.planning-poker-board-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planning-poker-board-column-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.planning-poker-board-column--expanded {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+.planning-poker-board-column--expanded .planning-poker-task-expanded {
+  flex: 1;
+}
+
+.planning-poker-close-button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 107, 107, 0.42);
+  background: rgba(255, 107, 107, 0.12);
+  color: #ff8f8f;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.planning-poker-close-button:hover {
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.62);
+}
+
+.planning-poker-task-expanded {
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+  padding: 18px 20px;
+  border-radius: 14px;
+}
+
+.planning-poker-task-expanded-title {
+  margin: 0 0 14px;
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.planning-poker-task-expanded-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.planning-poker-task-expanded-title a:hover {
+  color: #00c8ff;
+}
+
+.planning-poker-task-meta--expanded {
+  margin-bottom: 18px;
+}
+
+.planning-poker-task-expanded-description {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.planning-poker-task-expanded-description h4 {
+  margin: 0;
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planning-poker-task-expanded-description p {
+  margin: 0;
+}
+
+.planning-poker-task-expanded-description .trello-description {
+  overflow-wrap: anywhere;
+}
+
+.planning-poker-board-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.planning-poker-task-card {
+  cursor: pointer;
+  padding: 12px 13px;
+  border-radius: 12px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.planning-poker-task-card:hover {
+  transform: translateY(-2px);
+}
+
+.planning-poker-task-card--selected {
+  outline: none;
+}
+
+.planning-poker-board-cards .planning-poker-task-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.planning-poker-task-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.planning-poker-task-id {
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.planning-poker-vote-progress {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.planning-poker-task-title {
+  margin: 0 0 10px;
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.planning-poker-task-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.planning-poker-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.planning-poker-pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
+.planning-poker-pill--neutral {
+  color: rgba(160, 210, 255, 0.82);
+  border-color: rgba(160, 210, 255, 0.22);
+  background: rgba(160, 210, 255, 0.08);
+}
+
+.planning-poker-task-description {
+  margin: 0;
+  color: rgba(180, 215, 255, 0.82);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.planning-poker-task-description--empty {
+  color: rgba(120, 170, 215, 0.55);
+  font-style: italic;
+}
+
+.planning-poker-vote-panel {
+  position: sticky;
+  top: 16px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 229, 160, 0.18);
+  background: linear-gradient(
+    180deg,
+    rgba(0, 229, 160, 0.06),
+    rgba(255, 255, 255, 0.02)
+  );
+}
+
+.planning-poker-vote-panel-header h3 {
+  margin: 0 0 6px;
+  color: #00e5a0;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planning-poker-vote-panel-header p {
+  margin: 0 0 14px;
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.planning-poker-point-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.planning-poker-point-button {
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 200, 255, 0.28);
+  background: rgba(0, 200, 255, 0.08);
+  color: #e8f4ff;
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.planning-poker-point-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(0, 200, 255, 0.55);
+}
+
+.planning-poker-point-button--active {
+  border-color: rgba(0, 229, 160, 0.72);
+  background: rgba(0, 229, 160, 0.18);
+  color: #00e5a0;
+  box-shadow: 0 0 18px rgba(0, 229, 160, 0.18);
+}
+
+.planning-poker-point-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.planning-poker-voter-section + .planning-poker-voter-section {
+  margin-top: 16px;
+}
+
+.planning-poker-voter-section h4 {
+  margin: 0 0 10px;
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planning-poker-voter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.planning-poker-voter-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.planning-poker-voter-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #060d1f;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.planning-poker-voter-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.planning-poker-voter-info span:first-child {
+  color: rgba(230, 245, 255, 0.92);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.planning-poker-voter-info span:last-child {
+  color: rgba(160, 210, 255, 0.62);
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.planning-poker-voter-value {
+  color: #00e5a0;
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.planning-poker-voter-value--pending {
+  color: #ff9f43;
+}
+
+.planning-poker-voter-value--optional {
+  color: rgba(160, 210, 255, 0.52);
+}
+
+.planning-poker-voter-value--hidden {
+  color: rgba(160, 210, 255, 0.38);
+}
+
+.planning-poker-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.planning-poker-admin-button {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.planning-poker-admin-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.planning-poker-admin-button--reveal {
+  border-color: rgba(0, 200, 255, 0.45);
+  background: rgba(0, 200, 255, 0.14);
+  color: #00c8ff;
+}
+
+.planning-poker-admin-button--confirm {
+  border-color: rgba(0, 229, 160, 0.45);
+  background: rgba(0, 229, 160, 0.14);
+  color: #00e5a0;
+}
+
+.planning-poker-admin-button--revote {
+  border-color: rgba(255, 159, 67, 0.45);
+  background: rgba(255, 159, 67, 0.14);
+  color: #ff9f43;
+}
+
+.planning-poker-reveal-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 200, 255, 0.32);
+  background: rgba(0, 200, 255, 0.1);
+}
+
+.planning-poker-reveal-banner__label {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.planning-poker-reveal-banner__value {
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.planning-poker-confirmed-banner {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 229, 160, 0.35);
+  background: rgba(0, 229, 160, 0.1);
+  color: #00e5a0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.planning-poker-voting-closed {
+  margin: 10px 0 0;
+  color: rgba(255, 159, 67, 0.88);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+}
+
+.planning-poker-votes-card {
+  margin-top: 0;
+}
+
+.planning-poker-table-scroll {
+  overflow-x: auto;
+}
+
+.planning-poker-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.planning-poker-table th,
+.planning-poker-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: left;
+  vertical-align: top;
+}
+
+.planning-poker-table th {
+  color: rgba(100, 180, 255, 0.55);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(9, 18, 38, 0.98);
+}
+
+.planning-poker-table td {
+  color: rgba(180, 215, 255, 0.88);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+}
+
+.planning-poker-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+@media (max-width: 1080px) {
+  .planning-poker-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-poker-vote-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .planning-poker-board-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-poker-point-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

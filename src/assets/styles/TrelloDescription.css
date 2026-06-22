@@ -1,0 +1,117 @@
+.trello-description {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: rgba(180, 215, 255, 0.88);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.trello-description__empty {
+  margin: 0;
+  color: rgba(120, 170, 215, 0.55);
+  font-style: italic;
+}
+
+.trello-description__paragraph,
+.trello-description__block {
+  margin: 0;
+}
+
+.trello-description__paragraph + .trello-description__paragraph,
+.trello-description__block + .trello-description__block {
+  margin-top: 0;
+}
+
+.trello-description__heading {
+  margin: 0;
+  color: #e8f4ff;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.trello-description__heading--h1 {
+  font-size: 22px;
+}
+
+.trello-description__heading--h2 {
+  font-size: 19px;
+}
+
+.trello-description__heading--h3 {
+  font-size: 17px;
+}
+
+.trello-description__heading--h4,
+.trello-description__heading--h5,
+.trello-description__heading--h6 {
+  font-size: 15px;
+}
+
+.trello-description__link {
+  color: #00c8ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.trello-description__link:hover {
+  color: #7de4ff;
+}
+
+.trello-description__code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+}
+
+.trello-description__list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trello-description__list-item {
+  padding-left: 4px;
+}
+
+.trello-description__figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trello-description__block-image,
+.trello-description__inline-image {
+  display: block;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+
+.trello-description__block-image {
+  margin: 0;
+}
+
+.trello-description__inline-image {
+  margin: 4px 0;
+}
+
+.trello-description__caption {
+  color: rgba(160, 210, 255, 0.62);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+}

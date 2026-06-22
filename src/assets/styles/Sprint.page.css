@@ -349,11 +349,43 @@
   text-transform: uppercase;
   transform: translateY(-50%);
   backdrop-filter: blur(12px);
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
+  appearance: none;
+  margin: 0;
+  transition:
+    padding 0.22s ease,
+    gap 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.sprint-floating-sync-indicator:hover {
+  box-shadow: 0 0 28px rgba(0, 200, 255, 0.28);
+}
+
+.sprint-floating-sync-indicator--collapsed {
+  gap: 0;
+  padding: 10px;
+}
+
+.sprint-floating-sync-indicator__label {
+  max-width: 220px;
+  opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  transition:
+    max-width 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.sprint-floating-sync-indicator--collapsed .sprint-floating-sync-indicator__label {
+  max-width: 0;
+  opacity: 0;
 }
 
 .sprint-floating-sync-indicator .sprint-action-loader {
   border-top-color: #00c8ff;
+  flex-shrink: 0;
 }
 
 .sprint-confirmation-overlay {

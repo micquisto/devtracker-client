@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { BackgroundProcessProvider, SprintSyncProvider } from "@/contexts";
 import {
   DashboardPage,
   LoginPage,
@@ -8,6 +9,7 @@ import {
   StoryPointsPage,
   StatisticsPage,
   TasksListPage,
+  PlanningPokerPage,
   TestPage,
   AppFlowPage,
   PublicSprintScoreboardPage,
@@ -18,6 +20,7 @@ import {
   AccessControlListsPage,
   ChangePasswordsPage,
   SprintStoryPointsCheckPage,
+  BackgroundProcessPage,
 } from "./pages";
 import { Title } from "@/components/shared/page";
 import {
@@ -67,6 +70,7 @@ const NAV: NavEntry[] = [
       { id: "scrum-sprint", label: "Sprint" },
       { id: "scrum-tasks-list", label: "Tasks List" },
       { id: "scrum-story-points", label: "Story Points" },
+      { id: "scrum-planning-poker", label: "Planning Poker" },
     ],
   },
   { id: "profile",   label: "Profile",   icon: "profile" },
@@ -112,6 +116,13 @@ const NAV: NavEntry[] = [
         label: "Users",
         children: [
           { id: "admin-user-change-passwords", label: "Change Passwords" },
+        ],
+      },
+      {
+        id: "admin-settings",
+        label: "Settings",
+        children: [
+          { id: "admin-background-process", label: "Background Process" },
         ],
       },
       { id: "admin-access-control-lists", label: "Access Control Lists" },
@@ -619,6 +630,10 @@ function PageContent({ active }: { active: string }) {
     return <StoryPointsPage />;
   }
 
+  if (active === "scrum-planning-poker") {
+    return <PlanningPokerPage />;
+  }
+
   if (active === "test") {
     return <TestPage />;
   }
@@ -653,6 +668,10 @@ function PageContent({ active }: { active: string }) {
 
   if (active === "admin-user-change-passwords") {
     return <ChangePasswordsPage />;
+  }
+
+  if (active === "admin-background-process") {
+    return <BackgroundProcessPage />;
   }
 
   return (
@@ -929,6 +948,8 @@ export default function AppShell() {
   }
 
   return (
+    <BackgroundProcessProvider>
+    <SprintSyncProvider>
     <div style={{
       minHeight: "100vh",
       height: "100vh",
@@ -1163,5 +1184,7 @@ export default function AppShell() {
         </div>
       )}
     </div>
+    </SprintSyncProvider>
+    </BackgroundProcessProvider>
   );
 }

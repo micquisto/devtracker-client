@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { Card } from "@/components/shared/Containers";
 import { Title } from "@/components/shared/page";
+import { useSprintSync } from "@/contexts";
 import {
-  syncCurrentSprintTasks,
   type SprintSyncResult,
   type TrelloSprintCard,
 } from "@/lib/utils";
@@ -170,6 +170,7 @@ function JsonTree({
 }
 
 export default function TestPage() {
+  const { isSyncing, runSync } = useSprintSync();
   const [state, setState] = useState<FetchState>({
     data: null,
     sprint: null,
@@ -189,10 +190,10 @@ export default function TestPage() {
     });
 
   const fetchCards = useCallback(async () => {
-    setState({ data: null, sprint: null, loading: true, error: null });
+    setState((current) => ({ ...current, loading: true, error: null }));
 
     try {
-      const { cards, result } = await syncCurrentSprintTasks();
+      const { cards, result } = await runSync({ trigger: "manual" });
       setState({ data: cards, sprint: result, loading: false, error: null });
     } catch (error) {
       setState({
@@ -202,7 +203,7 @@ export default function TestPage() {
         error: formatUnknownError(error, "Unable to fetch Trello cards."),
       });
     }
-  }, []);
+  }, [runSync]);
 
   const createUsers = useCallback(async () => {
     setCreateUsersState({ data: null, loading: true, error: null });
@@ -362,7 +363,7 @@ export default function TestPage() {
           </button>
           <button
             onClick={() => void fetchCards()}
-            disabled={state.loading}
+            disabled={isSyncing}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -370,17 +371,17 @@ export default function TestPage() {
               padding: "8px 14px",
               borderRadius: 999,
               border: `1px solid ${Border.default}`,
-              background: state.loading
+              background: isSyncing
                 ? "rgba(255,255,255,0.04)"
                 : "rgba(0,200,255,0.12)",
-              color: state.loading ? Text.faint : Palette.cyan,
-              cursor: state.loading ? "not-allowed" : "pointer",
+              color: isSyncing ? Text.faint : Palette.cyan,
+              cursor: isSyncing ? "not-allowed" : "pointer",
               fontFamily: "'DM Mono', monospace",
               fontSize: 11,
               fontWeight: 800,
             }}
           >
-            {state.loading && (
+            {isSyncing && (
               <span
                 aria-hidden="true"
                 className="test-page__button-loader"
@@ -393,7 +394,7 @@ export default function TestPage() {
                 }}
               />
             )}
-            {state.loading ? "Syncing..." : "Sync with Trello"}
+            {isSyncing ? "Syncing..." : "Sync with Trello"}
           </button>
         </div>
       </div>

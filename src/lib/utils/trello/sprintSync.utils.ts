@@ -16,6 +16,7 @@ const TRELLO_CUSTOM_FIELD_NAMES = [
 
 const ORIGINAL_TRELLO_BOARD_IDS = ["5oj0clmi"];
 const ORIGINAL_TRELLO_LIST_NAMES = [
+  "Planning",
   "Current Sprint",
   "In Development",
   "For Dev Deployment",
@@ -30,6 +31,7 @@ const ORIGINAL_TRELLO_LIST_NAMES = [
 
 const EXTRA_TRELLO_BOARD_IDS = ["l7BOmeGw"];
 const EXTRA_TRELLO_LIST_NAMES = [
+  "Planning",
   "Project Refinement",
   "Backlog",
   "Next Sprint",
@@ -49,11 +51,13 @@ const TRELLO_LIST_MERGE_ORDER = [
 ];
 
 const PLANNING_SP_TYPE_LIST_NAMES = new Set([
+  "planning",
   "current sprint",
   "in development",
   "for dev deployment",
 ]);
 const PENDING_COMPLETION_LIST_NAMES = new Set([
+  "planning",
   "current sprint",
   "in development",
 ]);
@@ -377,6 +381,7 @@ function isCompletedList(listName: string): boolean {
   const normalizedListName = normalizeLabel(listName);
 
   return (
+    normalizedListName !== "planning" &&
     normalizedListName !== "current sprint" &&
     normalizedListName !== "in development"
   );

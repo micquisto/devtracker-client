@@ -17,8 +17,8 @@ import {
 } from "@/lib/supabase";
 import {
   buildSprintRequirementsFromCurrentRequirements,
-  syncCurrentSprintTasks,
 } from "@/lib/utils";
+import { useSprintSync } from "@/contexts";
 import { Text } from "@/lib/theme";
 import "@/assets/styles/Sprint.page.css";
 
@@ -469,6 +469,7 @@ export default function SprintPage() {
     });
   const [confirmationDialog, setConfirmationDialog] =
     useState<SprintConfirmationDialog | null>(null);
+  const { isSyncing, runSync, syncVersion } = useSprintSync();
   const [nextSprintDraft, setNextSprintDraft] = useState<NextSprintDraft | null>(
     null,
   );
@@ -704,6 +705,11 @@ export default function SprintPage() {
     };
   }, [canApproveAssignedTasks, currentMember?.id]);
 
+  useEffect(() => {
+    if (syncVersion === 0) return;
+    refreshSprintPageElements();
+  }, [syncVersion]);
+
   function refreshSprintPageElements(): void {
     setRefreshKey((value) => value + 1);
   }
@@ -819,7 +825,7 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await syncCurrentSprintTasks(sprintToProcess.id);
+      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -849,7 +855,7 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await syncCurrentSprintTasks(sprintToProcess.id);
+      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -879,7 +885,7 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await syncCurrentSprintTasks(sprintToProcess.id);
+      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -896,18 +902,15 @@ export default function SprintPage() {
     const sprintToProcess = getSelectedCurrentSprintForProcessing();
     if (!sprintToProcess) return;
 
-    setSprintActionLoading("sync-data");
     setSprintActionError(null);
 
     try {
-      await syncCurrentSprintTasks(sprintToProcess.id);
+      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
         error instanceof Error ? error.message : "Unable to sync Trello cards.",
       );
-    } finally {
-      setSprintActionLoading(null);
     }
   }
 
@@ -963,6 +966,7 @@ export default function SprintPage() {
   }
 
   function requestSprintConfirmation(dialog: SprintConfirmationDialog): void {
+    if (isSyncing) return;
     setConfirmationDialog(dialog);
   }
 
@@ -1068,6 +1072,8 @@ export default function SprintPage() {
     action?.();
   }
 
+  const sprintActionsBusy = Boolean(sprintActionLoading) || isSyncing;
+
   const sprintActionButtonStyle = (accent: string): React.CSSProperties => ({
     border: `1px solid ${accent}aa`,
     background: `linear-gradient(135deg, ${accent}30, ${accent}16), rgba(6,13,31,0.92)`,
@@ -1081,8 +1087,8 @@ export default function SprintPage() {
     fontFamily: "'DM Mono', monospace",
     fontSize: 10,
     fontWeight: 900,
-    cursor: sprintActionLoading ? "not-allowed" : "pointer",
-    opacity: sprintActionLoading ? 0.65 : 1,
+    cursor: sprintActionsBusy ? "not-allowed" : "pointer",
+    opacity: sprintActionsBusy ? 0.65 : 1,
     boxShadow: `0 0 0 1px rgba(255,255,255,0.04), 0 10px 24px rgba(0,0,0,0.22), 0 0 18px ${accent}33`,
   });
 
@@ -1091,20 +1097,26 @@ export default function SprintPage() {
     label: string,
     loadingLabel: string,
     accent: string,
-  ) => (
-    <>
-      {sprintActionLoading === loadingKey ? (
-        <span
-          aria-hidden="true"
-          className="sprint-action-loader"
-          style={{
-            borderTopColor: accent,
-          }}
-        />
-      ) : null}
-      {sprintActionLoading === loadingKey ? loadingLabel : label}
-    </>
-  );
+  ) => {
+    const isLoading =
+      sprintActionLoading === loadingKey ||
+      (loadingKey === "sync-data" && isSyncing);
+
+    return (
+      <>
+        {isLoading ? (
+          <span
+            aria-hidden="true"
+            className="sprint-action-loader"
+            style={{
+              borderTopColor: accent,
+            }}
+          />
+        ) : null}
+        {isLoading ? loadingLabel : label}
+      </>
+    );
+  };
 
   const sprintActions =
     selectedSprint === currentSprint?.id && currentSprint ? (
@@ -1117,7 +1129,7 @@ export default function SprintPage() {
           <>
             <button
               type="button"
-              disabled={Boolean(sprintActionLoading)}
+              disabled={sprintActionsBusy}
               onClick={() => {
                 requestSprintConfirmation({
                   title: "Start Sprint",
@@ -1151,7 +1163,7 @@ export default function SprintPage() {
             </button>
             <button
               type="button"
-              disabled={Boolean(sprintActionLoading)}
+              disabled={sprintActionsBusy}
               onClick={() => {
                 requestSprintConfirmation({
                   title: "Sync Data",
@@ -1177,7 +1189,7 @@ export default function SprintPage() {
           <>
             <button
               type="button"
-              disabled={Boolean(sprintActionLoading)}
+              disabled={sprintActionsBusy}
               onClick={() => {
                 requestSprintConfirmation({
                   title: "End Sprint",
@@ -1199,7 +1211,7 @@ export default function SprintPage() {
             </button>
             <button
               type="button"
-              disabled={Boolean(sprintActionLoading)}
+              disabled={sprintActionsBusy}
               onClick={() => {
                 requestSprintConfirmation({
                   title: "Sync Data",
@@ -1225,7 +1237,7 @@ export default function SprintPage() {
           <>
             <button
               type="button"
-              disabled={Boolean(sprintActionLoading)}
+              disabled={sprintActionsBusy}
               onClick={() => {
                 requestSprintConfirmation({
                   title: "Reopen Sprint",
@@ -1247,7 +1259,7 @@ export default function SprintPage() {
             </button>
             <button
               type="button"
-              disabled={Boolean(sprintActionLoading)}
+              disabled={sprintActionsBusy}
               onClick={() => {
                 const draft = buildDefaultNextSprintDraft(currentSprint);
                 setNextSprintDraft(draft);
@@ -1336,7 +1348,7 @@ export default function SprintPage() {
           className="sprint-confirmation-overlay"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !sprintActionLoading) {
+            if (event.target === event.currentTarget && !sprintActionsBusy) {
               setConfirmationDialog(null);
             }
           }}
@@ -1481,7 +1493,7 @@ export default function SprintPage() {
             <div className="sprint-confirmation-actions">
               <button
                 className="sprint-confirmation-button sprint-confirmation-button--secondary"
-                disabled={Boolean(sprintActionLoading)}
+                disabled={sprintActionsBusy}
                 onClick={() => setConfirmationDialog(null)}
                 type="button"
               >
@@ -1489,7 +1501,7 @@ export default function SprintPage() {
               </button>
               <button
                 className="sprint-confirmation-button sprint-confirmation-button--primary"
-                disabled={Boolean(sprintActionLoading) || confirmationDialog.disableConfirm}
+                disabled={sprintActionsBusy || confirmationDialog.disableConfirm}
                 onClick={confirmSprintDialogAction}
                 style={{
                   borderColor: `${confirmationDialog.accent}88`,

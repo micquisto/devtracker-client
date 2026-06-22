@@ -34,6 +34,7 @@ const ACCESS_CONTROL_TREE: AccessControlResource[] = [
       { id: "scrum-sprint", label: "Sprint" },
       { id: "scrum-tasks-list", label: "Tasks List" },
       { id: "scrum-story-points", label: "Story Points" },
+      { id: "scrum-planning-poker", label: "Planning Poker" },
     ],
   },
   { id: "profile", label: "Profile" },
@@ -80,6 +81,13 @@ const ACCESS_CONTROL_TREE: AccessControlResource[] = [
         label: "Users",
         children: [
           { id: "admin-user-change-passwords", label: "Change Passwords" },
+        ],
+      },
+      {
+        id: "admin-settings",
+        label: "Settings",
+        children: [
+          { id: "admin-background-process", label: "Background Process" },
         ],
       },
       { id: "admin-access-control-lists", label: "Access Control Lists" },

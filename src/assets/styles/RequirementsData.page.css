@@ -175,6 +175,12 @@
   color: #00e5a0;
 }
 
+.requirements-data-message.is-warning {
+  background: rgba(245, 200, 66, 0.1);
+  border: 1px solid rgba(245, 200, 66, 0.28);
+  color: #f5c842;
+}
+
 .requirements-data-table-card {
   margin-top: 16px;
 }
@@ -1387,5 +1393,250 @@
   .sprint-story-points-check-section-header {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+.background-process-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.background-process-action-button {
+  min-width: 132px;
+}
+
+.background-process-action-button--on {
+  background: rgba(0, 229, 160, 0.12);
+  border-color: rgba(0, 229, 160, 0.34);
+  color: #00e5a0;
+}
+
+.background-process-action-button--off {
+  background: rgba(255, 107, 107, 0.12);
+  border-color: rgba(255, 107, 107, 0.34);
+  color: #ff8d8d;
+}
+
+.background-process-table-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.background-process-table-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.background-process-table-toolbar span {
+  background: rgba(0, 200, 255, 0.08);
+  border: 1px solid rgba(0, 200, 255, 0.18);
+  border-radius: 999px;
+  color: rgba(160, 210, 255, 0.78);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+.background-process-table {
+  border: 1px solid rgba(100, 180, 255, 0.1);
+  border-radius: 14px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.background-process-table thead {
+  background: rgba(0, 200, 255, 0.05);
+}
+
+.background-process-table th,
+.background-process-table td {
+  border-bottom: 1px solid rgba(100, 180, 255, 0.07);
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.background-process-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.background-process-table th {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.background-process-table td:first-child,
+.background-process-table th:first-child {
+  width: 48px;
+}
+
+.background-process-table input[type="checkbox"] {
+  accent-color: #00c8ff;
+}
+
+.background-process-select-all {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.background-process-select-all span {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.background-process-name {
+  color: rgba(230, 245, 255, 0.92);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.background-process-description {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 4px;
+}
+
+.background-process-key {
+  color: rgba(140, 185, 230, 0.5);
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 800;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.background-process-schedule {
+  color: rgba(230, 245, 255, 0.86);
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.background-process-status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+.background-process-status--on {
+  background: rgba(0, 229, 160, 0.12);
+  border: 1px solid rgba(0, 229, 160, 0.28);
+  color: #00e5a0;
+}
+
+.background-process-status--off {
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.28);
+  color: #ff8d8d;
+}
+
+.background-process-state {
+  border-radius: 999px;
+  display: inline-flex;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+.background-process-state--idle {
+  background: rgba(160, 210, 255, 0.08);
+  border: 1px solid rgba(160, 210, 255, 0.18);
+  color: rgba(160, 210, 255, 0.78);
+}
+
+.background-process-state--processing {
+  background: rgba(0, 200, 255, 0.12);
+  border: 1px solid rgba(0, 200, 255, 0.28);
+  color: #00c8ff;
+}
+
+.background-process-state--success {
+  background: rgba(0, 229, 160, 0.12);
+  border: 1px solid rgba(0, 229, 160, 0.28);
+  color: #00e5a0;
+}
+
+.background-process-state--failed {
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.28);
+  color: #ff8d8d;
+}
+
+.background-process-last-error {
+  color: #ff8d8d;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+.background-process-updated {
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.background-process-footnote {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 14px 0 0;
+}
+
+.background-process-edit-modal {
+  max-width: 560px;
+  width: min(560px, 100%);
+}
+
+.background-process-edit-help {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .background-process-table-wrap {
+    overflow-x: auto;
+  }
+
+  .background-process-table {
+    min-width: 1040px;
+  }
+
+  .background-process-actions {
+    width: 100%;
+  }
+
+  .background-process-action-button {
+    flex: 1 1 160px;
   }
 }

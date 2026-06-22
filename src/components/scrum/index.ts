@@ -8,4 +8,6 @@ export {
 } from "./sprint/SprintFilter";
 export { default as SprintKanbanBoard } from "./sprint/SprintKanbanBoard";
 export { default as SprintScoreboard } from "./sprint/SprintScoreboard";
+export { default as SprintSyncDataAction } from "./sprint/SprintSyncDataAction";
 export { default as SprintTaskList } from "./sprint/SprintTaskList";
+export { default as TrelloDescription } from "./TrelloDescription";

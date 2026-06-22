@@ -18,6 +18,7 @@ const SPRINT_KANBAN_COLUMNS = [
 ] as const;
 
 const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
+  "planning",
   "project refinement",
   "on-deck sprint backlog",
   "backlog",
