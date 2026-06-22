@@ -18,6 +18,40 @@ export type TrelloApiRequestOptions = {
   headers?: Record<string, string>;
 };
 
+/**
+ * Known Story Points power-up plugin IDs.
+ * 59d4ef8cfea15a55b0086614 is the primary Story Points power-up used on our boards.
+ * 638372c5e00ec1016bb45460 is the third-party "Story Points for Trello" power-up.
+ */
+export const TRELLO_STORY_POINTS_POWER_UP_PLUGIN_IDS = [
+  "59d4ef8cfea15a55b0086614",
+  "638372c5e00ec1016bb45460",
+] as const;
+
+export function getTrelloStoryPointsPluginIds(): readonly string[] {
+  const fromEnv = import.meta.env.VITE_TRELLO_STORY_POINTS_PLUGIN_ID?.trim();
+
+  if (fromEnv) {
+    return [fromEnv];
+  }
+
+  return TRELLO_STORY_POINTS_POWER_UP_PLUGIN_IDS;
+}
+
+/**
+ * Optional plugin ID for a Workbench-registered Trello Power-Up.
+ * REST pluginData writes are only permitted for the API key's own Power-Up app.
+ */
+export function getTrelloOwnStoryPointsPluginIds(): readonly string[] {
+  const fromEnv = import.meta.env.VITE_TRELLO_OWN_STORY_POINTS_PLUGIN_ID?.trim();
+
+  if (!fromEnv) {
+    return [];
+  }
+
+  return [fromEnv];
+}
+
 const TRELLO_API_BASE_URL =
   import.meta.env.VITE_TRELLO_API_BASE_URL ?? "https://api.trello.com/1";
 const TRELLO_REQUEST_DELAY_MS = getEnvNumber(

@@ -1,5 +1,5 @@
 import "@/assets/styles/TrelloDescription.css";
-import { createElement, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 const HEADER_PATTERN = /^(#{1,6})\s+(.+)$/;
 const UNORDERED_LIST_PATTERN = /^[-*+]\s+(.+)$/;
@@ -298,6 +298,49 @@ function parseInlineContent(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
+function renderHeading(level: number, key: string, content: ReactNode): ReactNode {
+  const className = `trello-description__heading trello-description__heading--h${level}`;
+
+  switch (level) {
+    case 1:
+      return (
+        <h1 key={key} className={className}>
+          {content}
+        </h1>
+      );
+    case 2:
+      return (
+        <h2 key={key} className={className}>
+          {content}
+        </h2>
+      );
+    case 3:
+      return (
+        <h3 key={key} className={className}>
+          {content}
+        </h3>
+      );
+    case 4:
+      return (
+        <h4 key={key} className={className}>
+          {content}
+        </h4>
+      );
+    case 5:
+      return (
+        <h5 key={key} className={className}>
+          {content}
+        </h5>
+      );
+    default:
+      return (
+        <h6 key={key} className={className}>
+          {content}
+        </h6>
+      );
+  }
+}
+
 function renderLine(line: string, key: string): ReactNode {
   const trimmedLine = line.trim();
 
@@ -355,15 +398,7 @@ function renderLine(line: string, key: string): ReactNode {
   const headerMatch = trimmedLine.match(HEADER_PATTERN);
   if (headerMatch) {
     const level = Math.min(headerMatch[1].length, 6);
-    const headingTag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-    return createElement(
-      headingTag,
-      {
-        key,
-        className: `trello-description__heading trello-description__heading--h${level}`,
-      },
-      parseInlineContent(headerMatch[2], key),
-    );
+    return renderHeading(level, key, parseInlineContent(headerMatch[2], key));
   }
 
   const unorderedMatch = trimmedLine.match(UNORDERED_LIST_PATTERN);

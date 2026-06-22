@@ -9,6 +9,7 @@ import {
   StatusColor,
 } from "@/lib/theme";
 import { getSupabaseRows } from "@/lib/supabase";
+import { NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME } from "@/lib/utils/trello/trello.listNames";
 import "@/assets/styles/SprintKanbanBoard.css";
 
 const SPRINT_KANBAN_COLUMNS = [
@@ -18,6 +19,7 @@ const SPRINT_KANBAN_COLUMNS = [
 ] as const;
 
 const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
   "planning",
   "project refinement",
   "on-deck sprint backlog",

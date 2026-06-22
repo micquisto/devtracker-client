@@ -1,4 +1,11 @@
-export const POKER_ADMIN_ROLES = new Set(["tech_lead", "super_admin"]);
+export const POKER_ADMIN_ROLES = new Set(["tech_lead", "super_admin", "superadmin"]);
+
+export const POKER_TASK_CONTROLLER_ROLES = new Set([
+  "tech_lead",
+  "super_admin",
+  "superadmin",
+  "project_manager",
+]);
 
 export const RESTRICTED_VOTE_VIEWER_ROLES = new Set(["developer", "qa_engineer"]);
 
@@ -34,8 +41,19 @@ export type PlanningPokerSessionRow = {
   confirmed_by_member_id: string | null;
 };
 
+export type PlanningPokerSprintFocusRow = {
+  sprint_id: string;
+  active_task_id: string | null;
+  opened_by_member_id: string | null;
+  opened_at: string | null;
+};
+
 export function isPokerAdmin(role: string | null): boolean {
   return POKER_ADMIN_ROLES.has(role?.trim().toLowerCase() ?? "");
+}
+
+export function isPokerTaskController(role: string | null): boolean {
+  return POKER_TASK_CONTROLLER_ROLES.has(role?.trim().toLowerCase() ?? "");
 }
 
 export function isDeveloperRole(role: string | null): boolean {

@@ -1168,7 +1168,7 @@ export default function SprintPage() {
                 requestSprintConfirmation({
                   title: "Sync Data",
                   message:
-                    "This will replace the current sprint task data with the latest planning cards from Trello.",
+                    "This will replace the current sprint task data with the latest For Planning list cards from Trello.",
                   confirmLabel: "Sync Data",
                   accent: "#00c8ff",
                   onConfirm: () => void syncSprintData(),

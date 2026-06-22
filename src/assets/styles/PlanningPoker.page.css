@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  padding: 20px 0 40px;
+  min-width: 0;
 }
 
 .planning-poker-card {
@@ -43,11 +45,27 @@
   font-weight: 900;
 }
 
+.planning-poker-sprint-badge {
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(160, 210, 255, 0.28);
+  background: rgba(160, 210, 255, 0.08);
+  color: rgba(220, 240, 255, 0.92);
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .planning-poker-error {
   margin: 0 0 12px;
   color: #ff6b6b;
   font-family: "DM Sans", sans-serif;
   font-size: 13px;
+}
+
+.planning-poker-error--multiline {
+  white-space: pre-line;
+  line-height: 1.5;
 }
 
 .planning-poker-message {
@@ -74,6 +92,14 @@
   font-size: 14px;
 }
 
+.planning-poker-empty--facilitator {
+  min-height: 180px;
+}
+
+.planning-poker-loading--inline {
+  min-height: 180px;
+}
+
 .planning-poker-spinner {
   width: 14px;
   height: 14px;
@@ -91,13 +117,19 @@
 
 .planning-poker-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
   gap: 16px;
   align-items: start;
+  min-width: 0;
+}
+
+.planning-poker-board {
+  min-width: 0;
 }
 
 .planning-poker-board-column {
   min-height: 420px;
+  min-width: 0;
   padding: 12px;
   border-radius: 16px;
   border: 1px solid rgba(0, 200, 255, 0.18);
@@ -157,6 +189,47 @@
   border-color: rgba(255, 107, 107, 0.62);
 }
 
+.planning-poker-task-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planning-poker-nav-button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 200, 255, 0.35);
+  background: rgba(0, 200, 255, 0.1);
+  color: #00c8ff;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+}
+
+.planning-poker-nav-button:hover:not(:disabled) {
+  background: rgba(0, 200, 255, 0.18);
+  border-color: rgba(0, 200, 255, 0.55);
+}
+
+.planning-poker-nav-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.planning-poker-task-nav-position {
+  color: rgba(160, 210, 255, 0.72);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 48px;
+  text-align: center;
+}
+
 .planning-poker-task-expanded {
   display: flex;
   flex-direction: column;
@@ -191,6 +264,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 10px;
   min-width: 0;
   padding: 16px;
@@ -198,6 +272,7 @@
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
   overflow-x: auto;
+  text-align: left;
 }
 
 .planning-poker-task-expanded-description h4 {
@@ -208,15 +283,34 @@
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-align: left;
 }
 
 .planning-poker-task-expanded-description p {
   margin: 0;
+  text-align: left;
 }
 
 .planning-poker-task-expanded-description .trello-description {
   min-width: 0;
+  width: 100%;
   overflow-wrap: anywhere;
+  text-align: left;
+  align-items: flex-start;
+}
+
+.planning-poker-task-expanded-description .trello-description__paragraph,
+.planning-poker-task-expanded-description .trello-description__block,
+.planning-poker-task-expanded-description .trello-description__heading,
+.planning-poker-task-expanded-description .trello-description__list,
+.planning-poker-task-expanded-description .trello-description__list-item,
+.planning-poker-task-expanded-description .trello-description__empty {
+  text-align: left;
+}
+
+.planning-poker-task-expanded-description .trello-description__figure {
+  align-items: flex-start;
+  width: 100%;
 }
 
 .planning-poker-task-expanded-description .trello-description__figure,
@@ -227,7 +321,7 @@
 
 .planning-poker-board-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
 
@@ -240,6 +334,12 @@
 
 .planning-poker-task-card:hover {
   transform: translateY(-2px);
+}
+
+@media (hover: none) {
+  .planning-poker-task-card:hover {
+    transform: none;
+  }
 }
 
 .planning-poker-task-card--selected {
@@ -273,6 +373,90 @@
   font-family: "DM Mono", monospace;
   font-size: 10px;
   font-weight: 800;
+}
+
+.planning-poker-vote-indicator {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 200, 255, 0.18);
+  background: rgba(0, 200, 255, 0.06);
+}
+
+.planning-poker-vote-indicator--compact {
+  margin-top: 10px;
+  padding: 8px 10px;
+}
+
+.planning-poker-vote-indicator--complete {
+  border-color: rgba(72, 220, 140, 0.35);
+  background: rgba(72, 220, 140, 0.08);
+}
+
+.planning-poker-vote-indicator__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.planning-poker-vote-indicator--compact .planning-poker-vote-indicator__header {
+  margin-bottom: 5px;
+}
+
+.planning-poker-vote-indicator__label {
+  color: rgba(160, 210, 255, 0.78);
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.planning-poker-vote-indicator--compact .planning-poker-vote-indicator__label {
+  font-size: 10px;
+}
+
+.planning-poker-vote-indicator__count {
+  color: #e8f4ff;
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.planning-poker-vote-indicator--compact .planning-poker-vote-indicator__count {
+  font-size: 11px;
+}
+
+.planning-poker-vote-indicator--complete .planning-poker-vote-indicator__count {
+  color: #7dffb0;
+}
+
+.planning-poker-vote-indicator__track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.planning-poker-vote-indicator--compact .planning-poker-vote-indicator__track {
+  height: 5px;
+}
+
+.planning-poker-vote-indicator__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #00b4ff, #00e5ff);
+  transition: width 0.25s ease;
+}
+
+.planning-poker-vote-indicator--complete .planning-poker-vote-indicator__fill {
+  background: linear-gradient(90deg, #2fd67a, #7dffb0);
+}
+
+.planning-poker-vote-panel-header .planning-poker-vote-indicator {
+  margin-top: 10px;
 }
 
 .planning-poker-task-title {
@@ -332,6 +516,7 @@
 .planning-poker-vote-panel {
   position: sticky;
   top: 16px;
+  min-width: 0;
   padding: 14px;
   border-radius: 16px;
   border: 1px solid rgba(0, 229, 160, 0.18);
@@ -378,6 +563,7 @@
   font-size: 18px;
   font-weight: 900;
   cursor: pointer;
+  touch-action: manipulation;
   transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
 
@@ -493,6 +679,10 @@
 }
 
 .planning-poker-admin-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 8px 14px;
   border-radius: 10px;
   border: 1px solid transparent;
@@ -501,6 +691,24 @@
   font-weight: 700;
   cursor: pointer;
   transition: opacity 0.15s ease;
+}
+
+.planning-poker-spinner--button {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.planning-poker-admin-button--reveal .planning-poker-spinner--button {
+  border-top-color: #00c8ff;
+}
+
+.planning-poker-admin-button--confirm .planning-poker-spinner--button {
+  border-top-color: #00e5a0;
+}
+
+.planning-poker-admin-button--revote .planning-poker-spinner--button {
+  border-top-color: #ff9f43;
 }
 
 .planning-poker-admin-button:disabled {
@@ -578,6 +786,15 @@
 
 .planning-poker-table-scroll {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.planning-poker-table-scroll--desktop {
+  display: block;
+}
+
+.planning-poker-table-scroll--mobile {
+  display: none;
 }
 
 .planning-poker-table {
@@ -618,9 +835,214 @@
   .planning-poker-layout {
     grid-template-columns: 1fr;
   }
+}
 
-  .planning-poker-vote-panel {
-    position: static;
+@media (max-width: 768px) {
+  .planning-poker-page {
+    padding: 12px 0 28px;
+    gap: 14px;
+  }
+
+  .planning-poker-card {
+    padding: 14px 12px;
+  }
+
+  .planning-poker-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .planning-poker-header-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .planning-poker-header-actions .sprint-selector-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .planning-poker-header-actions .sprint-selector-actions > button {
+    justify-content: center;
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .planning-poker-sprint-badge,
+  .planning-poker-count-badge {
+    width: 100%;
+    text-align: center;
+  }
+
+  .planning-poker-board-column,
+  .planning-poker-board-column--expanded {
+    min-height: 0;
+    padding: 10px;
+  }
+
+  .planning-poker-board-column-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .planning-poker-board-column-header-actions {
+    width: 100%;
+  }
+
+  .planning-poker-task-nav {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .planning-poker-nav-button,
+  .planning-poker-close-button {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+
+  .planning-poker-close-button {
+    grid-column: 1 / -1;
+  }
+
+  .planning-poker-task-nav-position {
+    min-width: 0;
+    padding: 0 4px;
+  }
+
+  .planning-poker-task-expanded {
+    min-height: 0;
+    padding: 14px 12px;
+  }
+
+  .planning-poker-task-expanded-title {
+    font-size: 20px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .planning-poker-task-expanded-description {
+    padding: 12px;
+  }
+
+  .planning-poker-layout--active-task .planning-poker-vote-panel {
+    position: sticky;
+    top: 8px;
+    z-index: 5;
+    max-height: min(72vh, 640px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  }
+
+  .planning-poker-vote-panel-header p {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+
+  .planning-poker-point-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .planning-poker-point-button {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .planning-poker-admin-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .planning-poker-admin-button {
+    min-height: 44px;
+    width: 100%;
+    text-align: center;
+  }
+
+  .planning-poker-voter-row {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .planning-poker-voter-avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 11px;
+  }
+
+  .planning-poker-table-scroll--desktop {
+    display: none;
+  }
+
+  .planning-poker-table-scroll--mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .planning-poker-vote-card {
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .planning-poker-vote-card__title {
+    margin: 0 0 10px;
+    color: #e8f4ff;
+    font-family: "DM Sans", sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .planning-poker-vote-card__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+  }
+
+  .planning-poker-vote-card__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .planning-poker-vote-card__item--full {
+    grid-column: 1 / -1;
+  }
+
+  .planning-poker-vote-card__label {
+    color: rgba(100, 180, 255, 0.55);
+    font-family: "DM Mono", monospace;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .planning-poker-vote-card__value {
+    color: rgba(180, 215, 255, 0.9);
+    font-family: "DM Sans", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -629,7 +1051,63 @@
     grid-template-columns: 1fr;
   }
 
-  .planning-poker-point-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .planning-poker-subtitle {
+    font-size: 12px;
+  }
+
+  .planning-poker-loading,
+  .planning-poker-empty,
+  .planning-poker-empty-panel {
+    min-height: 100px;
+    padding: 18px 14px;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .planning-poker-task-title {
+    font-size: 14px;
+  }
+
+  .planning-poker-vote-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .planning-poker-page {
+    padding: 8px 0 24px;
+  }
+
+  .planning-poker-card {
+    padding: 12px 10px;
+  }
+
+  .planning-poker-task-expanded-title {
+    font-size: 18px;
+  }
+
+  .planning-poker-point-button {
+    min-height: 44px;
+    font-size: 15px;
+    border-radius: 10px;
+  }
+
+  .planning-poker-reveal-banner__value {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planning-poker-spinner,
+  .planning-poker-point-button,
+  .planning-poker-task-card,
+  .planning-poker-vote-indicator__fill {
+    animation: none;
+    transition: none;
+  }
+
+  .planning-poker-task-card:hover,
+  .planning-poker-point-button:hover:not(:disabled) {
+    transform: none;
   }
 }

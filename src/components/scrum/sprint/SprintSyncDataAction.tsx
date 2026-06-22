@@ -5,9 +5,11 @@ import "@/assets/styles/Sprint.page.css";
 
 type SprintSyncTarget = {
   id: string;
-  name: string | null;
+  name: string;
   status: string | null;
 };
+
+export type { SprintSyncTarget };
 
 type SprintConfirmationDialog = {
   title: string;
@@ -45,7 +47,7 @@ function shouldHideSprintActionButtons(role: string | null): boolean {
 
 function getSyncDataMessage(status: string): string {
   if (status === "planning") {
-    return "This will replace the current sprint task data with the latest planning cards from Trello.";
+    return "This will replace the current sprint task data with the latest For Planning list cards from Trello.";
   }
 
   return "This will replace the current sprint task data with the latest cards from Trello.";
@@ -79,7 +81,7 @@ export default function SprintSyncDataAction({
       message: getSyncDataMessage(currentSprintStatus),
       confirmLabel: "Sync Data",
       accent: "#00c8ff",
-      sprintDetail: currentSprint.name ?? undefined,
+      sprintDetail: currentSprint.name,
       onConfirm: () => void syncSprintData(),
     });
   }

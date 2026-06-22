@@ -1,5 +1,19 @@
 import { getSupabaseRows, supabase } from "@/lib/supabase";
-import { getTrelloSprintCards, type TrelloSprintCard } from "./trello.utils";
+import {
+  getTrelloSprintCardById,
+  getTrelloSprintCards,
+  type TrelloSprintCard,
+} from "./trello.utils";
+import {
+  DEFAULT_TRELLO_STORY_POINT_FIELD_NAMES,
+  updateTrelloCardStoryPoints,
+  type UpdateTrelloCardStoryPointsResult,
+} from "./trello.storyPoints";
+import {
+  isForPlanningTrelloList,
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
+  TRELLO_FOR_PLANNING_LIST_NAME,
+} from "./trello.listNames";
 
 const TRELLO_CUSTOM_FIELD_NAMES = [
   "Date Completed",
@@ -16,7 +30,7 @@ const TRELLO_CUSTOM_FIELD_NAMES = [
 
 const ORIGINAL_TRELLO_BOARD_IDS = ["5oj0clmi"];
 const ORIGINAL_TRELLO_LIST_NAMES = [
-  "Planning",
+  TRELLO_FOR_PLANNING_LIST_NAME,
   "Current Sprint",
   "In Development",
   "For Dev Deployment",
@@ -31,7 +45,7 @@ const ORIGINAL_TRELLO_LIST_NAMES = [
 
 const EXTRA_TRELLO_BOARD_IDS = ["l7BOmeGw"];
 const EXTRA_TRELLO_LIST_NAMES = [
-  "Planning",
+  TRELLO_FOR_PLANNING_LIST_NAME,
   "Project Refinement",
   "Backlog",
   "Next Sprint",
@@ -51,12 +65,14 @@ const TRELLO_LIST_MERGE_ORDER = [
 ];
 
 const PLANNING_SP_TYPE_LIST_NAMES = new Set([
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
   "planning",
   "current sprint",
   "in development",
   "for dev deployment",
 ]);
 const PENDING_COMPLETION_LIST_NAMES = new Set([
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
   "planning",
   "current sprint",
   "in development",
@@ -95,6 +111,36 @@ export type SprintSyncResult = {
   cardsFetched: number;
   tasksDeleted: number;
   tasksInserted: number;
+};
+
+export type SyncTaskStoryPointsFromTrelloOptions = {
+  taskId: string;
+  sprintId: string;
+  storyPoints: number;
+};
+
+export type SyncedPlanningTaskRow = {
+  id: string;
+  sprint_id: string;
+  title: string;
+  description: string | null;
+  task_type: TaskRow["task_type"];
+  priority: TaskRow["priority"];
+  severity: number;
+  story_points: number;
+  sp_type: TaskRow["sp_type"];
+  trello_list_name: string | null;
+  trello_short_id: number | null;
+  trello_card_url: string | null;
+  trello_card_id: string;
+  trello_board_id: string;
+};
+
+export type SyncTaskStoryPointsFromTrelloResult = {
+  taskId: string;
+  storyPoints: number;
+  trelloUpdate: UpdateTrelloCardStoryPointsResult;
+  updatedTask: SyncedPlanningTaskRow;
 };
 
 type TaskRow = {
@@ -381,7 +427,7 @@ function isCompletedList(listName: string): boolean {
   const normalizedListName = normalizeLabel(listName);
 
   return (
-    normalizedListName !== "planning" &&
+    !isForPlanningTrelloList(listName) &&
     normalizedListName !== "current sprint" &&
     normalizedListName !== "in development"
   );
@@ -524,6 +570,22 @@ async function getCurrentSprint(): Promise<SprintRow | null> {
   }
 
   return data?.[0] ? (data[0] as SprintRow) : null;
+}
+
+async function getSprintById(sprintId: string): Promise<SprintRow | null> {
+  const { data, error } = await supabase
+    .from("sprints")
+    .select(
+      "id,project_id,name,sprint_number,start_date,end_date,sprint_year,sprint_month,total_planned_points,total_completed_points,blocked_count,planned_tasks_count,adhoc_tasks_count,total_tasks_count,status,is_current",
+    )
+    .eq("id", sprintId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? (data as SprintRow) : null;
 }
 
 function shouldDeleteExistingTask(
@@ -1090,9 +1152,20 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
       hasCardMemberUsername(card, TRELLO_REQUIRED_MEMBER_USERNAME) &&
       hasAdditionalSupabaseMember(card, supabaseMemberUsernames),
   );
+  const memberFilteredCardIds = new Set(memberFilteredCards.map((card) => card.id));
   const cards =
     sprint.status === "planning"
-      ? memberFilteredCards.filter((card) => !hasCardLabel(card, "Ad hoc"))
+      ? trelloCards.filter((card) => {
+          if (hasCardLabel(card, "Ad hoc")) {
+            return false;
+          }
+
+          if (isForPlanningTrelloList(card.list.name)) {
+            return true;
+          }
+
+          return memberFilteredCardIds.has(card.id);
+        })
       : trelloCards.filter((card) => {
           if (!hasCardLabel(card, "Ad hoc")) {
             return (
@@ -1127,5 +1200,101 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
       tasksDeleted: taskCounts.deleted,
       tasksInserted: taskCounts.inserted,
     },
+  };
+}
+
+const PLANNING_TASK_SELECT =
+  "id,sprint_id,title,description,task_type,priority,severity,story_points,sp_type,trello_list_name,trello_short_id,trello_card_url,trello_card_id,trello_board_id";
+
+export async function syncTaskStoryPointsFromTrello(
+  options: SyncTaskStoryPointsFromTrelloOptions,
+): Promise<SyncTaskStoryPointsFromTrelloResult> {
+  const { taskId, sprintId, storyPoints } = options;
+
+  const [existingTask] = await getSupabaseRows<ExistingTaskRow & {
+    trello_board_id: string | null;
+    trello_card_url: string | null;
+  }>("tasks", {
+    select: "id,sprint_id,trello_card_id,trello_board_id,trello_card_url,sp_type",
+    eq: { id: taskId, sprint_id: sprintId },
+    limit: 1,
+  });
+
+  if (!existingTask) {
+    throw new Error("Task not found for the selected sprint.");
+  }
+
+  if (!existingTask.trello_card_id?.trim() || !existingTask.trello_board_id?.trim()) {
+    throw new Error("Task is missing Trello card metadata required for story point sync.");
+  }
+
+  const sprint = await getSprintById(sprintId);
+  if (!sprint) {
+    throw new Error("Sprint not found.");
+  }
+
+  const trelloUpdate = await updateTrelloCardStoryPoints({
+    cardId: existingTask.trello_card_id,
+    boardId: existingTask.trello_board_id,
+    storyPoints,
+    source: "customField",
+    fieldNames: [...DEFAULT_TRELLO_STORY_POINT_FIELD_NAMES],
+  });
+
+  const card = await getTrelloSprintCardById(existingTask.trello_card_id, {
+    customFieldNames: TRELLO_CUSTOM_FIELD_NAMES,
+    storyPointSource: "customFieldOnly",
+  });
+  const resolvedCard =
+    card.storyPoints === null && trelloUpdate.source === "customField"
+      ? { ...card, storyPoints }
+      : card;
+
+  const [supabaseMembers, projectTypes] = await Promise.all([
+    getSupabaseRows<MemberAssigneeRow>("members", {
+      select: "id,auth_user_id,trello_username,email,full_name,first_name,last_name",
+    }),
+    getSupabaseRows<ProjectTypeRow>("project_type", {
+      select: "id,name",
+    }),
+  ]);
+
+  const assigneeLookup = buildAssigneeLookup(supabaseMembers);
+  const projectTypeLookup = buildProjectTypeLookup(projectTypes);
+  const mappedTask = mapCardToTask(
+    resolvedCard,
+    sprint,
+    assigneeLookup,
+    projectTypeLookup,
+  );
+
+  await updateSprintTaskFromCard(
+    sprint,
+    existingTask,
+    resolvedCard,
+    mappedTask,
+    new Set<TaskRow["sp_type"]>(),
+  );
+
+  const { data: updatedTask, error: updatedTaskError } = await supabase
+    .from("tasks")
+    .select(PLANNING_TASK_SELECT)
+    .eq("id", taskId)
+    .eq("sprint_id", sprintId)
+    .maybeSingle();
+
+  if (updatedTaskError) {
+    throw updatedTaskError;
+  }
+
+  if (!updatedTask) {
+    throw new Error("Updated task could not be loaded after Trello sync.");
+  }
+
+  return {
+    taskId,
+    storyPoints,
+    trelloUpdate,
+    updatedTask: updatedTask as SyncedPlanningTaskRow,
   };
 }

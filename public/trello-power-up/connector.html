@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Workbench Planning Poker</title>
+    <script src="https://p.trellocdn.com/power-up.min.js"></script>
+    <script src="./config.js"></script>
+  </head>
+  <body>
+    <script>
+      const config = window.WORKBENCH_TRELLO_POWER_UP_CONFIG ?? {};
+
+      function buildAgileToolsValue(points) {
+        return {
+          points,
+          pointsHistory: [`${Date.now()}:${points}`],
+        };
+      }
+
+      function getSupabaseHeaders() {
+        return {
+          apikey: config.supabaseAnonKey,
+          Authorization: `Bearer ${config.supabaseAnonKey}`,
+          "Content-Type": "application/json",
+        };
+      }
+
+      function fetchPendingQueueItem(cardId) {
+        const url = new URL(
+          `${config.supabaseUrl}/rest/v1/planning_poker_trello_story_point_queue`,
+        );
+        url.searchParams.set("select", "id,story_points,status");
+        url.searchParams.set("trello_card_id", `eq.${cardId}`);
+        url.searchParams.set("status", "eq.pending");
+        url.searchParams.set("order", "created_at.desc");
+        url.searchParams.set("limit", "1");
+
+        return fetch(url, { headers: getSupabaseHeaders() }).then((response) =>
+          response.json(),
+        );
+      }
+
+      function markQueueItemApplied(queueId) {
+        return fetch(
+          `${config.supabaseUrl}/rest/v1/planning_poker_trello_story_point_queue?id=eq.${queueId}`,
+          {
+            method: "PATCH",
+            headers: {
+              ...getSupabaseHeaders(),
+              Prefer: "return=minimal",
+            },
+            body: JSON.stringify({
+              status: "applied",
+              applied_at: new Date().toISOString(),
+            }),
+          },
+        );
+      }
+
+      function applyQueuedStoryPoints(t, cardId) {
+        return fetchPendingQueueItem(cardId).then((rows) => {
+          const pending = Array.isArray(rows) ? rows[0] : null;
+          if (!pending) {
+            return null;
+          }
+
+          const payload = buildAgileToolsValue(pending.story_points);
+          return t
+            .set("card", "shared", "workbenchPlanningPoker", payload)
+            .then(() => markQueueItemApplied(pending.id))
+            .then(() => pending.story_points);
+        });
+      }
+
+      TrelloPowerUp.initialize({
+        "card-badges": function (t, options) {
+          return t
+            .card("id")
+            .get("id")
+            .then((cardId) =>
+              applyQueuedStoryPoints(t, cardId).then((appliedPoints) => {
+                if (appliedPoints !== null) {
+                  return [
+                    {
+                      text: String(appliedPoints),
+                      color: "sky",
+                    },
+                  ];
+                }
+
+                return t
+                  .get("card", "shared", "workbenchPlanningPoker")
+                  .then((value) => {
+                    const points = value?.points;
+                    if (typeof points !== "number") {
+                      return [];
+                    }
+
+                    return [
+                      {
+                        text: String(points),
+                        color: "sky",
+                      },
+                    ];
+                  });
+              }),
+            );
+        },
+        "card-buttons": function (t, options) {
+          return t.card("id").get("id").then((cardId) =>
+            fetchPendingQueueItem(cardId).then((rows) => {
+              const pending = Array.isArray(rows) ? rows[0] : null;
+              if (!pending) {
+                return [];
+              }
+
+              return [
+                {
+                  text: `Apply ${pending.story_points} SP from Planning Poker`,
+                  callback: function (buttonT) {
+                    return applyQueuedStoryPoints(buttonT, cardId).then(
+                      (appliedPoints) => {
+                        if (appliedPoints === null) {
+                          return buttonT.alert({
+                            message: "No pending Planning Poker story points were found.",
+                          });
+                        }
+
+                        return buttonT.alert({
+                          message: `Applied ${appliedPoints} story points from Planning Poker.`,
+                        });
+                      },
+                    );
+                  },
+                },
+              ];
+            }),
+          );
+        },
+      });
+    </script>
+  </body>
+</html>

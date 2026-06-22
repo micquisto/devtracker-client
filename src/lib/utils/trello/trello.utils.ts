@@ -1,11 +1,19 @@
 import { getSupabaseRows } from "@/lib/supabase";
 import {
+  getTrelloStoryPointsPluginIds,
   trelloRequest,
   type TrelloRequestParams,
 } from "./trello.client";
+import { isForPlanningTrelloList } from "./trello.listNames";
 
 export type { TrelloParamValue, TrelloRequestParams } from "./trello.client";
-export { buildTrelloUrl, trelloApiRequest, trelloRequest } from "./trello.client";
+export {
+  buildTrelloUrl,
+  getTrelloStoryPointsPluginIds,
+  TRELLO_STORY_POINTS_POWER_UP_PLUGIN_IDS,
+  trelloApiRequest,
+  trelloRequest,
+} from "./trello.client";
 
 export type TrelloBoard = {
   id: string;
@@ -119,10 +127,19 @@ export type TrelloPluginData = {
   value: string;
 };
 
+export type TrelloBoardPlugin = {
+  id: string;
+  idBoard: string;
+  idPlugin: string;
+  promotional?: boolean;
+};
+
 export type TrelloDateRange = {
   from?: Date | string | null;
   to?: Date | string | null;
 };
+
+export type TrelloStoryPointReadSource = "auto" | "pluginOnly" | "customFieldOnly";
 
 export type GetTrelloSprintCardsOptions = {
   boardIds?: string[] | null;
@@ -134,6 +151,7 @@ export type GetTrelloSprintCardsOptions = {
   memberIds?: string[] | "all" | null;
   customFieldNames?: string[] | null;
   storyPointFieldNames?: string[];
+  storyPointSource?: TrelloStoryPointReadSource;
 };
 
 export type TrelloSprintCard = TrelloCard & {
@@ -230,6 +248,13 @@ export function getTrelloBoardMembers(
   return trelloRequest<TrelloMember[]>(`/boards/${boardId}/members`, params);
 }
 
+export function getTrelloBoardPlugins(
+  boardId: string,
+  params: TrelloRequestParams = { fields: "id,idBoard,idPlugin,promotional" },
+): Promise<TrelloBoardPlugin[]> {
+  return trelloRequest<TrelloBoardPlugin[]>(`/boards/${boardId}/boardPlugins`, params);
+}
+
 export function getTrelloBoardCustomFields(
   boardId: string,
 ): Promise<TrelloCustomField[]> {
@@ -273,6 +298,7 @@ export async function getTrelloCardStoryPoints(
   cardId: string,
   boardId: string,
   storyPointFieldNames: string[] = ["Story Points", "Story Point", "Points", "SP"],
+  storyPointSource: TrelloStoryPointReadSource = "auto",
 ): Promise<number | null> {
   const [customFields, customFieldItems, pluginData] = await Promise.all([
     getTrelloBoardCustomFields(boardId),
@@ -280,27 +306,63 @@ export async function getTrelloCardStoryPoints(
     getTrelloCardPluginData(cardId),
   ]);
 
-  const storyPointField = customFields.find((field) =>
-    storyPointFieldNames.some(
-      (name) => field.name.toLowerCase() === name.toLowerCase(),
-    ),
+  return getStoryPointsFromCardData(
+    customFields,
+    customFieldItems,
+    pluginData,
+    storyPointFieldNames,
+    storyPointSource,
   );
+}
 
-  const storyPointItem = storyPointField
-    ? customFieldItems.find((item) => item.idCustomField === storyPointField.id)
-    : undefined;
-  const customFieldValue = storyPointItem?.value?.number ?? storyPointItem?.value?.text;
+export async function getTrelloStoryPointsForPlanningListCardsByBoard(
+  boardId: string,
+  cardIds: readonly string[],
+  storyPointFieldNames: string[] = ["Story Points", "Story Point", "Points", "SP"],
+): Promise<Map<string, number | null>> {
+  const storyPointsByCardId = new Map<string, number | null>();
+  const targetCardIds = new Set(cardIds.filter(Boolean));
 
-  if (customFieldValue && !Number.isNaN(Number(customFieldValue))) {
-    return Number(customFieldValue);
+  if (!boardId.trim() || targetCardIds.size === 0) {
+    return storyPointsByCardId;
   }
 
-  for (const item of pluginData) {
-    const value = parseTrelloPluginStoryPoints(item.value);
-    if (value !== null) return value;
+  const [lists, customFields] = await Promise.all([
+    getTrelloBoardLists(boardId),
+    getTrelloBoardCustomFields(boardId),
+  ]);
+
+  const planningList = lists.find((list) => isForPlanningTrelloList(list.name));
+  if (!planningList) {
+    return storyPointsByCardId;
   }
 
-  return null;
+  const listStoryPointSource: TrelloStoryPointReadSource = "auto";
+
+  const cards = await getTrelloListCards(planningList.id, {
+    fields: "all",
+    customFieldItems: true,
+    pluginData: true,
+  });
+
+  for (const card of cards) {
+    if (!targetCardIds.has(card.id)) {
+      continue;
+    }
+
+    storyPointsByCardId.set(
+      card.id,
+      getStoryPointsFromCardData(
+        customFields,
+        card.customFieldItems ?? [],
+        card.pluginData ?? [],
+        storyPointFieldNames,
+        listStoryPointSource,
+      ),
+    );
+  }
+
+  return storyPointsByCardId;
 }
 
 export async function getTrelloSprintCards(
@@ -316,6 +378,7 @@ export async function getTrelloSprintCards(
     memberIds = null,
     customFieldNames = null,
     storyPointFieldNames,
+    storyPointSource = "auto",
   } = options;
 
   const boards = boardIds?.length
@@ -332,7 +395,14 @@ export async function getTrelloSprintCards(
   for (const board of boards) {
     const lists = await getTrelloBoardLists(board.id);
     const members = await getTrelloBoardMembers(board.id);
-    const customFields = await getTrelloBoardCustomFields(board.id);
+    const [customFields, boardPlugins] = await Promise.all([
+      getTrelloBoardCustomFields(board.id),
+      getTrelloBoardPlugins(board.id),
+    ]);
+    const storyPointPluginIds = getTrelloStoryPointsPluginIds();
+    const boardUsesStoryPointPowerUp = boardPlugins.some((plugin) =>
+      storyPointPluginIds.includes(plugin.idPlugin),
+    );
     const targetLists = lists.filter(
       (list) =>
         selectedListIds.has(list.id) ||
@@ -340,6 +410,12 @@ export async function getTrelloSprintCards(
     );
 
     for (const list of targetLists) {
+      const listStoryPointSource =
+        storyPointSource === "auto" && boardUsesStoryPointPowerUp
+          ? isForPlanningTrelloList(list.name)
+            ? "auto"
+            : "pluginOnly"
+          : storyPointSource;
       const cards = await getTrelloListCards(list.id, {
         fields: "all",
         members: true,
@@ -364,6 +440,7 @@ export async function getTrelloSprintCards(
           customFieldNames,
           currentSprintListName,
           storyPointFieldNames,
+          storyPointSource: listStoryPointSource,
         });
 
         if (isDateInRange(sprintCard.movedToCurrentSprintAt, dateRange)) {
@@ -374,6 +451,45 @@ export async function getTrelloSprintCards(
   }
 
   return sprintCards;
+}
+
+export type GetTrelloSprintCardByIdOptions = {
+  customFieldNames?: string[] | null;
+  storyPointFieldNames?: string[];
+  currentSprintListName?: string;
+  storyPointSource?: TrelloStoryPointReadSource;
+};
+
+export async function getTrelloSprintCardById(
+  cardId: string,
+  options: GetTrelloSprintCardByIdOptions = {},
+): Promise<TrelloSprintCard> {
+  const card = await getTrelloCardDetails(cardId);
+  const boardId = card.idBoard;
+  const listId = card.idList;
+
+  if (!boardId || !listId) {
+    throw new Error(`Trello card ${cardId} is missing board or list metadata.`);
+  }
+
+  const [board, list, members, customFields] = await Promise.all([
+    getTrelloBoard(boardId),
+    getTrelloList(listId),
+    getTrelloBoardMembers(boardId),
+    getTrelloBoardCustomFields(boardId),
+  ]);
+
+  return buildTrelloSprintCard({
+    board,
+    list,
+    card,
+    boardMembers: members,
+    customFields,
+    customFieldNames: options.customFieldNames ?? null,
+    currentSprintListName: options.currentSprintListName ?? "Current Sprint",
+    storyPointFieldNames: options.storyPointFieldNames,
+    storyPointSource: options.storyPointSource,
+  });
 }
 
 async function getTrelloBoardsSequentially(boardIds: string[]): Promise<TrelloBoard[]> {
@@ -410,6 +526,7 @@ function buildTrelloSprintCard({
   customFieldNames,
   currentSprintListName,
   storyPointFieldNames = ["Story Points", "Story Point", "Points", "SP"],
+  storyPointSource = "auto",
 }: {
   board: TrelloBoard;
   list: TrelloList;
@@ -419,6 +536,7 @@ function buildTrelloSprintCard({
   customFieldNames: string[] | null;
   currentSprintListName: string;
   storyPointFieldNames?: string[];
+  storyPointSource?: TrelloStoryPointReadSource;
 }): TrelloSprintCard {
   const customFieldItems = card.customFieldItems ?? [];
   const customFieldValues = getTrelloCustomFieldValues(
@@ -442,6 +560,7 @@ function buildTrelloSprintCard({
       customFieldItems,
       card.pluginData ?? [],
       storyPointFieldNames,
+      storyPointSource,
     ),
     customFields: customFieldValues,
     dateCreated: getTrelloCardDateCreated(card.id),
@@ -506,7 +625,19 @@ function getStoryPointsFromCardData(
   customFieldItems: TrelloCustomFieldItem[],
   pluginData: TrelloPluginData[],
   storyPointFieldNames: string[],
+  storyPointSource: TrelloStoryPointReadSource = "auto",
 ): number | null {
+  if (storyPointSource !== "customFieldOnly") {
+    const pluginStoryPoints = getStoryPointsFromPluginData(pluginData);
+    if (pluginStoryPoints !== null) {
+      return pluginStoryPoints;
+    }
+  }
+
+  if (storyPointSource === "pluginOnly") {
+    return null;
+  }
+
   const storyPointField = customFields.find((field) =>
     storyPointFieldNames.some(
       (name) => normalizeName(field.name) === normalizeName(name),
@@ -524,9 +655,23 @@ function getStoryPointsFromCardData(
     return Number(customFieldValue);
   }
 
-  for (const item of pluginData) {
+  return null;
+}
+
+function getStoryPointsFromPluginData(pluginData: TrelloPluginData[]): number | null {
+  const preferredPluginIds = getTrelloStoryPointsPluginIds();
+  const preferredItems = preferredPluginIds
+    .map((pluginId) => pluginData.find((item) => item.idPlugin === pluginId))
+    .filter((item): item is TrelloPluginData => Boolean(item));
+  const remainingItems = pluginData.filter(
+    (item) => !preferredPluginIds.includes(item.idPlugin),
+  );
+
+  for (const item of [...preferredItems, ...remainingItems]) {
     const value = parseTrelloPluginStoryPoints(item.value);
-    if (value !== null) return value;
+    if (value !== null) {
+      return value;
+    }
   }
 
   return null;
@@ -576,20 +721,38 @@ function normalizeName(value?: string): string {
 }
 
 function parseTrelloPluginStoryPoints(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+
   try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const parsed = JSON.parse(value) as unknown;
+
+    if (typeof parsed === "number" && Number.isFinite(parsed)) {
+      return parsed;
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const record = parsed as Record<string, unknown>;
     const possibleValues = [
-      parsed.storyPoints,
-      parsed.storyPoint,
-      parsed.points,
-      parsed.estimate,
+      record.points,
+      record.storyPoints,
+      record.storyPoint,
+      record.estimate,
     ];
 
     const match = possibleValues.find(
       (item) => typeof item === "number" || typeof item === "string",
     );
 
-    return match !== undefined && !Number.isNaN(Number(match)) ? Number(match) : null;
+    if (match !== undefined && !Number.isNaN(Number(match))) {
+      return Number(match);
+    }
+
+    return null;
   } catch {
     return null;
   }

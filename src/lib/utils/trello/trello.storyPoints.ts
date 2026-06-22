@@ -1,12 +1,17 @@
 import {
+  getTrelloOwnStoryPointsPluginIds,
+  getTrelloStoryPointsPluginIds,
+  trelloApiRequest,
+} from "./trello.client";
+import {
   getTrelloBoardCustomFields,
+  getTrelloBoardPlugins,
   getTrelloCardPluginData,
   getTrelloCardStoryPoints,
   type TrelloCustomField,
   type TrelloCustomFieldItem,
   type TrelloPluginData,
 } from "./trello.utils";
-import { trelloApiRequest } from "./trello.client";
 
 export const DEFAULT_TRELLO_STORY_POINT_FIELD_NAMES = [
   "Story Points",
@@ -41,6 +46,7 @@ export type ResolvedTrelloStoryPointPluginData = {
   idPlugin: string;
   storyPointKey: string;
   existingValue: Record<string, unknown>;
+  preferenceScore?: number;
 };
 
 export type ReadTrelloCardStoryPointsOptions = {
@@ -56,6 +62,8 @@ export type UpdateTrelloCardStoryPointsOptions = {
   fieldNames?: readonly string[];
   source?: TrelloStoryPointUpdateSource;
   clearWhenZero?: boolean;
+  idPlugin?: string;
+  preferredPluginIds?: readonly string[];
 };
 
 export type UpdateTrelloCardStoryPointsResult = {
@@ -85,12 +93,116 @@ export class TrelloStoryPointUpdateError extends Error {
   }
 }
 
+export class TrelloStoryPointPowerUpRestrictedError extends TrelloStoryPointUpdateError {
+  readonly requiresManualInitialization: boolean;
+
+  constructor(
+    message: string,
+    details: TrelloStoryPointUpdateErrorDetails,
+    requiresManualInitialization = true,
+  ) {
+    super(message, details);
+    this.name = "TrelloStoryPointPowerUpRestrictedError";
+    this.requiresManualInitialization = requiresManualInitialization;
+  }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
+export function isTrelloPluginDataWriteForbiddenError(error: unknown): boolean {
+  const message = getErrorMessage(error, "");
+  return message.includes("private pluginData is limited to approved applications");
+}
+
+export function buildStoryPointPowerUpInitializeMessage(cardUrl?: string | null): string {
+  const lines = [
+    "Trello does not allow external apps to initialize Agile Tools story points on a card that has never been pointed in Trello.",
+    "",
+    "One-time setup for this card:",
+    "1. Open the card in Trello",
+    "2. In Power-Ups, click Story Points and set any value",
+    "3. Return here and click Confirm again",
+    "",
+    "After that, Planning Poker can update the Power-Up points automatically.",
+  ];
+
+  if (cardUrl?.trim()) {
+    lines.push("", cardUrl.trim());
+  }
+
+  return lines.join("\n");
+}
+
 const PLUGIN_STORY_POINT_KEYS = [
+  "points",
   "storyPoints",
   "storyPoint",
-  "points",
   "estimate",
 ] as const;
+
+const STORY_POINTS_FOR_TRELLO_PLUGIN_KEY = "points";
+
+function orderStoryPointPluginIds(
+  preferredPluginIds: readonly string[],
+  boardPluginIds: readonly string[],
+): string[] {
+  const boardStoryPointPlugins = boardPluginIds.filter((pluginId) =>
+    preferredPluginIds.includes(pluginId),
+  );
+  const remainingPreferred = preferredPluginIds.filter(
+    (pluginId) => !boardStoryPointPlugins.includes(pluginId),
+  );
+
+  return [...boardStoryPointPlugins, ...remainingPreferred];
+}
+
+async function getStoryPointPluginIdsForBoard(
+  boardId: string,
+  preferredPluginIds: readonly string[],
+): Promise<string[]> {
+  try {
+    const boardPlugins = await getTrelloBoardPlugins(boardId);
+    const boardPluginIds = boardPlugins.map((plugin) => plugin.idPlugin);
+    return orderStoryPointPluginIds(preferredPluginIds, boardPluginIds);
+  } catch {
+    return [...preferredPluginIds];
+  }
+}
+
+function buildPluginStoryPointValue(
+  existingValue: Record<string, unknown>,
+  storyPointKey: string,
+  storyPoints: number,
+  clearWhenZero: boolean,
+): Record<string, unknown> {
+  const nextPoints =
+    storyPoints === 0 && clearWhenZero ? 0 : storyPoints;
+  const updatedValue: Record<string, unknown> = {
+    ...existingValue,
+    [storyPointKey]: nextPoints,
+  };
+
+  if (storyPointKey === "points" || "pointsHistory" in existingValue) {
+    const existingHistory = Array.isArray(existingValue.pointsHistory)
+      ? existingValue.pointsHistory.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [];
+
+    updatedValue.pointsHistory = [
+      ...existingHistory,
+      `${Date.now()}:${nextPoints}`,
+    ];
+  }
+
+  return updatedValue;
+}
 
 function normalizeName(value: string): string {
   return value.trim().toLowerCase();
@@ -113,19 +225,95 @@ function findStoryPointCustomField(
 
 function parsePluginStoryPointPayload(
   value: string,
+  idPlugin?: string,
 ): { storyPointKey: string; existingValue: Record<string, unknown> } | null {
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    const storyPointKey = PLUGIN_STORY_POINT_KEYS.find((key) => key in parsed);
+  const preferredPluginIds = getTrelloStoryPointsPluginIds();
+  const isPreferredPlugin = idPlugin
+    ? preferredPluginIds.includes(idPlugin)
+    : false;
 
-    if (!storyPointKey) {
+  if (!value.trim()) {
+    if (!isPreferredPlugin) {
       return null;
     }
 
-    return { storyPointKey, existingValue: parsed };
+    return {
+      storyPointKey: STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+      existingValue: {},
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (typeof parsed === "number" && Number.isFinite(parsed)) {
+      return {
+        storyPointKey: STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+        existingValue: { [STORY_POINTS_FOR_TRELLO_PLUGIN_KEY]: parsed },
+      };
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      return isPreferredPlugin
+        ? {
+            storyPointKey: STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+            existingValue: {},
+          }
+        : null;
+    }
+
+    const record = parsed as Record<string, unknown>;
+    const storyPointKey = PLUGIN_STORY_POINT_KEYS.find((key) => key in record);
+
+    if (storyPointKey) {
+      return { storyPointKey, existingValue: record };
+    }
+
+    if (isPreferredPlugin) {
+      return {
+        storyPointKey: STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+        existingValue: record,
+      };
+    }
+
+    return null;
   } catch {
+    return isPreferredPlugin
+      ? {
+          storyPointKey: STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+          existingValue: {},
+        }
+      : null;
+  }
+}
+
+function getPluginPreferenceScore(
+  idPlugin: string,
+  preferredPluginIds: readonly string[],
+): number {
+  const preferredIndex = preferredPluginIds.indexOf(idPlugin);
+  return preferredIndex >= 0 ? preferredPluginIds.length - preferredIndex : 0;
+}
+
+function resolvePluginDataItemForStoryPoints(
+  cardId: string,
+  item: TrelloPluginData,
+  preferredPluginIds: readonly string[],
+): ResolvedTrelloStoryPointPluginData | null {
+  const parsed = parsePluginStoryPointPayload(item.value, item.idPlugin);
+  if (!parsed) {
     return null;
   }
+
+  return {
+    source: "pluginData",
+    cardId,
+    pluginDataId: item.id,
+    idPlugin: item.idPlugin,
+    storyPointKey: parsed.storyPointKey,
+    existingValue: parsed.existingValue,
+    preferenceScore: getPluginPreferenceScore(item.idPlugin, preferredPluginIds),
+  };
 }
 
 function buildCustomFieldStoryPointBody(
@@ -176,26 +364,45 @@ export async function resolveTrelloStoryPointCustomField(
 
 export async function resolveTrelloStoryPointPluginData(
   cardId: string,
+  options: {
+    idPlugin?: string;
+    preferredPluginIds?: readonly string[];
+    boardId?: string;
+  } = {},
 ): Promise<ResolvedTrelloStoryPointPluginData | null> {
+  const basePreferredPluginIds =
+    options.preferredPluginIds ?? getTrelloStoryPointsPluginIds();
+  const preferredPluginIds = options.boardId
+    ? await getStoryPointPluginIdsForBoard(options.boardId, basePreferredPluginIds)
+    : [...basePreferredPluginIds];
   const pluginDataItems = await getTrelloCardPluginData(cardId);
+  const candidates: ResolvedTrelloStoryPointPluginData[] = [];
 
   for (const item of pluginDataItems) {
-    const parsed = parsePluginStoryPointPayload(item.value);
-    if (!parsed) {
+    if (options.idPlugin && item.idPlugin !== options.idPlugin) {
       continue;
     }
 
-    return {
-      source: "pluginData",
+    const resolved = resolvePluginDataItemForStoryPoints(
       cardId,
-      pluginDataId: item.id,
-      idPlugin: item.idPlugin,
-      storyPointKey: parsed.storyPointKey,
-      existingValue: parsed.existingValue,
-    };
+      item,
+      preferredPluginIds,
+    );
+
+    if (resolved) {
+      candidates.push(resolved);
+    }
   }
 
-  return null;
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort(
+    (left, right) => (right.preferenceScore ?? 0) - (left.preferenceScore ?? 0),
+  );
+
+  return candidates[0];
 }
 
 export async function readTrelloCardStoryPoints(
@@ -205,6 +412,182 @@ export async function readTrelloCardStoryPoints(
     options.cardId,
     options.boardId,
     resolveFieldNames(options.fieldNames),
+  );
+}
+
+function toResolvedPluginData(
+  cardId: string,
+  idPlugin: string,
+  pluginDataId: string,
+  existingValue: Record<string, unknown>,
+): ResolvedTrelloStoryPointPluginData {
+  return {
+    source: "pluginData",
+    cardId,
+    pluginDataId,
+    idPlugin,
+    storyPointKey: STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+    existingValue,
+    preferenceScore: Number.MAX_SAFE_INTEGER,
+  };
+}
+
+async function resolveCreatedPluginData(
+  cardId: string,
+  idPlugin: string,
+  initialValue: Record<string, unknown>,
+  created?: TrelloPluginData | void,
+): Promise<ResolvedTrelloStoryPointPluginData> {
+  if (created?.id) {
+    return toResolvedPluginData(
+      cardId,
+      created.idPlugin ?? idPlugin,
+      created.id,
+      initialValue,
+    );
+  }
+
+  const pluginDataItems = await getTrelloCardPluginData(cardId);
+  const createdItem = pluginDataItems.find((item) => item.idPlugin === idPlugin);
+
+  if (!createdItem) {
+    throw new Error(
+      `Story Points power-up data was not created on card ${cardId}.`,
+    );
+  }
+
+  return toResolvedPluginData(
+    cardId,
+    createdItem.idPlugin,
+    createdItem.id,
+    initialValue,
+  );
+}
+
+async function verifyPluginStoryPoints(
+  cardId: string,
+  idPlugin: string,
+  storyPoints: number,
+): Promise<void> {
+  const pluginDataItems = await getTrelloCardPluginData(cardId);
+  const pluginItem = pluginDataItems.find((item) => item.idPlugin === idPlugin);
+
+  if (!pluginItem) {
+    throw new Error(
+      `No Story Points power-up data found on card ${cardId} after update.`,
+    );
+  }
+
+  const parsed = parsePluginStoryPointPayload(pluginItem.value, idPlugin);
+  const actualPoints = parsed?.existingValue[STORY_POINTS_FOR_TRELLO_PLUGIN_KEY];
+
+  if (typeof actualPoints !== "number" || actualPoints !== storyPoints) {
+    throw new Error(
+      `Story Points power-up value mismatch on card ${cardId} (expected ${storyPoints}, got ${typeof actualPoints === "number" ? actualPoints : "none"}).`,
+    );
+  }
+}
+
+async function createStoryPointsPluginData(
+  cardId: string,
+  boardId: string,
+  idPlugin: string,
+  storyPoints: number,
+): Promise<ResolvedTrelloStoryPointPluginData> {
+  const initialValue = buildPluginStoryPointValue(
+    {},
+    STORY_POINTS_FOR_TRELLO_PLUGIN_KEY,
+    storyPoints,
+    false,
+  );
+  const valueJson = JSON.stringify(initialValue);
+
+  try {
+    const created = await trelloApiRequest<TrelloPluginData>({
+      path: `/cards/${cardId}/pluginData`,
+      method: "POST",
+      body: {
+        idPlugin,
+        value: valueJson,
+        access: "shared",
+      },
+    });
+
+    const resolved = await resolveCreatedPluginData(
+      cardId,
+      idPlugin,
+      initialValue,
+      created,
+    );
+    await verifyPluginStoryPoints(cardId, idPlugin, storyPoints);
+    return resolved;
+  } catch (error) {
+    if (isTrelloPluginDataWriteForbiddenError(error)) {
+      throw new TrelloStoryPointPowerUpRestrictedError(
+        buildStoryPointPowerUpInitializeMessage(),
+        {
+          cardId,
+          boardId,
+          storyPoints,
+          attemptedSources: ["pluginData"],
+        },
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function createStoryPointsPluginDataForBoard(
+  cardId: string,
+  boardId: string,
+  storyPoints: number,
+  preferredPluginIds: readonly string[],
+): Promise<ResolvedTrelloStoryPointPluginData> {
+  const ownPluginIds = getTrelloOwnStoryPointsPluginIds();
+  const errors: string[] = [];
+
+  for (const idPlugin of ownPluginIds) {
+    try {
+      return await createStoryPointsPluginData(
+        cardId,
+        boardId,
+        idPlugin,
+        storyPoints,
+      );
+    } catch (error) {
+      if (error instanceof TrelloStoryPointPowerUpRestrictedError) {
+        throw error;
+      }
+
+      errors.push(getErrorMessage(error, `Plugin ${idPlugin}`));
+    }
+  }
+
+  const boardPluginIds = await getStoryPointPluginIdsForBoard(
+    boardId,
+    preferredPluginIds,
+  );
+  const thirdPartyPluginIds = boardPluginIds.filter(
+    (pluginId) => !ownPluginIds.includes(pluginId),
+  );
+
+  if (thirdPartyPluginIds.length > 0) {
+    throw new TrelloStoryPointPowerUpRestrictedError(
+      buildStoryPointPowerUpInitializeMessage(),
+      {
+        cardId,
+        boardId,
+        storyPoints,
+        attemptedSources: ["pluginData"],
+      },
+    );
+  }
+
+  throw new Error(
+    errors.length > 0
+      ? errors.join(" | ")
+      : "Unable to initialize Story Points power-up data on the card.",
   );
 }
 
@@ -238,21 +621,42 @@ async function updateStoryPointsViaPluginData(
   options: UpdateTrelloCardStoryPointsOptions,
   resolved: ResolvedTrelloStoryPointPluginData,
 ): Promise<UpdateTrelloCardStoryPointsResult> {
-  const updatedValue = {
-    ...resolved.existingValue,
-    [resolved.storyPointKey]:
-      options.storyPoints === 0 && (options.clearWhenZero ?? false)
-        ? 0
-        : options.storyPoints,
-  };
+  const updatedValue = buildPluginStoryPointValue(
+    resolved.existingValue,
+    resolved.storyPointKey,
+    options.storyPoints,
+    options.clearWhenZero ?? false,
+  );
 
-  await trelloApiRequest<TrelloPluginData>({
-    path: `/cards/${options.cardId}/pluginData/${resolved.pluginDataId}`,
-    method: "PUT",
-    body: {
-      value: JSON.stringify(updatedValue),
-    },
-  });
+  try {
+    await trelloApiRequest<TrelloPluginData>({
+      path: `/cards/${options.cardId}/pluginData/${resolved.pluginDataId}`,
+      method: "PUT",
+      body: {
+        value: JSON.stringify(updatedValue),
+      },
+    });
+
+    await verifyPluginStoryPoints(
+      options.cardId,
+      resolved.idPlugin,
+      options.storyPoints,
+    );
+  } catch (error) {
+    if (isTrelloPluginDataWriteForbiddenError(error)) {
+      throw new TrelloStoryPointPowerUpRestrictedError(
+        buildStoryPointPowerUpInitializeMessage(),
+        {
+          cardId: options.cardId,
+          boardId: options.boardId,
+          storyPoints: options.storyPoints,
+          attemptedSources: ["pluginData"],
+        },
+      );
+    }
+
+    throw error;
+  }
 
   return {
     cardId: options.cardId,
@@ -277,6 +681,53 @@ export async function updateTrelloCardStoryPoints(
     attemptedSources,
   };
 
+  if (source === "auto" || source === "pluginData") {
+    attemptedSources.push("pluginData");
+
+    const preferredPluginIds =
+      options.preferredPluginIds ?? getTrelloStoryPointsPluginIds();
+
+    const resolvedPluginData = await resolveTrelloStoryPointPluginData(
+      options.cardId,
+      {
+        idPlugin: options.idPlugin,
+        preferredPluginIds,
+        boardId: options.boardId,
+      },
+    );
+
+    if (resolvedPluginData) {
+      return updateStoryPointsViaPluginData(options, resolvedPluginData);
+    }
+
+    if (source === "pluginData") {
+      try {
+        const createdPluginData = await createStoryPointsPluginDataForBoard(
+          options.cardId,
+          options.boardId,
+          options.storyPoints,
+          options.idPlugin ? [options.idPlugin] : preferredPluginIds,
+        );
+        return {
+          cardId: options.cardId,
+          boardId: options.boardId,
+          storyPoints: options.storyPoints,
+          source: "pluginData",
+          pluginDataId: createdPluginData.pluginDataId,
+        };
+      } catch (createError) {
+        if (createError instanceof TrelloStoryPointPowerUpRestrictedError) {
+          throw createError;
+        }
+
+        throw new TrelloStoryPointUpdateError(
+          `Unable to update Story Points power-up on card ${options.cardId}. ${getErrorMessage(createError, "Trello rejected the power-up update.")}`,
+          errorDetails,
+        );
+      }
+    }
+  }
+
   if (source === "auto" || source === "customField") {
     attemptedSources.push("customField");
 
@@ -292,25 +743,6 @@ export async function updateTrelloCardStoryPoints(
     if (source === "customField") {
       throw new TrelloStoryPointUpdateError(
         `No story point custom field found on board ${options.boardId}.`,
-        errorDetails,
-      );
-    }
-  }
-
-  if (source === "auto" || source === "pluginData") {
-    attemptedSources.push("pluginData");
-
-    const resolvedPluginData = await resolveTrelloStoryPointPluginData(
-      options.cardId,
-    );
-
-    if (resolvedPluginData) {
-      return updateStoryPointsViaPluginData(options, resolvedPluginData);
-    }
-
-    if (source === "pluginData") {
-      throw new TrelloStoryPointUpdateError(
-        `No story point plugin data found on card ${options.cardId}.`,
         errorDetails,
       );
     }
@@ -335,7 +767,10 @@ export async function getTrelloCardStoryPointContext(
       boardId: options.boardId,
       fieldNames: options.fieldNames,
     }),
-    resolveTrelloStoryPointPluginData(options.cardId),
+    resolveTrelloStoryPointPluginData(options.cardId, {
+      preferredPluginIds: getTrelloStoryPointsPluginIds(),
+      boardId: options.boardId,
+    }),
   ]);
 
   return {

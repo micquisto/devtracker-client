@@ -1,9 +1,10 @@
 import "@/assets/styles/SprintKanbanBoard.css";
 import "@/assets/styles/PlanningPoker.page.css";
+import PlanningPokerVoteProgress from "@/components/scrum/planningPoker/PlanningPokerVoteProgress";
 import TrelloDescription from "@/components/scrum/TrelloDescription";
 import SprintSyncDataAction from "@/components/scrum/sprint/SprintSyncDataAction";
+import type { SprintSyncTarget } from "@/components/scrum/sprint/SprintSyncDataAction";
 import { Card } from "@/components/shared/Containers";
-import { StyledSelect } from "@/components/shared/Elements";
 import { SectionTitle } from "@/components/shared/Sections";
 import { PRI_COLOR } from "@/lib/helper";
 import {
@@ -16,22 +17,35 @@ import {
   SeverityColor,
 } from "@/lib/theme";
 import { useSprintSync } from "@/contexts";
+import { syncTaskStoryPointsFromTrello } from "@/lib/utils/trello";
+import {
+  getTrelloStoryPointsForPlanningListCardsByBoard,
+} from "@/lib/utils/trello/trello.utils";
+import { DEFAULT_TRELLO_STORY_POINT_FIELD_NAMES } from "@/lib/utils/trello/trello.storyPoints";
+import { isForPlanningTrelloList, TRELLO_FOR_PLANNING_LIST_NAME } from "@/lib/utils/trello/trello.listNames";
+import type { SyncedPlanningTaskRow } from "@/lib/utils/trello/sprintSync.utils";
 import {
   formatWinningStoryPoints,
   getDisplayedVoteValue,
   getRequiredVoteTally,
   isDeveloperRole,
   isPokerAdmin,
+  isPokerTaskController,
   isRestrictedNameViewer,
   isRestrictedVoteViewer,
   shouldHideMemberRow,
   shouldMaskVoteInTable,
   type PlanningPokerSessionRow,
+  type PlanningPokerSprintFocusRow,
 } from "@/lib/planningPoker/planningPoker.utils";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const POKER_POINT_OPTIONS = [0, 1, 2, 3, 5, 8, 13, 21] as const;
-const PLANNING_TRELLO_LIST_NAME = "Planning";
+const PLANNING_POKER_FOCUS_POLL_MS = 3000;
+const PLANNING_POKER_FOCUS_BROADCAST_EVENT = "sprint_focus_changed";
+const TASK_LIST_SELECT =
+  "id,sprint_id,title,task_type,priority,severity,story_points,sp_type,trello_list_name,trello_short_id,trello_card_url,trello_card_id,trello_board_id";
+const TASK_DETAIL_SELECT = `${TASK_LIST_SELECT},description`;
 
 type SprintRow = {
   id: string;
@@ -54,6 +68,8 @@ type TaskRow = {
   trello_list_name: string | null;
   trello_short_id: number | null;
   trello_card_url: string | null;
+  trello_card_id: string | null;
+  trello_board_id: string | null;
 };
 
 type MemberRow = {
@@ -72,6 +88,16 @@ type VoteRow = {
   story_points: number;
   created_at: string;
 };
+
+type SprintFocusBroadcastPayload = {
+  sprint_id: string;
+  task_id: string | null;
+  opened_at: string | null;
+};
+
+function getPlanningPokerChannelName(sprintId: string): string {
+  return `planning-poker-${sprintId}`;
+}
 
 type VoteTableRow = {
   id: string;
@@ -98,6 +124,21 @@ const ASSIGNEE_COLORS = [
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
+
+  if (error && typeof error === "object") {
+    const { message, details, hint, code } = error as {
+      message?: string;
+      details?: string;
+      hint?: string;
+      code?: string;
+    };
+
+    const parts = [message, details, hint, code].filter(Boolean);
+    if (parts.length > 0) {
+      return parts.join(" — ");
+    }
+  }
+
   return fallback;
 }
 
@@ -150,16 +191,113 @@ function formatRoleLabel(role: string | null): string {
     .join(" ");
 }
 
-function isUnestimatedTask(task: TaskRow): boolean {
-  return !task.story_points || task.story_points === 0;
-}
 
 function isPlanningListTask(task: Pick<TaskRow, "trello_list_name">): boolean {
-  return task.trello_list_name?.trim().toLowerCase() === PLANNING_TRELLO_LIST_NAME.toLowerCase();
+  return isForPlanningTrelloList(task.trello_list_name);
 }
 
-function isPlanningPokerTask(task: TaskRow): boolean {
-  return isPlanningListTask(task) && isUnestimatedTask(task);
+function hasStoryPointsValue(points: number | null | undefined): boolean {
+  const value = Number(points);
+  return Number.isFinite(value) && value > 0;
+}
+
+function isUnpointedTask(task: Pick<TaskRow, "story_points">): boolean {
+  return !hasStoryPointsValue(task.story_points);
+}
+
+function isPlanningPokerTaskFromDb(
+  task: TaskRow,
+  confirmedTaskIds: ReadonlySet<string>,
+): boolean {
+  return (
+    isPlanningListTask(task) &&
+    !confirmedTaskIds.has(task.id) &&
+    isUnpointedTask(task)
+  );
+}
+
+function isPlanningPokerTask(
+  task: TaskRow,
+  confirmedTaskIds: ReadonlySet<string>,
+  trelloStoryPointsByTaskId: Map<string, number | null>,
+): boolean {
+  if (!isPlanningPokerTaskFromDb(task, confirmedTaskIds)) {
+    return false;
+  }
+
+  const trelloStoryPoints = trelloStoryPointsByTaskId.get(task.id);
+  if (hasStoryPointsValue(trelloStoryPoints)) {
+    return false;
+  }
+
+  return true;
+}
+
+function groupPlanningTasksByBoardId(tasks: TaskRow[]): Map<string, TaskRow[]> {
+  const tasksByBoardId = new Map<string, TaskRow[]>();
+
+  for (const task of tasks) {
+    const boardId = task.trello_board_id?.trim();
+    const cardId = task.trello_card_id?.trim();
+    if (!boardId || !cardId) {
+      continue;
+    }
+
+    const boardTasks = tasksByBoardId.get(boardId) ?? [];
+    boardTasks.push(task);
+    tasksByBoardId.set(boardId, boardTasks);
+  }
+
+  return tasksByBoardId;
+}
+
+async function fetchTrelloStoryPointsByTaskId(
+  tasks: TaskRow[],
+): Promise<Map<string, number | null>> {
+  const storyPointsByTaskId = new Map<string, number | null>();
+  const tasksByBoardId = groupPlanningTasksByBoardId(tasks);
+
+  await Promise.all(
+    [...tasksByBoardId.entries()].map(async ([boardId, boardTasks]) => {
+      try {
+        const storyPointsByCardId = await getTrelloStoryPointsForPlanningListCardsByBoard(
+          boardId,
+          boardTasks.map((task) => task.trello_card_id as string),
+          [...DEFAULT_TRELLO_STORY_POINT_FIELD_NAMES],
+        );
+
+        for (const task of boardTasks) {
+          const cardId = task.trello_card_id as string;
+          storyPointsByTaskId.set(task.id, storyPointsByCardId.get(cardId) ?? null);
+        }
+      } catch {
+        for (const task of boardTasks) {
+          storyPointsByTaskId.set(task.id, null);
+        }
+      }
+    }),
+  );
+
+  return storyPointsByTaskId;
+}
+
+async function refinePlanningTasksWithTrello(
+  planningListTasks: TaskRow[],
+  confirmedTaskIds: ReadonlySet<string>,
+): Promise<TaskRow[]> {
+  const tasksToVerify = planningListTasks.filter((task) =>
+    isPlanningPokerTaskFromDb(task, confirmedTaskIds),
+  );
+
+  if (tasksToVerify.length === 0) {
+    return [];
+  }
+
+  const trelloStoryPointsByTaskId = await fetchTrelloStoryPointsByTaskId(tasksToVerify);
+
+  return planningListTasks.filter((task) =>
+    isPlanningPokerTask(task, confirmedTaskIds, trelloStoryPointsByTaskId),
+  );
 }
 
 function formatTaskType(taskType: string): string {
@@ -187,34 +325,51 @@ function getTaskDisplayColors(task: TaskRow): {
 }
 
 export default function PlanningPokerPage() {
-  const [sprints, setSprints] = useState<SprintRow[]>([]);
-  const [selectedSprintId, setSelectedSprintId] = useState("");
+  const [currentSprint, setCurrentSprint] = useState<SprintRow | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [planningListTaskCount, setPlanningListTaskCount] = useState(0);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [votes, setVotes] = useState<VoteRow[]>([]);
   const [taskSessions, setTaskSessions] = useState<PlanningPokerSessionRow[]>([]);
+  const [sprintFocus, setSprintFocus] = useState<PlanningPokerSprintFocusRow | null>(null);
+  const [focusedTask, setFocusedTask] = useState<TaskRow | null>(null);
+  const [focusedTaskLoading, setFocusedTaskLoading] = useState(false);
   const [voteTaskRows, setVoteTaskRows] = useState<TaskRow[]>([]);
   const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [trelloVerifyLoading, setTrelloVerifyLoading] = useState(false);
   const [savingVote, setSavingVote] = useState(false);
-  const [sessionActionLoading, setSessionActionLoading] = useState(false);
+  const [pendingSessionAction, setPendingSessionAction] = useState<
+    "reveal" | "confirm" | "revote" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [voteMessage, setVoteMessage] = useState<string | null>(null);
   const { syncVersion } = useSprintSync();
-
-  const selectedSprint = useMemo(
-    () => sprints.find((sprint) => sprint.id === selectedSprintId) ?? null,
-    [sprints, selectedSprintId],
+  const [activeTaskDescription, setActiveTaskDescription] = useState<{
+    taskId: string;
+    description: string | null;
+    loading: boolean;
+  } | null>(null);
+  const planningPokerChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
   );
+  const trelloVerifyRequestIdRef = useRef(0);
+  const activeTaskDescriptionRequestIdRef = useRef(0);
+  const focusedTaskIdRef = useRef<string | null>(null);
 
-  const currentSprint = useMemo(
-    () =>
-      sprints.find(
-        (sprint) => sprint.is_current === 1 || sprint.is_current === true,
-      ) ?? null,
-    [sprints],
-  );
+  const currentSprintId = currentSprint?.id ?? "";
+
+  const currentSprintSyncTarget = useMemo((): SprintSyncTarget | null => {
+    if (!currentSprint) return null;
+
+    return {
+      id: currentSprint.id,
+      name: currentSprint.name ?? getSprintLabel(currentSprint),
+      status: currentSprint.status,
+    };
+  }, [currentSprint]);
 
   const currentMemberRole = useMemo(() => {
     if (!currentMemberId) return null;
@@ -236,6 +391,29 @@ export default function PlanningPokerPage() {
     [currentMemberRole],
   );
 
+  const isTaskController = useMemo(
+    () => isPokerTaskController(currentMemberRole),
+    [currentMemberRole],
+  );
+
+  const activeTaskId = isTaskController
+    ? selectedTaskId
+    : (sprintFocus?.active_task_id ?? focusedTask?.id ?? null);
+
+  const activeTask = useMemo(() => {
+    if (!activeTaskId) return null;
+
+    if (isTaskController) {
+      return tasks.find((task) => task.id === activeTaskId) ?? null;
+    }
+
+    if (focusedTask?.id === activeTaskId) {
+      return focusedTask;
+    }
+
+    return voteTaskRows.find((task) => task.id === activeTaskId) ?? null;
+  }, [activeTaskId, focusedTask, isTaskController, tasks, voteTaskRows]);
+
   const taskSessionsByTaskId = useMemo(() => {
     const map = new Map<string, PlanningPokerSessionRow>();
     for (const session of taskSessions) {
@@ -243,11 +421,6 @@ export default function PlanningPokerPage() {
     }
     return map;
   }, [taskSessions]);
-
-  const selectedTask = useMemo(
-    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [tasks, selectedTaskId],
-  );
 
   const developerMembers = useMemo(
     () => members.filter((member) => isDeveloperRole(member.role)),
@@ -284,7 +457,7 @@ export default function PlanningPokerPage() {
   }, [votes]);
 
   const voteTableRows = useMemo<VoteTableRow[]>(() => {
-    const sprintLabel = selectedSprint ? getSprintLabel(selectedSprint) : "-";
+    const sprintLabel = currentSprint ? getSprintLabel(currentSprint) : "-";
     const tasksById = new Map(
       [...tasks, ...voteTaskRows].map((task) => [task.id, task]),
     );
@@ -296,6 +469,9 @@ export default function PlanningPokerPage() {
         const task = tasksById.get(vote.task_id);
         const member = membersById.get(vote.member_id);
         if (!task || !member || !isPlanningListTask(task)) return null;
+        if (!isTaskController && activeTaskId && vote.task_id !== activeTaskId) {
+          return null;
+        }
         if (shouldHideMemberRow(vote.member_id, currentMemberId, hideOthersNames)) {
           return null;
         }
@@ -340,8 +516,10 @@ export default function PlanningPokerPage() {
     developerMembers,
     hideOthersNames,
     hideOthersVotes,
+    isTaskController,
     members,
-    selectedSprint,
+    activeTaskId,
+    currentSprint,
     taskSessionsByTaskId,
     tasks,
     voteTaskRows,
@@ -373,9 +551,7 @@ export default function PlanningPokerPage() {
 
     const { data: votedTasks, error: votedTasksError } = await supabase
       .from("tasks")
-      .select(
-        "id,sprint_id,title,description,task_type,priority,severity,story_points,sp_type,trello_list_name,trello_short_id,trello_card_url",
-      )
+      .select(TASK_LIST_SELECT)
       .in("id", votedTaskIds);
 
     if (votedTasksError) {
@@ -387,26 +563,353 @@ export default function PlanningPokerPage() {
     );
   }, []);
 
-  const loadSprintTasks = useCallback(
-    async (sprintId: string) => {
-      const taskRows = await getSupabaseRows<TaskRow>("tasks", {
-        select:
-          "id,sprint_id,title,description,task_type,priority,severity,story_points,sp_type,trello_list_name,trello_short_id,trello_card_url",
-        eq: { sprint_id: sprintId },
+  const loadFocusedTaskById = useCallback(
+    async (taskId: string | null, options?: { silent?: boolean }) => {
+      if (!taskId) {
+        focusedTaskIdRef.current = null;
+        setFocusedTask(null);
+        setFocusedTaskLoading(false);
+        return;
+      }
+
+      const isSameTask = focusedTaskIdRef.current === taskId;
+      const silent = options?.silent ?? isSameTask;
+
+      if (!silent) {
+        setFocusedTaskLoading(true);
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("tasks")
+          .select(TASK_DETAIL_SELECT)
+          .eq("id", taskId)
+          .maybeSingle();
+
+        if (error) {
+          throw error;
+        }
+
+        const nextTask = (data as TaskRow | null) ?? null;
+        focusedTaskIdRef.current = nextTask?.id ?? null;
+        setFocusedTask(nextTask);
+      } catch (focusError) {
+        if (!isSameTask) {
+          focusedTaskIdRef.current = null;
+          setFocusedTask(null);
+        }
+        console.warn("Unable to load facilitator task:", focusError);
+      } finally {
+        if (!silent) {
+          setFocusedTaskLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const loadSprintFocusRow = useCallback(async (sprintId: string) => {
+    const { data, error } = await supabase
+      .from("planning_poker_sprint_focus")
+      .select("sprint_id,active_task_id,opened_by_member_id,opened_at")
+      .eq("sprint_id", sprintId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    const focusRow = (data as PlanningPokerSprintFocusRow | null) ?? null;
+    setSprintFocus(focusRow);
+    return focusRow;
+  }, []);
+
+  const applySprintFocusBroadcast = useCallback(
+    (payload: SprintFocusBroadcastPayload) => {
+      if (!payload.task_id) {
+        setSprintFocus(null);
+        return;
+      }
+
+      setSprintFocus({
+        sprint_id: payload.sprint_id,
+        active_task_id: payload.task_id,
+        opened_by_member_id: null,
+        opened_at: payload.opened_at,
+      });
+    },
+    [],
+  );
+
+  const broadcastSprintFocusChange = useCallback(
+    async (payload: SprintFocusBroadcastPayload) => {
+      const message = {
+        type: "broadcast" as const,
+        event: PLANNING_POKER_FOCUS_BROADCAST_EVENT,
+        payload,
+      };
+
+      const existingChannel = planningPokerChannelRef.current;
+      if (existingChannel) {
+        await existingChannel.send(message);
+        return;
+      }
+
+      const channel = supabase.channel(getPlanningPokerChannelName(payload.sprint_id), {
+        config: { broadcast: { self: true } },
       });
 
-      const planningTasks = taskRows.filter(isPlanningPokerTask);
+      await new Promise<void>((resolve) => {
+        channel.subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void channel.send(message).finally(() => {
+              void supabase.removeChannel(channel);
+              resolve();
+            });
+            return;
+          }
+
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            void supabase.removeChannel(channel);
+            resolve();
+          }
+        });
+      });
+    },
+    [],
+  );
+
+  const syncFocusedTaskFromSprintFocus = useCallback(
+    async (sprintId: string) => {
+      try {
+        const focusRow = await loadSprintFocusRow(sprintId);
+        const nextTaskId = focusRow?.active_task_id ?? null;
+
+        if (nextTaskId) {
+          await loadFocusedTaskById(nextTaskId, {
+            silent: focusedTaskIdRef.current === nextTaskId,
+          });
+        } else {
+          await loadFocusedTaskById(null);
+        }
+
+        if (isTaskController) {
+          setSelectedTaskId(nextTaskId);
+        }
+
+        return focusRow;
+      } catch (syncError) {
+        console.warn("Unable to sync planning poker sprint focus:", syncError);
+        return null;
+      }
+    },
+    [isTaskController, loadFocusedTaskById, loadSprintFocusRow],
+  );
+
+  const ensurePlanningPokerSession = useCallback(
+    async (sprintId: string, taskId: string) => {
+      const { error: sessionError } = await supabase
+        .from("planning_poker_sessions")
+        .upsert(
+          {
+            sprint_id: sprintId,
+            task_id: taskId,
+          },
+          { onConflict: "task_id", ignoreDuplicates: true },
+        );
+
+      if (sessionError) {
+        throw sessionError;
+      }
+    },
+    [],
+  );
+
+  const setSprintFocusTask = useCallback(
+    async (taskId: string | null) => {
+      if (!currentSprintId) return;
+
+      const focusPayload = {
+        sprint_id: currentSprintId,
+        active_task_id: taskId,
+        opened_by_member_id: taskId && currentMemberId ? currentMemberId : null,
+        opened_at: taskId ? new Date().toISOString() : null,
+      };
+
+      const { error: upsertError } = await supabase
+        .from("planning_poker_sprint_focus")
+        .upsert(focusPayload, { onConflict: "sprint_id" });
+
+      if (upsertError) {
+        const { data: existingFocus, error: readError } = await supabase
+          .from("planning_poker_sprint_focus")
+          .select("sprint_id")
+          .eq("sprint_id", currentSprintId)
+          .maybeSingle();
+
+        if (readError) {
+          throw readError;
+        }
+
+        const mutation = existingFocus
+          ? supabase
+              .from("planning_poker_sprint_focus")
+              .update(focusPayload)
+              .eq("sprint_id", currentSprintId)
+          : supabase.from("planning_poker_sprint_focus").insert(focusPayload);
+
+        const { error: mutationError } = await mutation;
+        if (mutationError) {
+          throw mutationError;
+        }
+      }
+
+      if (taskId) {
+        await ensurePlanningPokerSession(currentSprintId, taskId);
+      }
+
+      const focusBroadcast: SprintFocusBroadcastPayload = {
+        sprint_id: currentSprintId,
+        task_id: taskId,
+        opened_at: focusPayload.opened_at,
+      };
+
+      await Promise.all([
+        syncFocusedTaskFromSprintFocus(currentSprintId),
+        reloadVotes(currentSprintId),
+        broadcastSprintFocusChange(focusBroadcast),
+      ]);
+    },
+    [
+      broadcastSprintFocusChange,
+      currentMemberId,
+      currentSprintId,
+      ensurePlanningPokerSession,
+      reloadVotes,
+      syncFocusedTaskFromSprintFocus,
+    ],
+  );
+
+  const loadSprintTasks = useCallback(
+    async (sprintId: string) => {
+      const verifyRequestId = trelloVerifyRequestIdRef.current + 1;
+      trelloVerifyRequestIdRef.current = verifyRequestId;
+
+      const [taskRows, sessionRows] = await Promise.all([
+        getSupabaseRows<TaskRow>("tasks", {
+          select: TASK_LIST_SELECT,
+          eq: { sprint_id: sprintId },
+        }),
+        getSupabaseRows<PlanningPokerSessionRow>("planning_poker_sessions", {
+          select:
+            "id,sprint_id,task_id,is_revealed,revealed_at,revealed_by_member_id,is_confirmed,confirmed_story_points,confirmed_at,confirmed_by_member_id",
+          eq: { sprint_id: sprintId },
+        }).catch(() => [] as PlanningPokerSessionRow[]),
+      ]);
+
+      const confirmedTaskIds = new Set(
+        sessionRows
+          .filter((session) => session.is_confirmed)
+          .map((session) => session.task_id),
+      );
+      const planningListTasks = taskRows.filter(isPlanningListTask);
+      const planningTasks = planningListTasks.filter((task) =>
+        isPlanningPokerTaskFromDb(task, confirmedTaskIds),
+      );
+
+      setPlanningListTaskCount(planningListTasks.length);
       setTasks(planningTasks);
+      setTaskSessions(sessionRows);
       setSelectedTaskId((currentTaskId) => {
         if (currentTaskId && planningTasks.some((task) => task.id === currentTaskId)) {
           return currentTaskId;
         }
         return null;
       });
-      await reloadVotes(sprintId);
+
+      void reloadVotes(sprintId).catch((voteError) => {
+        console.warn("Unable to refresh planning poker votes:", voteError);
+      });
+
+      const unpointedPlanningTasks = planningListTasks.filter((task) =>
+        isPlanningPokerTaskFromDb(task, confirmedTaskIds),
+      );
+
+      if (unpointedPlanningTasks.length === 0) {
+        setTrelloVerifyLoading(false);
+        return;
+      }
+
+      setTrelloVerifyLoading(true);
+
+      void refinePlanningTasksWithTrello(planningListTasks, confirmedTaskIds)
+        .then((refinedTasks) => {
+          if (trelloVerifyRequestIdRef.current !== verifyRequestId) {
+            return;
+          }
+
+          setTasks(refinedTasks);
+          setSelectedTaskId((currentTaskId) => {
+            if (currentTaskId && refinedTasks.some((task) => task.id === currentTaskId)) {
+              return currentTaskId;
+            }
+            return null;
+          });
+        })
+        .catch((verifyError) => {
+          console.warn("Unable to verify planning poker story points from Trello:", verifyError);
+        })
+        .finally(() => {
+          if (trelloVerifyRequestIdRef.current === verifyRequestId) {
+            setTrelloVerifyLoading(false);
+          }
+        });
     },
     [reloadVotes],
   );
+
+  const applySyncedTaskUpdate = useCallback((updatedTask: SyncedPlanningTaskRow) => {
+    const taskRow = updatedTask as TaskRow;
+
+    setTasks((currentTasks) =>
+      currentTasks
+        .map((task) => (task.id === taskRow.id ? taskRow : task))
+        .filter((task) => isPlanningListTask(task) && isUnpointedTask(task)),
+    );
+    setFocusedTask((currentTask) =>
+      currentTask?.id === taskRow.id ? taskRow : currentTask,
+    );
+    setVoteTaskRows((currentRows) =>
+      currentRows.map((task) => (task.id === taskRow.id ? taskRow : task)),
+    );
+  }, []);
+
+  const loadCurrentSprint = useCallback(async () => {
+    const [currentByFlag] = await getSupabaseRows<SprintRow>("sprints", {
+      select: "id,name,sprint_number,is_current,status",
+      eq: { is_current: 1 },
+      limit: 1,
+    });
+
+    if (currentByFlag) {
+      setCurrentSprint(currentByFlag);
+      return currentByFlag;
+    }
+
+    const recentSprints = await getSupabaseRows<SprintRow>("sprints", {
+      select: "id,name,sprint_number,is_current,status",
+      order: { column: "sprint_number", ascending: false },
+      limit: 20,
+    });
+
+    const activeSprint =
+      recentSprints.find(
+        (sprint) => sprint.is_current === 1 || sprint.is_current === true,
+      ) ?? null;
+
+    setCurrentSprint(activeSprint);
+    return activeSprint;
+  }, []);
 
   const refreshMembers = useCallback(async () => {
     const memberRows = await getSupabaseRows<MemberRow>("members", {
@@ -414,14 +917,6 @@ export default function PlanningPokerPage() {
       order: { column: "full_name", ascending: true },
     });
     setMembers(memberRows.filter((member) => Boolean(member.id)));
-  }, []);
-
-  const refreshSprints = useCallback(async () => {
-    const sprintRows = await getSupabaseRows<SprintRow>("sprints", {
-      select: "id,name,sprint_number,is_current,status",
-      order: { column: "sprint_number", ascending: false },
-    });
-    setSprints(sprintRows);
   }, []);
 
   useEffect(() => {
@@ -433,11 +928,8 @@ export default function PlanningPokerPage() {
 
       try {
         const session = await getSupabaseSession();
-        const [sprintRows, memberRows] = await Promise.all([
-          getSupabaseRows<SprintRow>("sprints", {
-            select: "id,name,sprint_number,is_current,status",
-            order: { column: "sprint_number", ascending: false },
-          }),
+        const [, memberRows] = await Promise.all([
+          loadCurrentSprint(),
           getSupabaseRows<MemberRow>("members", {
             select: "id,full_name,first_name,last_name,role",
             order: { column: "full_name", ascending: true },
@@ -464,14 +956,8 @@ export default function PlanningPokerPage() {
         }
 
         if (!cancelled) {
-          const defaultSprint =
-            sprintRows.find((sprint) => sprint.is_current === 1 || sprint.is_current === true) ??
-            sprintRows[0];
-
-          setSprints(sprintRows);
           setMembers(memberRows.filter((member) => Boolean(member.id)));
           setCurrentMemberId(loggedInMemberId);
-          setSelectedSprintId((currentValue) => currentValue || defaultSprint?.id || "");
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -487,34 +973,42 @@ export default function PlanningPokerPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadCurrentSprint]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadSprintData() {
-      if (!selectedSprintId) {
+      if (!currentSprintId) {
         setTasks([]);
+        setPlanningListTaskCount(0);
         setVotes([]);
         setVoteTaskRows([]);
+        setSprintFocus(null);
+        setFocusedTask(null);
         setSelectedTaskId(null);
         return;
       }
 
-      setLoading(true);
+      setTasksLoading(true);
       setError(null);
 
       try {
-        await loadSprintTasks(selectedSprintId);
+        await loadSprintTasks(currentSprintId);
       } catch (loadError) {
         if (!cancelled) {
           setError(getErrorMessage(loadError, "Unable to load sprint tasks."));
-          setTasks([]);
-          setVotes([]);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setTasksLoading(false);
+        }
       }
+    }
+
+    if (!currentSprintId) {
+      setTasksLoading(false);
+      return;
     }
 
     void loadSprintData();
@@ -522,19 +1016,89 @@ export default function PlanningPokerPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadSprintTasks, selectedSprintId]);
+  }, [loadSprintTasks, currentSprintId]);
 
   useEffect(() => {
-    if (!selectedSprintId || syncVersion === 0) return;
-    void loadSprintTasks(selectedSprintId);
-  }, [syncVersion, selectedSprintId, loadSprintTasks]);
+    if (!currentSprintId) {
+      setSprintFocus(null);
+      setFocusedTask(null);
+      return;
+    }
+
+    void syncFocusedTaskFromSprintFocus(currentSprintId);
+  }, [currentSprintId, syncFocusedTaskFromSprintFocus]);
 
   useEffect(() => {
-    if (!selectedSprintId) return;
+    if (!currentSprintId || syncVersion === 0) return;
+    void loadSprintTasks(currentSprintId);
+  }, [syncVersion, currentSprintId, loadSprintTasks]);
 
-    const sprintFilter = `sprint_id=eq.${selectedSprintId}`;
+  useEffect(() => {
+    if (!activeTaskId) {
+      setActiveTaskDescription(null);
+      return;
+    }
+
+    const requestId = activeTaskDescriptionRequestIdRef.current + 1;
+    activeTaskDescriptionRequestIdRef.current = requestId;
+
+    setActiveTaskDescription((current) =>
+      current?.taskId === activeTaskId && !current.loading
+        ? current
+        : { taskId: activeTaskId, description: null, loading: true },
+    );
+
+    void supabase
+      .from("tasks")
+      .select("description")
+      .eq("id", activeTaskId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (activeTaskDescriptionRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        if (error) {
+          console.warn("Unable to load task description:", error);
+          setActiveTaskDescription({
+            taskId: activeTaskId,
+            description: null,
+            loading: false,
+          });
+          return;
+        }
+
+        setActiveTaskDescription({
+          taskId: activeTaskId,
+          description: (data as Pick<TaskRow, "description"> | null)?.description ?? null,
+          loading: false,
+        });
+      });
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    if (!currentSprintId) return;
+
+    const sprintFilter = `sprint_id=eq.${currentSprintId}`;
     const channel = supabase
-      .channel(`planning-poker-${selectedSprintId}`)
+      .channel(getPlanningPokerChannelName(currentSprintId), {
+        config: { broadcast: { self: true } },
+      })
+      .on(
+        "broadcast",
+        { event: PLANNING_POKER_FOCUS_BROADCAST_EVENT },
+        ({ payload }) => {
+          const focusPayload = payload as SprintFocusBroadcastPayload | undefined;
+          if (!focusPayload || focusPayload.sprint_id !== currentSprintId) {
+            return;
+          }
+
+          applySprintFocusBroadcast(focusPayload);
+          void loadFocusedTaskById(focusPayload.task_id, {
+            silent: focusedTaskIdRef.current === focusPayload.task_id,
+          });
+        },
+      )
       .on(
         "postgres_changes",
         {
@@ -544,7 +1108,7 @@ export default function PlanningPokerPage() {
           filter: sprintFilter,
         },
         () => {
-          void reloadVotes(selectedSprintId);
+          void reloadVotes(currentSprintId);
         },
       )
       .on(
@@ -556,7 +1120,9 @@ export default function PlanningPokerPage() {
           filter: sprintFilter,
         },
         () => {
-          void reloadVotes(selectedSprintId);
+          void reloadVotes(currentSprintId).then(() => {
+            void syncFocusedTaskFromSprintFocus(currentSprintId);
+          });
         },
       )
       .on(
@@ -568,15 +1134,51 @@ export default function PlanningPokerPage() {
           filter: sprintFilter,
         },
         () => {
-          void loadSprintTasks(selectedSprintId);
+          void loadSprintTasks(currentSprintId);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "planning_poker_sprint_focus",
+          filter: sprintFilter,
+        },
+        () => {
+          void syncFocusedTaskFromSprintFocus(currentSprintId);
         },
       )
       .subscribe();
 
+    planningPokerChannelRef.current = channel;
+
     return () => {
+      planningPokerChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [loadSprintTasks, reloadVotes, selectedSprintId]);
+  }, [
+    applySprintFocusBroadcast,
+    loadFocusedTaskById,
+    loadSprintTasks,
+    reloadVotes,
+    syncFocusedTaskFromSprintFocus,
+    currentSprintId,
+  ]);
+
+  useEffect(() => {
+    if (!currentSprintId || isTaskController) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void syncFocusedTaskFromSprintFocus(currentSprintId);
+    }, PLANNING_POKER_FOCUS_POLL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [currentSprintId, isTaskController, syncFocusedTaskFromSprintFocus]);
 
   useEffect(() => {
     const channel = supabase
@@ -592,7 +1194,7 @@ export default function PlanningPokerPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "sprints" },
         () => {
-          void refreshSprints();
+          void loadCurrentSprint();
         },
       )
       .subscribe();
@@ -600,15 +1202,45 @@ export default function PlanningPokerPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [refreshMembers, refreshSprints]);
+  }, [loadCurrentSprint, refreshMembers]);
+
+  function handleSelectTask(taskId: string) {
+    setSelectedTaskId(taskId);
+    if (isTaskController) {
+      void setSprintFocusTask(taskId).catch((focusError) => {
+        setError(getErrorMessage(focusError, "Unable to open task for the team."));
+      });
+    }
+  }
+
+  function handleCloseTask() {
+    setSelectedTaskId(null);
+    activeTaskDescriptionRequestIdRef.current += 1;
+    setActiveTaskDescription(null);
+    if (isTaskController) {
+      void setSprintFocusTask(null).catch((focusError) => {
+        setError(getErrorMessage(focusError, "Unable to close the team task."));
+      });
+    }
+  }
+
+  function handlePreviousTask() {
+    if (!canGoToPreviousTask) return;
+    handleSelectTask(orderedTasks[activeTaskIndex - 1].id);
+  }
+
+  function handleNextTask() {
+    if (!canGoToNextTask) return;
+    handleSelectTask(orderedTasks[activeTaskIndex + 1].id);
+  }
 
   async function handleVote(storyPoints: number) {
-    if (!selectedSprintId || !selectedTaskId || !currentMemberId) {
+    if (!currentSprintId || !activeTaskId || !currentMemberId) {
       setVoteMessage("Sign in as a member to submit a vote.");
       return;
     }
 
-    const selectedSession = taskSessionsByTaskId.get(selectedTaskId);
+    const selectedSession = taskSessionsByTaskId.get(activeTaskId);
     if (selectedSession?.is_revealed || selectedSession?.is_confirmed) {
       setVoteMessage("Voting is closed for this task. Wait for a revote if needed.");
       return;
@@ -623,8 +1255,8 @@ export default function PlanningPokerPage() {
         .from("planning_poker_votes")
         .upsert(
           {
-            sprint_id: selectedSprintId,
-            task_id: selectedTaskId,
+            sprint_id: currentSprintId,
+            task_id: activeTaskId,
             member_id: currentMemberId,
             story_points: storyPoints,
           },
@@ -635,7 +1267,7 @@ export default function PlanningPokerPage() {
         throw upsertError;
       }
 
-      await reloadVotes(selectedSprintId);
+      await reloadVotes(currentSprintId);
       setVoteMessage(`Your vote of ${storyPoints} SP was saved.`);
     } catch (voteError) {
       setError(getErrorMessage(voteError, "Unable to save vote."));
@@ -645,9 +1277,9 @@ export default function PlanningPokerPage() {
   }
 
   async function handleRevealVotes() {
-    if (!selectedSprintId || !selectedTaskId || !currentMemberId) return;
+    if (!currentSprintId || !activeTaskId || !currentMemberId) return;
 
-    setSessionActionLoading(true);
+    setPendingSessionAction("reveal");
     setVoteMessage(null);
     setError(null);
 
@@ -656,8 +1288,8 @@ export default function PlanningPokerPage() {
         .from("planning_poker_sessions")
         .upsert(
           {
-            sprint_id: selectedSprintId,
-            task_id: selectedTaskId,
+            sprint_id: currentSprintId,
+            task_id: activeTaskId,
             is_revealed: true,
             revealed_at: new Date().toISOString(),
             revealed_by_member_id: currentMemberId,
@@ -667,21 +1299,26 @@ export default function PlanningPokerPage() {
 
       if (upsertError) throw upsertError;
 
-      await reloadVotes(selectedSprintId);
+      await reloadVotes(currentSprintId);
       setVoteMessage("Votes revealed to the team.");
     } catch (revealError) {
       setError(getErrorMessage(revealError, "Unable to reveal votes."));
     } finally {
-      setSessionActionLoading(false);
+      setPendingSessionAction(null);
     }
   }
 
   async function handleConfirmVote() {
-    if (!selectedSprintId || !selectedTaskId || !currentMemberId || !selectedTask) return;
+    if (!currentSprintId || !activeTaskId || !currentMemberId || !activeTask) return;
+
+    if (!activeTaskSession?.is_revealed) {
+      setVoteMessage("Reveal votes before confirming story points.");
+      return;
+    }
 
     const tally = getRequiredVoteTally(
       developerMembers.map((member) => member.id),
-      (memberId) => getMemberVote(selectedTaskId, memberId),
+      (memberId) => getMemberVote(activeTaskId, memberId),
     );
 
     if (!tally.allRequiredVoted || tally.hasTie || tally.winningStoryPoints.length !== 1) {
@@ -691,24 +1328,23 @@ export default function PlanningPokerPage() {
 
     const confirmedStoryPoints = tally.winningStoryPoints[0];
 
-    setSessionActionLoading(true);
-    setVoteMessage(null);
+    setPendingSessionAction("confirm");
+    setVoteMessage("Updating story points on Trello...");
     setError(null);
 
     try {
-      const { error: taskError } = await supabase
-        .from("tasks")
-        .update({ story_points: confirmedStoryPoints })
-        .eq("id", selectedTaskId);
-
-      if (taskError) throw taskError;
+      const { updatedTask } = await syncTaskStoryPointsFromTrello({
+        taskId: activeTaskId,
+        sprintId: currentSprintId,
+        storyPoints: confirmedStoryPoints,
+      });
 
       const { error: sessionError } = await supabase
         .from("planning_poker_sessions")
         .upsert(
           {
-            sprint_id: selectedSprintId,
-            task_id: selectedTaskId,
+            sprint_id: currentSprintId,
+            task_id: activeTaskId,
             is_revealed: true,
             is_confirmed: true,
             confirmed_story_points: confirmedStoryPoints,
@@ -720,19 +1356,27 @@ export default function PlanningPokerPage() {
 
       if (sessionError) throw sessionError;
 
-      await loadSprintTasks(selectedSprintId);
-      setVoteMessage(`Confirmed ${confirmedStoryPoints} SP for this task.`);
+      applySyncedTaskUpdate(updatedTask);
+      await reloadVotes(currentSprintId);
+      await setSprintFocusTask(null);
+      setSelectedTaskId(null);
+      await loadSprintTasks(currentSprintId);
+      setVoteMessage(
+        `Confirmed ${confirmedStoryPoints} SP. Trello card updated successfully.`,
+      );
     } catch (confirmError) {
-      setError(getErrorMessage(confirmError, "Unable to confirm story points."));
+      setError(
+        getErrorMessage(confirmError, "Unable to confirm story points on Trello."),
+      );
     } finally {
-      setSessionActionLoading(false);
+      setPendingSessionAction(null);
     }
   }
 
   async function handleRevote() {
-    if (!selectedSprintId || !selectedTaskId) return;
+    if (!currentSprintId || !activeTaskId) return;
 
-    setSessionActionLoading(true);
+    setPendingSessionAction("revote");
     setVoteMessage(null);
     setError(null);
 
@@ -740,23 +1384,23 @@ export default function PlanningPokerPage() {
       const { error: deleteVotesError } = await supabase
         .from("planning_poker_votes")
         .delete()
-        .eq("task_id", selectedTaskId);
+        .eq("task_id", activeTaskId);
 
       if (deleteVotesError) throw deleteVotesError;
 
       const { error: sessionError } = await supabase
         .from("planning_poker_sessions")
         .delete()
-        .eq("task_id", selectedTaskId);
+        .eq("task_id", activeTaskId);
 
       if (sessionError) throw sessionError;
 
-      await reloadVotes(selectedSprintId);
+      await reloadVotes(currentSprintId);
       setVoteMessage("All votes cleared. Members can vote again.");
     } catch (revoteError) {
       setError(getErrorMessage(revoteError, "Unable to revote."));
     } finally {
-      setSessionActionLoading(false);
+      setPendingSessionAction(null);
     }
   }
 
@@ -776,16 +1420,20 @@ export default function PlanningPokerPage() {
   }
 
   const currentMemberVote =
-    selectedTaskId && currentMemberId
-      ? getMemberVote(selectedTaskId, currentMemberId)
+    activeTaskId && currentMemberId
+      ? getMemberVote(activeTaskId, currentMemberId)
       : null;
 
-  const selectedTaskSession = selectedTaskId
-    ? taskSessionsByTaskId.get(selectedTaskId) ?? null
+  const activeDeveloperVoteProgress = activeTaskId
+    ? getDeveloperVoteProgress(activeTaskId)
+    : { voted: 0, total: 0 };
+
+  const activeTaskSession = activeTaskId
+    ? taskSessionsByTaskId.get(activeTaskId) ?? null
     : null;
 
-  const selectedTaskTally = useMemo(() => {
-    if (!selectedTaskId) {
+  const activeTaskTally = useMemo(() => {
+    if (!activeTaskId) {
       return {
         allRequiredVoted: false,
         hasTie: false,
@@ -796,76 +1444,178 @@ export default function PlanningPokerPage() {
 
     return getRequiredVoteTally(
       developerMembers.map((member) => member.id),
-      (memberId) => getMemberVote(selectedTaskId, memberId),
+      (memberId) => getMemberVote(activeTaskId, memberId),
     );
-  }, [developerMembers, selectedTaskId, votesByTaskAndMember]);
+  }, [activeTaskId, developerMembers, votesByTaskAndMember]);
 
   const votingClosed =
-    selectedTaskSession?.is_revealed === true ||
-    selectedTaskSession?.is_confirmed === true;
+    activeTaskSession?.is_revealed === true ||
+    activeTaskSession?.is_confirmed === true;
+
+  const sessionActionLoading = pendingSessionAction !== null;
 
   const canRevealVotes =
     isCurrentMemberPokerAdmin &&
-    selectedTaskTally.allRequiredVoted &&
-    !selectedTaskSession?.is_revealed &&
-    !selectedTaskSession?.is_confirmed;
+    activeTaskTally.allRequiredVoted &&
+    !activeTaskSession?.is_revealed &&
+    !activeTaskSession?.is_confirmed;
 
   const canConfirmVote =
     isCurrentMemberPokerAdmin &&
-    selectedTaskTally.allRequiredVoted &&
-    !selectedTaskTally.hasTie &&
-    !selectedTaskSession?.is_confirmed;
+    activeTaskSession?.is_revealed === true &&
+    activeTaskTally.allRequiredVoted &&
+    activeTaskTally.winningStoryPoints.length === 1 &&
+    !activeTaskTally.hasTie &&
+    !activeTaskSession?.is_confirmed;
 
-  const selectedTaskVoteCount = useMemo(() => {
-    if (!selectedTaskId) return 0;
-    return votes.filter((vote) => vote.task_id === selectedTaskId).length;
-  }, [selectedTaskId, votes]);
+  const activeTaskVoteCount = useMemo(() => {
+    if (!activeTaskId) return 0;
+    return votes.filter((vote) => vote.task_id === activeTaskId).length;
+  }, [activeTaskId, votes]);
 
   const canRevote =
     isCurrentMemberPokerAdmin &&
-    Boolean(selectedTaskId) &&
-    !selectedTaskSession?.is_confirmed &&
-    (selectedTaskVoteCount > 0 || selectedTaskSession?.is_revealed === true);
+    Boolean(activeTaskId) &&
+    !activeTaskSession?.is_confirmed &&
+    (activeTaskVoteCount > 0 || activeTaskSession?.is_revealed === true);
 
   const showRevealedConsensus =
-    selectedTaskSession?.is_revealed === true &&
-    selectedTaskTally.winningStoryPoints.length > 0;
+    activeTaskSession?.is_revealed === true &&
+    activeTaskTally.winningStoryPoints.length > 0;
+
+  const orderedTasks = useMemo(() => {
+    return [...tasks].sort((left, right) => {
+      const leftKey = left.trello_short_id ?? left.title;
+      const rightKey = right.trello_short_id ?? right.title;
+
+      if (typeof leftKey === "number" && typeof rightKey === "number") {
+        return leftKey - rightKey;
+      }
+
+      return left.title.localeCompare(right.title);
+    });
+  }, [tasks]);
+
+  const activeTaskIndex = useMemo(() => {
+    if (!activeTaskId) return -1;
+    return orderedTasks.findIndex((task) => task.id === activeTaskId);
+  }, [activeTaskId, orderedTasks]);
+
+  const canGoToPreviousTask =
+    isTaskController && activeTaskIndex > 0;
+
+  const canGoToNextTask =
+    isTaskController &&
+    activeTaskIndex >= 0 &&
+    activeTaskIndex < orderedTasks.length - 1;
+
+  const showNoCurrentSprint = !loading && !currentSprint;
+
+  const showPlanningLayout =
+    !loading &&
+    Boolean(currentSprint) &&
+    (isTaskController
+      ? tasks.length > 0 || tasksLoading
+      : Boolean(activeTask) ||
+        focusedTaskLoading ||
+        Boolean(sprintFocus?.active_task_id));
+
+  const showWaitingForFacilitator =
+    !loading &&
+    !tasksLoading &&
+    !isTaskController &&
+    !activeTask &&
+    !focusedTaskLoading &&
+    !sprintFocus?.active_task_id;
+
+  const showNoPlanningListTasks =
+    !loading &&
+    !tasksLoading &&
+    !trelloVerifyLoading &&
+    Boolean(currentSprint) &&
+    isTaskController &&
+    planningListTaskCount === 0;
+
+  const showAllPlanningTasksPointed =
+    !loading &&
+    !tasksLoading &&
+    !trelloVerifyLoading &&
+    isTaskController &&
+    planningListTaskCount > 0 &&
+    tasks.length === 0;
+
+  const showTasksLoadingState =
+    !loading &&
+    Boolean(currentSprint) &&
+    isTaskController &&
+    tasksLoading &&
+    tasks.length === 0;
+
+  const expandedTaskDescription = useMemo(() => {
+    if (!activeTaskId) {
+      return "";
+    }
+
+    if (
+      activeTaskDescription?.taskId === activeTaskId &&
+      !activeTaskDescription.loading
+    ) {
+      return activeTaskDescription.description ?? "";
+    }
+
+    if (activeTask?.id === activeTaskId && activeTask.description) {
+      return activeTask.description;
+    }
+
+    return "";
+  }, [activeTask, activeTaskDescription, activeTaskId]);
+
+  const isExpandedDescriptionLoading = Boolean(
+    activeTaskId &&
+      activeTaskDescription?.taskId === activeTaskId &&
+      activeTaskDescription.loading &&
+      !expandedTaskDescription,
+  );
 
   return (
-    <div className="planning-poker-page" style={{ padding: "20px 0 40px" }}>
+    <div className="planning-poker-page">
       <Card className="planning-poker-card">
         <div className="planning-poker-header">
           <div>
             <SectionTitle>Planning Poker</SectionTitle>
             <p className="planning-poker-subtitle">
-              Estimate unpointed tasks from the Trello Planning list. Developer votes are required; other members may vote optionally.
+              Estimate unpointed tasks from the Trello For Planning list. Confirm writes story
+              points to the Trello Story Points custom field. Developer votes are required;
+              other members may vote optionally.
             </p>
           </div>
           <div className="planning-poker-header-actions">
-            <StyledSelect
-              value={selectedSprintId}
-              onChange={setSelectedSprintId}
-              placeholder="Select sprint"
-            >
-              {sprints.map((sprint) => (
-                <option key={sprint.id} value={sprint.id}>
-                  {getSprintLabel(sprint)}
-                </option>
-              ))}
-            </StyledSelect>
+            {currentSprint ? (
+              <span className="planning-poker-sprint-badge">
+                {getSprintLabel(currentSprint)}
+              </span>
+            ) : null}
             <SprintSyncDataAction
-              currentSprint={currentSprint}
-              selectedSprintId={selectedSprintId}
+              currentSprint={currentSprintSyncTarget}
+              selectedSprintId={currentSprintId}
               memberRole={currentMemberRole}
-              onSynced={() => loadSprintTasks(selectedSprintId)}
+              onSynced={() => loadSprintTasks(currentSprintId)}
             />
             <span className="planning-poker-count-badge">
-              {tasks.length} Planning task{tasks.length === 1 ? "" : "s"}
+              {isTaskController
+                ? trelloVerifyLoading
+                  ? `Checking Trello · ${tasks.length} task${tasks.length === 1 ? "" : "s"}`
+                  : `${tasks.length} Planning task${tasks.length === 1 ? "" : "s"}`
+                : activeTask
+                  ? "Facilitator task"
+                  : "Waiting for task"}
             </span>
           </div>
         </div>
 
-        {error ? <p className="planning-poker-error">{error}</p> : null}
+        {error ? (
+          <p className="planning-poker-error planning-poker-error--multiline">{error}</p>
+        ) : null}
         {voteMessage ? <p className="planning-poker-message">{voteMessage}</p> : null}
 
         {loading ? (
@@ -875,42 +1625,96 @@ export default function PlanningPokerPage() {
           </div>
         ) : null}
 
-        {!loading && tasks.length === 0 ? (
+        {showNoCurrentSprint ? (
           <div className="planning-poker-empty">
-            No unpointed tasks found on the Planning list for the selected sprint.
+            No current sprint is active. Mark a sprint as current to use Planning Poker.
           </div>
         ) : null}
 
-        {!loading && tasks.length > 0 ? (
-          <div className="planning-poker-layout">
+        {showTasksLoadingState ? (
+          <div className="planning-poker-loading planning-poker-loading--inline">
+            <span className="planning-poker-spinner" />
+            Loading For Planning tasks...
+          </div>
+        ) : null}
+
+        {showNoPlanningListTasks ? (
+          <div className="planning-poker-empty">
+            No tasks found on the For Planning list for the selected sprint. Sync from Trello to
+            import For Planning cards.
+          </div>
+        ) : null}
+
+        {showAllPlanningTasksPointed ? (
+          <div className="planning-poker-empty">
+            All For Planning list tasks already have story points assigned. Sync from Trello if
+            cards are missing.
+          </div>
+        ) : null}
+
+        {showWaitingForFacilitator ? (
+          <div className="planning-poker-empty planning-poker-empty--facilitator">
+            Waiting for a facilitator to open a task for estimation.
+          </div>
+        ) : null}
+
+        {showPlanningLayout ? (
+          <div
+            className={`planning-poker-layout${
+              activeTask ? " planning-poker-layout--active-task" : ""
+            }`}
+          >
             <section className="planning-poker-board">
               <div
                 className={`planning-poker-board-column${
-                  selectedTask ? " planning-poker-board-column--expanded" : ""
+                  activeTask ? " planning-poker-board-column--expanded" : ""
                 }`}
               >
                 <div className="planning-poker-board-column-header">
-                  <span>Planning List</span>
+                  <span>{isTaskController ? "For Planning" : "Current Task"}</span>
                   <div className="planning-poker-board-column-header-actions">
-                    {!selectedTask ? <span>{tasks.length}</span> : null}
-                    {selectedTask ? (
-                      <button
-                        type="button"
-                        className="planning-poker-close-button"
-                        onClick={() => setSelectedTaskId(null)}
-                        aria-label="Close task details"
-                      >
-                        Close
-                      </button>
+                    {isTaskController && !activeTask ? <span>{tasks.length}</span> : null}
+                    {isTaskController && activeTask ? (
+                      <div className="planning-poker-task-nav">
+                        <button
+                          type="button"
+                          className="planning-poker-nav-button"
+                          disabled={!canGoToPreviousTask}
+                          onClick={handlePreviousTask}
+                          aria-label="Open previous task"
+                        >
+                          Previous
+                        </button>
+                        <span className="planning-poker-task-nav-position">
+                          {activeTaskIndex + 1} / {orderedTasks.length}
+                        </span>
+                        <button
+                          type="button"
+                          className="planning-poker-nav-button"
+                          disabled={!canGoToNextTask}
+                          onClick={handleNextTask}
+                          aria-label="Open next task"
+                        >
+                          Next
+                        </button>
+                        <button
+                          type="button"
+                          className="planning-poker-close-button"
+                          onClick={handleCloseTask}
+                          aria-label="Close task details"
+                        >
+                          Close
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </div>
 
-                {selectedTask ? (
+                {activeTask ? (
                   (() => {
                     const { severityLabel, severityColor, priorityColor } =
-                      getTaskDisplayColors(selectedTask);
-                    const progress = getDeveloperVoteProgress(selectedTask.id);
+                      getTaskDisplayColors(activeTask);
+                    const progress = getDeveloperVoteProgress(activeTask.id);
 
                     return (
                       <article
@@ -924,24 +1728,21 @@ export default function PlanningPokerPage() {
                       >
                         <div className="planning-poker-task-card-top">
                           <span className="planning-poker-task-id">
-                            {selectedTask.trello_short_id ?? selectedTask.id.slice(0, 8)}
-                          </span>
-                          <span className="planning-poker-vote-progress">
-                            {progress.voted}/{progress.total} dev votes
+                            {activeTask.trello_short_id ?? activeTask.id.slice(0, 8)}
                           </span>
                         </div>
 
                         <h3 className="planning-poker-task-expanded-title">
-                          {selectedTask.trello_card_url ? (
+                          {activeTask.trello_card_url ? (
                             <a
-                              href={selectedTask.trello_card_url}
+                              href={activeTask.trello_card_url}
                               target="_blank"
                               rel="noreferrer"
                             >
-                              {selectedTask.title}
+                              {activeTask.title}
                             </a>
                           ) : (
-                            selectedTask.title
+                            activeTask.title
                           )}
                         </h3>
 
@@ -964,26 +1765,43 @@ export default function PlanningPokerPage() {
                               background: `${priorityColor}18`,
                             }}
                           >
-                            {selectedTask.priority}
+                            {activeTask.priority}
                           </span>
                           <span className="planning-poker-pill planning-poker-pill--neutral">
-                            {formatTaskType(selectedTask.task_type)}
+                            {formatTaskType(activeTask.task_type)}
                           </span>
                           <span className="planning-poker-pill planning-poker-pill--neutral">
-                            {PLANNING_TRELLO_LIST_NAME}
+                            {TRELLO_FOR_PLANNING_LIST_NAME}
                           </span>
                         </div>
 
+                        <PlanningPokerVoteProgress
+                          voted={progress.voted}
+                          total={progress.total}
+                        />
+
                         <div className="planning-poker-task-expanded-description">
                           <h4>Description</h4>
-                          <TrelloDescription content={selectedTask.description ?? ""} />
+                          {isExpandedDescriptionLoading ? (
+                            <div className="planning-poker-loading planning-poker-loading--inline">
+                              <span className="planning-poker-spinner" />
+                              Loading description...
+                            </div>
+                          ) : (
+                            <TrelloDescription content={expandedTaskDescription} />
+                          )}
                         </div>
                       </article>
                     );
                   })()
-                ) : (
+                ) : focusedTaskLoading ? (
+                  <div className="planning-poker-loading planning-poker-loading--inline">
+                    <span className="planning-poker-spinner" />
+                    Loading facilitator task...
+                  </div>
+                ) : isTaskController ? (
                   <div className="planning-poker-board-cards">
-                    {tasks.map((task, index) => {
+                    {orderedTasks.map((task, index) => {
                       const { severityLabel, severityColor, priorityColor } =
                         getTaskDisplayColors(task);
                       const progress = getDeveloperVoteProgress(task.id);
@@ -999,11 +1817,11 @@ export default function PlanningPokerPage() {
                             background: `linear-gradient(135deg, ${priorityColor}12, ${severityColor}0f 42%, rgba(6,13,31,0.58))`,
                             boxShadow: `0 8px 24px rgba(0,0,0,0.16), 0 0 18px ${severityColor}16`,
                           }}
-                          onClick={() => setSelectedTaskId(task.id)}
+                          onClick={() => handleSelectTask(task.id)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
-                              setSelectedTaskId(task.id);
+                              handleSelectTask(task.id);
                             }
                           }}
                           role="button"
@@ -1012,9 +1830,6 @@ export default function PlanningPokerPage() {
                           <div className="planning-poker-task-card-top">
                             <span className="planning-poker-task-id">
                               {task.trello_short_id ?? task.id.slice(0, 8)}
-                            </span>
-                            <span className="planning-poker-vote-progress">
-                              {progress.voted}/{progress.total} dev votes
                             </span>
                           </div>
 
@@ -1047,20 +1862,31 @@ export default function PlanningPokerPage() {
                               {formatTaskType(task.task_type)}
                             </span>
                           </div>
+
+                          <PlanningPokerVoteProgress
+                            voted={progress.voted}
+                            total={progress.total}
+                            compact
+                          />
                         </article>
                       );
                     })}
                   </div>
-                )}
+                ) : null}
               </div>
             </section>
 
             <aside className="planning-poker-vote-panel">
-              {selectedTask ? (
+              {activeTask ? (
                 <>
                   <div className="planning-poker-vote-panel-header">
                     <h3>Vote for Task</h3>
-                    <p>{selectedTask.title}</p>
+                    <p>{activeTask.title}</p>
+                    <PlanningPokerVoteProgress
+                      voted={activeDeveloperVoteProgress.voted}
+                      total={activeDeveloperVoteProgress.total}
+                      compact
+                    />
                   </div>
 
                   <div className="planning-poker-point-grid">
@@ -1093,7 +1919,17 @@ export default function PlanningPokerPage() {
                           disabled={sessionActionLoading}
                           onClick={() => void handleRevealVotes()}
                         >
-                          Reveal
+                          {pendingSessionAction === "reveal" ? (
+                            <>
+                              <span
+                                className="planning-poker-spinner planning-poker-spinner--button"
+                                aria-hidden="true"
+                              />
+                              Revealing...
+                            </>
+                          ) : (
+                            "Reveal"
+                          )}
                         </button>
                       ) : null}
                       {canConfirmVote ? (
@@ -1103,7 +1939,17 @@ export default function PlanningPokerPage() {
                           disabled={sessionActionLoading}
                           onClick={() => void handleConfirmVote()}
                         >
-                          Confirm
+                          {pendingSessionAction === "confirm" ? (
+                            <>
+                              <span
+                                className="planning-poker-spinner planning-poker-spinner--button"
+                                aria-hidden="true"
+                              />
+                              Confirming...
+                            </>
+                          ) : (
+                            "Confirm"
+                          )}
                         </button>
                       ) : null}
                       {canRevote ? (
@@ -1113,7 +1959,17 @@ export default function PlanningPokerPage() {
                           disabled={sessionActionLoading}
                           onClick={() => void handleRevote()}
                         >
-                          Revote
+                          {pendingSessionAction === "revote" ? (
+                            <>
+                              <span
+                                className="planning-poker-spinner planning-poker-spinner--button"
+                                aria-hidden="true"
+                              />
+                              Clearing...
+                            </>
+                          ) : (
+                            "Revote"
+                          )}
                         </button>
                       ) : null}
                     </div>
@@ -1123,20 +1979,20 @@ export default function PlanningPokerPage() {
                     <div className="planning-poker-reveal-banner">
                       <span className="planning-poker-reveal-banner__label">Revealed consensus</span>
                       <span className="planning-poker-reveal-banner__value">
-                        {formatWinningStoryPoints(selectedTaskTally.winningStoryPoints)}
-                        {selectedTaskTally.hasTie ? " (tied)" : ""}
+                        {formatWinningStoryPoints(activeTaskTally.winningStoryPoints)}
+                        {activeTaskTally.hasTie ? " (tied)" : ""}
                       </span>
                     </div>
                   ) : null}
 
-                  {selectedTaskSession?.is_confirmed ? (
+                  {activeTaskSession?.is_confirmed ? (
                     <div className="planning-poker-confirmed-banner">
                       Confirmed at{" "}
-                      {selectedTaskSession.confirmed_story_points ?? "—"} SP
+                      {activeTaskSession.confirmed_story_points ?? "—"} SP
                     </div>
                   ) : null}
 
-                  {votingClosed && !selectedTaskSession?.is_confirmed ? (
+                  {votingClosed && !activeTaskSession?.is_confirmed ? (
                     <p className="planning-poker-voting-closed">
                       Voting is closed for this task.
                     </p>
@@ -1147,7 +2003,7 @@ export default function PlanningPokerPage() {
                       <h4>Required Developer Votes</h4>
                       <div className="planning-poker-voter-list">
                         {visibleDeveloperMembers.map((member) => {
-                        const voteValue = getMemberVote(selectedTask.id, member.id);
+                        const voteValue = getMemberVote(activeTask.id, member.id);
                         const memberName = getMemberName(member);
                         const memberColor = getAssigneeColor(member.id);
                         const displayedVote = getDisplayedVoteValue(
@@ -1195,7 +2051,7 @@ export default function PlanningPokerPage() {
                       <h4>Optional Votes</h4>
                       <div className="planning-poker-voter-list">
                         {visibleOptionalMembers.map((member) => {
-                          const voteValue = getMemberVote(selectedTask.id, member.id);
+                          const voteValue = getMemberVote(activeTask.id, member.id);
                           const memberName = getMemberName(member);
                           const memberColor = getAssigneeColor(member.id);
                           const displayedVote = getDisplayedVoteValue(
@@ -1253,7 +2109,9 @@ export default function PlanningPokerPage() {
           <div>
             <SectionTitle>Sprint Task Votes</SectionTitle>
             <p className="planning-poker-subtitle">
-              Relational view of sprint, task, member, and voted story points.
+              {isTaskController
+                ? "Relational view of sprint, task, member, and voted story points."
+                : "Your votes for the facilitator task."}
             </p>
           </div>
         </div>
@@ -1263,36 +2121,82 @@ export default function PlanningPokerPage() {
             No votes recorded for the selected sprint yet.
           </div>
         ) : (
-          <div className="planning-poker-table-scroll">
-            <table className="planning-poker-table">
-              <thead>
-                <tr>
-                  <th>Sprint</th>
-                  <th>Task</th>
-                  <th>Task Type</th>
-                  <th>Member</th>
-                  <th>Role</th>
-                  <th>Vote Required</th>
-                  <th>Voted Story Points</th>
-                  <th>Consensus SP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {voteTableRows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.sprintLabel}</td>
-                    <td>{row.taskTitle}</td>
-                    <td>{row.taskType}</td>
-                    <td>{row.memberName}</td>
-                    <td>{row.memberRole}</td>
-                    <td>{row.isRequiredVoter ? "Required" : "Optional"}</td>
-                    <td>{row.storyPoints}</td>
-                    <td>{row.consensusStoryPoints ?? "—"}</td>
+          <>
+            <div className="planning-poker-table-scroll planning-poker-table-scroll--desktop">
+              <table className="planning-poker-table">
+                <thead>
+                  <tr>
+                    <th>Sprint</th>
+                    <th>Task</th>
+                    <th>Task Type</th>
+                    <th>Member</th>
+                    <th>Role</th>
+                    <th>Vote Required</th>
+                    <th>Voted Story Points</th>
+                    <th>Consensus SP</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {voteTableRows.map((row) => (
+                    <tr key={row.id}>
+                      <td data-label="Sprint">{row.sprintLabel}</td>
+                      <td data-label="Task">{row.taskTitle}</td>
+                      <td data-label="Task Type">{row.taskType}</td>
+                      <td data-label="Member">{row.memberName}</td>
+                      <td data-label="Role">{row.memberRole}</td>
+                      <td data-label="Vote Required">
+                        {row.isRequiredVoter ? "Required" : "Optional"}
+                      </td>
+                      <td data-label="Voted SP">{row.storyPoints}</td>
+                      <td data-label="Consensus SP">{row.consensusStoryPoints ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="planning-poker-table-scroll--mobile">
+              {voteTableRows.map((row) => (
+                <article key={row.id} className="planning-poker-vote-card">
+                  <h4 className="planning-poker-vote-card__title">{row.taskTitle}</h4>
+                  <div className="planning-poker-vote-card__grid">
+                    <div className="planning-poker-vote-card__item">
+                      <span className="planning-poker-vote-card__label">Sprint</span>
+                      <span className="planning-poker-vote-card__value">{row.sprintLabel}</span>
+                    </div>
+                    <div className="planning-poker-vote-card__item">
+                      <span className="planning-poker-vote-card__label">Member</span>
+                      <span className="planning-poker-vote-card__value">{row.memberName}</span>
+                    </div>
+                    <div className="planning-poker-vote-card__item">
+                      <span className="planning-poker-vote-card__label">Role</span>
+                      <span className="planning-poker-vote-card__value">{row.memberRole}</span>
+                    </div>
+                    <div className="planning-poker-vote-card__item">
+                      <span className="planning-poker-vote-card__label">Task Type</span>
+                      <span className="planning-poker-vote-card__value">{row.taskType}</span>
+                    </div>
+                    <div className="planning-poker-vote-card__item">
+                      <span className="planning-poker-vote-card__label">Vote Required</span>
+                      <span className="planning-poker-vote-card__value">
+                        {row.isRequiredVoter ? "Required" : "Optional"}
+                      </span>
+                    </div>
+                    <div className="planning-poker-vote-card__item">
+                      <span className="planning-poker-vote-card__label">Voted SP</span>
+                      <span className="planning-poker-vote-card__value">{row.storyPoints}</span>
+                    </div>
+                    <div className="planning-poker-vote-card__item planning-poker-vote-card__item--full">
+                      <span className="planning-poker-vote-card__label">Consensus SP</span>
+                      <span className="planning-poker-vote-card__value">
+                        {row.consensusStoryPoints ?? "—"}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
         )}
       </Card>
     </div>

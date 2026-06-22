@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import type { FilterState } from "../interfaces";
 import { getFilterLabel } from "@/lib/utils";
 import { getSupabaseRows } from "@/lib/supabase";
-import { 
+import { NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME } from "@/lib/utils/trello/trello.listNames";
+import {
   ScoreKPI, 
   TeamLineChart, 
   TeamMetricsLineChart,
@@ -27,6 +28,8 @@ import {
 import "@/assets/styles/Dashboard.page.css";
 
 const DASHBOARD_HIDDEN_TRELLO_LIST_NAMES = new Set([
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
+  "planning",
   "project refinement",
   "on-deck sprint backlog",
   "backlog",

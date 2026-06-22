@@ -116,7 +116,7 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Filter Eligible Cards",
     summary: "Apply status-aware card filtering.",
     details: [
-      "Planning excludes Ad hoc cards.",
+      "For Planning list excludes Ad hoc cards.",
       "Non-Ad hoc cards require the required Trello member and another Supabase member.",
       "Ad hoc cards require a Supabase assignee and custom Status not Done.",
     ],
