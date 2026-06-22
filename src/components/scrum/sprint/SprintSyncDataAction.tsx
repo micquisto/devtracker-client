@@ -5,7 +5,7 @@ import "@/assets/styles/Sprint.page.css";
 
 type SprintSyncTarget = {
   id: string;
-  name: string;
+  name: string | null;
   status: string | null;
 };
 
@@ -79,7 +79,7 @@ export default function SprintSyncDataAction({
       message: getSyncDataMessage(currentSprintStatus),
       confirmLabel: "Sync Data",
       accent: "#00c8ff",
-      sprintDetail: currentSprint.name,
+      sprintDetail: currentSprint.name ?? undefined,
       onConfirm: () => void syncSprintData(),
     });
   }

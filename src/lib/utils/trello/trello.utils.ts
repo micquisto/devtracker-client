@@ -1,7 +1,6 @@
 import { getSupabaseRows } from "@/lib/supabase";
 import {
   trelloRequest,
-  type TrelloParamValue,
   type TrelloRequestParams,
 } from "./trello.client";
 

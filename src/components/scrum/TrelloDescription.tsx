@@ -1,5 +1,5 @@
 import "@/assets/styles/TrelloDescription.css";
-import { useState, type ReactNode } from "react";
+import { createElement, useState, type ReactNode } from "react";
 
 const HEADER_PATTERN = /^(#{1,6})\s+(.+)$/;
 const UNORDERED_LIST_PATTERN = /^[-*+]\s+(.+)$/;
@@ -355,11 +355,14 @@ function renderLine(line: string, key: string): ReactNode {
   const headerMatch = trimmedLine.match(HEADER_PATTERN);
   if (headerMatch) {
     const level = Math.min(headerMatch[1].length, 6);
-    const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
-    return (
-      <HeadingTag key={key} className={`trello-description__heading trello-description__heading--h${level}`}>
-        {parseInlineContent(headerMatch[2], key)}
-      </HeadingTag>
+    const headingTag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+    return createElement(
+      headingTag,
+      {
+        key,
+        className: `trello-description__heading trello-description__heading--h${level}`,
+      },
+      parseInlineContent(headerMatch[2], key),
     );
   }
 
