@@ -192,10 +192,12 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
   padding: 16px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
+  overflow-x: auto;
 }
 
 .planning-poker-task-expanded-description h4 {
@@ -213,7 +215,14 @@
 }
 
 .planning-poker-task-expanded-description .trello-description {
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.planning-poker-task-expanded-description .trello-description__figure,
+.planning-poker-task-expanded-description .trello-description__block-image,
+.planning-poker-task-expanded-description .trello-description__inline-image {
+  max-width: 100%;
 }
 
 .planning-poker-board-cards {

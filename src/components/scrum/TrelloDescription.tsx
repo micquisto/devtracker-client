@@ -1,8 +1,6 @@
 import "@/assets/styles/TrelloDescription.css";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-const IMAGE_MARKDOWN_PATTERN = /^!\[([^\]]*)\]\(([^)]+)\)$/;
-const LINK_MARKDOWN_PATTERN = /^\[([^\]]+)\]\(([^)]+)\)$/;
 const HEADER_PATTERN = /^(#{1,6})\s+(.+)$/;
 const UNORDERED_LIST_PATTERN = /^[-*+]\s+(.+)$/;
 const ORDERED_LIST_PATTERN = /^\d+\.\s+(.+)$/;
@@ -17,24 +15,100 @@ type InlineMatch =
   | { kind: "code"; text: string; length: number }
   | { kind: "autolink"; url: string; length: number };
 
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function normalizeUrl(url: string): string {
+  return decodeHtmlEntities(url.trim());
+}
+
+function isImageUrl(url: string): boolean {
+  const normalized = normalizeUrl(url).toLowerCase();
+  if (!normalized) return false;
+
+  if (/\.(png|jpe?g|gif|webp|svg|bmp|avif)(\?|#|$)/i.test(normalized)) {
+    return true;
+  }
+
+  if (/trello-attachments\.s3[\w.-]*\.amazonaws\.com/i.test(normalized)) {
+    return true;
+  }
+
+  if (/trello\.com\/.*\/attachments\/.*\/(download|preview)/i.test(normalized)) {
+    return true;
+  }
+
+  if (/\/previews\/.*\/download/i.test(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+function preprocessTrelloContent(content: string): string {
+  return content.replace(
+    /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi,
+    (_match, src: string) => `\n\n![attachment](${normalizeUrl(src)})\n\n`,
+  );
+}
+
+function parseMarkdownWithUrl(
+  text: string,
+  opener: string,
+): { label: string; url: string; length: number } | null {
+  if (!text.startsWith(opener)) return null;
+
+  const labelEnd = text.indexOf("](", opener.length - 1);
+  if (labelEnd === -1) return null;
+
+  const label = text.slice(opener.length, labelEnd);
+  let index = labelEnd + 2;
+
+  if (text[index] !== "(") return null;
+  index += 1;
+
+  let depth = 1;
+  const urlStart = index;
+
+  while (index < text.length && depth > 0) {
+    if (text[index] === "(") depth += 1;
+    else if (text[index] === ")") depth -= 1;
+    if (depth > 0) index += 1;
+  }
+
+  if (depth !== 0) return null;
+
+  return {
+    label,
+    url: normalizeUrl(text.slice(urlStart, index)),
+    length: index + 1,
+  };
+}
+
 function findNextInlineMatch(text: string): InlineMatch | null {
-  const imageMatch = text.match(/^!\[([^\]]*)\]\(([^)]+)\)/);
+  const imageMatch = parseMarkdownWithUrl(text, "![");
   if (imageMatch) {
     return {
       kind: "image",
-      alt: imageMatch[1],
-      url: imageMatch[2],
-      length: imageMatch[0].length,
+      alt: imageMatch.label,
+      url: imageMatch.url,
+      length: imageMatch.length,
     };
   }
 
-  const linkMatch = text.match(/^\[([^\]]+)\]\(([^)]+)\)/);
+  const linkMatch = parseMarkdownWithUrl(text, "[");
   if (linkMatch) {
     return {
       kind: "link",
-      label: linkMatch[1],
-      url: linkMatch[2],
-      length: linkMatch[0].length,
+      label: linkMatch.label,
+      url: linkMatch.url,
+      length: linkMatch.length,
     };
   }
 
@@ -69,12 +143,64 @@ function findNextInlineMatch(text: string): InlineMatch | null {
   if (autolinkMatch) {
     return {
       kind: "autolink",
-      url: autolinkMatch[1],
+      url: normalizeUrl(autolinkMatch[1]),
       length: autolinkMatch[0].length,
     };
   }
 
   return null;
+}
+
+type TrelloDescriptionImageProps = {
+  alt: string;
+  url: string;
+  className: string;
+};
+
+function TrelloDescriptionImage({
+  alt,
+  url,
+  className,
+}: TrelloDescriptionImageProps) {
+  const [hasError, setHasError] = useState(false);
+  const normalizedUrl = normalizeUrl(url);
+
+  if (hasError) {
+    return (
+      <a
+        href={normalizedUrl}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="trello-description__image-fallback"
+      >
+        Open image attachment
+      </a>
+    );
+  }
+
+  return (
+    <img
+      src={normalizedUrl}
+      alt={alt || "Trello attachment"}
+      className={className}
+      loading="lazy"
+      decoding="async"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
+function renderImageBlock(alt: string, url: string, key: string): ReactNode {
+  return (
+    <figure key={key} className="trello-description__figure">
+      <TrelloDescriptionImage
+        alt={alt}
+        url={url}
+        className="trello-description__block-image"
+      />
+      {alt ? <figcaption className="trello-description__caption">{alt}</figcaption> : null}
+    </figure>
+  );
 }
 
 function parseInlineContent(text: string, keyPrefix: string): ReactNode[] {
@@ -87,15 +213,13 @@ function parseInlineContent(text: string, keyPrefix: string): ReactNode[] {
     if (match) {
       const key = `${keyPrefix}-inline-${index}`;
 
-      if (match.kind === "image") {
+      if (match.kind === "image" || (match.kind === "link" && isImageUrl(match.url))) {
         nodes.push(
-          <img
+          <TrelloDescriptionImage
             key={key}
-            src={match.url}
-            alt={match.alt || "Trello attachment"}
+            alt={match.kind === "image" ? match.alt : match.label}
+            url={match.url}
             className="trello-description__inline-image"
-            loading="lazy"
-            referrerPolicy="no-referrer"
           />,
         );
       } else if (match.kind === "link") {
@@ -125,17 +249,28 @@ function parseInlineContent(text: string, keyPrefix: string): ReactNode[] {
           </code>,
         );
       } else if (match.kind === "autolink") {
-        nodes.push(
-          <a
-            key={key}
-            href={match.url}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="trello-description__link"
-          >
-            {match.url}
-          </a>,
-        );
+        if (isImageUrl(match.url)) {
+          nodes.push(
+            <TrelloDescriptionImage
+              key={key}
+              alt="Trello attachment"
+              url={match.url}
+              className="trello-description__inline-image"
+            />,
+          );
+        } else {
+          nodes.push(
+            <a
+              key={key}
+              href={match.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="trello-description__link"
+            >
+              {match.url}
+            </a>,
+          );
+        }
       }
 
       remaining = remaining.slice(match.length);
@@ -163,21 +298,6 @@ function parseInlineContent(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-function renderImageBlock(alt: string, url: string, key: string): ReactNode {
-  return (
-    <figure key={key} className="trello-description__figure">
-      <img
-        src={url}
-        alt={alt || "Trello attachment"}
-        className="trello-description__block-image"
-        loading="lazy"
-        referrerPolicy="no-referrer"
-      />
-      {alt ? <figcaption className="trello-description__caption">{alt}</figcaption> : null}
-    </figure>
-  );
-}
-
 function renderLine(line: string, key: string): ReactNode {
   const trimmedLine = line.trim();
 
@@ -185,29 +305,39 @@ function renderLine(line: string, key: string): ReactNode {
     return <br key={key} />;
   }
 
-  const imageMatch = trimmedLine.match(IMAGE_MARKDOWN_PATTERN);
+  const imageMatch = parseMarkdownWithUrl(trimmedLine, "![");
   if (imageMatch) {
-    return renderImageBlock(imageMatch[1], imageMatch[2], key);
+    return renderImageBlock(imageMatch.label, imageMatch.url, key);
   }
 
-  const linkOnlyMatch = trimmedLine.match(LINK_MARKDOWN_PATTERN);
+  const linkOnlyMatch = parseMarkdownWithUrl(trimmedLine, "[");
   if (linkOnlyMatch) {
+    if (isImageUrl(linkOnlyMatch.url)) {
+      return renderImageBlock(linkOnlyMatch.label, linkOnlyMatch.url, key);
+    }
+
     return (
       <p key={key} className="trello-description__paragraph">
         <a
-          href={linkOnlyMatch[2]}
+          href={linkOnlyMatch.url}
           target="_blank"
           rel="noreferrer noopener"
           className="trello-description__link"
         >
-          {linkOnlyMatch[1]}
+          {linkOnlyMatch.label}
         </a>
       </p>
     );
   }
 
   if (AUTO_LINK_PATTERN.test(trimmedLine)) {
-    const href = trimmedLine.includes("@") ? `mailto:${trimmedLine}` : trimmedLine;
+    const normalizedLine = normalizeUrl(trimmedLine);
+
+    if (isImageUrl(normalizedLine)) {
+      return renderImageBlock("", normalizedLine, key);
+    }
+
+    const href = normalizedLine.includes("@") ? `mailto:${normalizedLine}` : normalizedLine;
     return (
       <p key={key} className="trello-description__paragraph">
         <a
@@ -216,7 +346,7 @@ function renderLine(line: string, key: string): ReactNode {
           rel="noreferrer noopener"
           className="trello-description__link"
         >
-          {trimmedLine}
+          {normalizedLine}
         </a>
       </p>
     );
@@ -313,7 +443,7 @@ export default function TrelloDescription({
   className = "",
   emptyLabel = "No description provided.",
 }: TrelloDescriptionProps) {
-  const trimmedContent = content.trim();
+  const trimmedContent = preprocessTrelloContent(content).trim();
 
   if (!trimmedContent) {
     return (

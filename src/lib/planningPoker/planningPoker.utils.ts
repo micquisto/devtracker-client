@@ -2,6 +2,12 @@ export const POKER_ADMIN_ROLES = new Set(["tech_lead", "super_admin"]);
 
 export const RESTRICTED_VOTE_VIEWER_ROLES = new Set(["developer", "qa_engineer"]);
 
+export const RESTRICTED_NAME_VIEWER_ROLES = new Set([
+  "developer",
+  "qa_engineer",
+  "designer",
+]);
+
 export const DEVELOPER_ROLES = new Set([
   "developer",
   "senior_developer",
@@ -38,6 +44,20 @@ export function isDeveloperRole(role: string | null): boolean {
 
 export function isRestrictedVoteViewer(role: string | null): boolean {
   return RESTRICTED_VOTE_VIEWER_ROLES.has(role?.trim().toLowerCase() ?? "");
+}
+
+export function isRestrictedNameViewer(role: string | null): boolean {
+  return RESTRICTED_NAME_VIEWER_ROLES.has(role?.trim().toLowerCase() ?? "");
+}
+
+export function shouldHideMemberRow(
+  memberId: string,
+  viewerMemberId: string | null,
+  hideOthersNames: boolean,
+): boolean {
+  if (!hideOthersNames) return false;
+  if (!viewerMemberId) return true;
+  return memberId !== viewerMemberId;
 }
 
 export function getRequiredVoteTally(

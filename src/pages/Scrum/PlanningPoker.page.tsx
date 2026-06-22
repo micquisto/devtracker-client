@@ -22,7 +22,9 @@ import {
   getRequiredVoteTally,
   isDeveloperRole,
   isPokerAdmin,
+  isRestrictedNameViewer,
   isRestrictedVoteViewer,
+  shouldHideMemberRow,
   shouldMaskVoteInTable,
   type PlanningPokerSessionRow,
 } from "@/lib/planningPoker/planningPoker.utils";
@@ -224,6 +226,11 @@ export default function PlanningPokerPage() {
     [currentMemberRole],
   );
 
+  const hideOthersNames = useMemo(
+    () => isRestrictedNameViewer(currentMemberRole),
+    [currentMemberRole],
+  );
+
   const isCurrentMemberPokerAdmin = useMemo(
     () => isPokerAdmin(currentMemberRole),
     [currentMemberRole],
@@ -252,6 +259,22 @@ export default function PlanningPokerPage() {
     [members],
   );
 
+  const visibleDeveloperMembers = useMemo(
+    () =>
+      developerMembers.filter(
+        (member) => !shouldHideMemberRow(member.id, currentMemberId, hideOthersNames),
+      ),
+    [currentMemberId, developerMembers, hideOthersNames],
+  );
+
+  const visibleOptionalMembers = useMemo(
+    () =>
+      optionalMembers.filter(
+        (member) => !shouldHideMemberRow(member.id, currentMemberId, hideOthersNames),
+      ),
+    [currentMemberId, hideOthersNames, optionalMembers],
+  );
+
   const votesByTaskAndMember = useMemo(() => {
     const map = new Map<string, VoteRow>();
     for (const vote of votes) {
@@ -273,6 +296,9 @@ export default function PlanningPokerPage() {
         const task = tasksById.get(vote.task_id);
         const member = membersById.get(vote.member_id);
         if (!task || !member || !isPlanningListTask(task)) return null;
+        if (shouldHideMemberRow(vote.member_id, currentMemberId, hideOthersNames)) {
+          return null;
+        }
 
         const session = taskSessionsByTaskId.get(vote.task_id);
         const isRevealed = session?.is_revealed ?? false;
@@ -312,6 +338,7 @@ export default function PlanningPokerPage() {
   }, [
     currentMemberId,
     developerMembers,
+    hideOthersNames,
     hideOthersVotes,
     members,
     selectedSprint,
@@ -380,6 +407,22 @@ export default function PlanningPokerPage() {
     },
     [reloadVotes],
   );
+
+  const refreshMembers = useCallback(async () => {
+    const memberRows = await getSupabaseRows<MemberRow>("members", {
+      select: "id,full_name,first_name,last_name,role",
+      order: { column: "full_name", ascending: true },
+    });
+    setMembers(memberRows.filter((member) => Boolean(member.id)));
+  }, []);
+
+  const refreshSprints = useCallback(async () => {
+    const sprintRows = await getSupabaseRows<SprintRow>("sprints", {
+      select: "id,name,sprint_number,is_current,status",
+      order: { column: "sprint_number", ascending: false },
+    });
+    setSprints(sprintRows);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -489,18 +532,43 @@ export default function PlanningPokerPage() {
   useEffect(() => {
     if (!selectedSprintId) return;
 
+    const sprintFilter = `sprint_id=eq.${selectedSprintId}`;
     const channel = supabase
-      .channel(`planning-poker-sessions-${selectedSprintId}`)
+      .channel(`planning-poker-${selectedSprintId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "planning_poker_votes",
+          filter: sprintFilter,
+        },
+        () => {
+          void reloadVotes(selectedSprintId);
+        },
+      )
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "planning_poker_sessions",
-          filter: `sprint_id=eq.${selectedSprintId}`,
+          filter: sprintFilter,
         },
         () => {
           void reloadVotes(selectedSprintId);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: sprintFilter,
+        },
+        () => {
+          void loadSprintTasks(selectedSprintId);
         },
       )
       .subscribe();
@@ -508,7 +576,31 @@ export default function PlanningPokerPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [reloadVotes, selectedSprintId]);
+  }, [loadSprintTasks, reloadVotes, selectedSprintId]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("planning-poker-shared")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "members" },
+        () => {
+          void refreshMembers();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sprints" },
+        () => {
+          void refreshSprints();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [refreshMembers, refreshSprints]);
 
   async function handleVote(storyPoints: number) {
     if (!selectedSprintId || !selectedTaskId || !currentMemberId) {
@@ -654,27 +746,15 @@ export default function PlanningPokerPage() {
 
       const { error: sessionError } = await supabase
         .from("planning_poker_sessions")
-        .upsert(
-          {
-            sprint_id: selectedSprintId,
-            task_id: selectedTaskId,
-            is_revealed: false,
-            revealed_at: null,
-            revealed_by_member_id: null,
-            is_confirmed: false,
-            confirmed_story_points: null,
-            confirmed_at: null,
-            confirmed_by_member_id: null,
-          },
-          { onConflict: "task_id" },
-        );
+        .delete()
+        .eq("task_id", selectedTaskId);
 
       if (sessionError) throw sessionError;
 
       await reloadVotes(selectedSprintId);
-      setVoteMessage("Votes cleared. Required members can vote again.");
+      setVoteMessage("All votes cleared. Members can vote again.");
     } catch (revoteError) {
-      setError(getErrorMessage(revoteError, "Unable to start revote."));
+      setError(getErrorMessage(revoteError, "Unable to revote."));
     } finally {
       setSessionActionLoading(false);
     }
@@ -736,11 +816,16 @@ export default function PlanningPokerPage() {
     !selectedTaskTally.hasTie &&
     !selectedTaskSession?.is_confirmed;
 
+  const selectedTaskVoteCount = useMemo(() => {
+    if (!selectedTaskId) return 0;
+    return votes.filter((vote) => vote.task_id === selectedTaskId).length;
+  }, [selectedTaskId, votes]);
+
   const canRevote =
     isCurrentMemberPokerAdmin &&
-    selectedTaskTally.allRequiredVoted &&
-    selectedTaskTally.hasTie &&
-    !selectedTaskSession?.is_confirmed;
+    Boolean(selectedTaskId) &&
+    !selectedTaskSession?.is_confirmed &&
+    (selectedTaskVoteCount > 0 || selectedTaskSession?.is_revealed === true);
 
   const showRevealedConsensus =
     selectedTaskSession?.is_revealed === true &&
@@ -1028,7 +1113,7 @@ export default function PlanningPokerPage() {
                           disabled={sessionActionLoading}
                           onClick={() => void handleRevote()}
                         >
-                          Revoting
+                          Revote
                         </button>
                       ) : null}
                     </div>
@@ -1057,10 +1142,11 @@ export default function PlanningPokerPage() {
                     </p>
                   ) : null}
 
-                  <div className="planning-poker-voter-section">
-                    <h4>Required Developer Votes</h4>
-                    <div className="planning-poker-voter-list">
-                      {developerMembers.map((member) => {
+                  {visibleDeveloperMembers.length > 0 ? (
+                    <div className="planning-poker-voter-section">
+                      <h4>Required Developer Votes</h4>
+                      <div className="planning-poker-voter-list">
+                        {visibleDeveloperMembers.map((member) => {
                         const voteValue = getMemberVote(selectedTask.id, member.id);
                         const memberName = getMemberName(member);
                         const memberColor = getAssigneeColor(member.id);
@@ -1102,12 +1188,13 @@ export default function PlanningPokerPage() {
                       })}
                     </div>
                   </div>
+                  ) : null}
 
-                  {optionalMembers.length > 0 ? (
+                  {visibleOptionalMembers.length > 0 ? (
                     <div className="planning-poker-voter-section">
                       <h4>Optional Votes</h4>
                       <div className="planning-poker-voter-list">
-                        {optionalMembers.map((member) => {
+                        {visibleOptionalMembers.map((member) => {
                           const voteValue = getMemberVote(selectedTask.id, member.id);
                           const memberName = getMemberName(member);
                           const memberColor = getAssigneeColor(member.id);
