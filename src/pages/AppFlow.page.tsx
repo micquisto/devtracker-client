@@ -116,7 +116,7 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Filter Eligible Cards",
     summary: "Apply status-aware card filtering.",
     details: [
-      "For Planning list excludes Ad hoc cards.",
+      "For Planning list excludes Ad hoc cards and is synced with sp_type done, not planned.",
       "Non-Ad hoc cards require the required Trello member and another Supabase member.",
       "Ad hoc cards require a Supabase assignee and custom Status not Done.",
     ],
@@ -130,6 +130,7 @@ const FLOW_STEPS: FlowStep[] = [
     details: [
       "Map Trello IDs, title, description, list name, URL, assignee, priority, severity, project type, and story points.",
       "Set sp_type to planned, adhoc, done, or blocked.",
+      "For Planning list cards always use sp_type done.",
       "Blocked cards become sp_type blocked and is_completed pending.",
       "Completion state becomes pending, completed, or incompleted based on list and Incomplete label.",
     ],

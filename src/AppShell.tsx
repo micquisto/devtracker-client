@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { BackgroundProcessProvider, SprintSyncProvider } from "@/contexts";
@@ -336,6 +336,7 @@ function SidebarContent({
   onClose,
   navItems,
   memberProfile,
+  navLoading = false,
   collapsed = false,
   onToggleCollapse,
 }: {
@@ -344,6 +345,7 @@ function SidebarContent({
   onClose?: () => void;
   navItems: NavEntry[];
   memberProfile: SidebarMemberProfile;
+  navLoading?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
@@ -442,18 +444,48 @@ function SidebarContent({
 
       {/* Nav items */}
       <nav style={{ flex: 1, overflowY: "auto", paddingRight: 4 }}>
-        {navItems.map((item) => (
-          <NavItem
-            key={item.id}
-            item={item}
-            active={active}
-            collapsed={collapsed}
-            setActive={(id) => {
-              setActive(id);
-              onClose?.();
-            }}
-          />
-        ))}
+        {navLoading ? (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: collapsed ? "center" : "flex-start",
+            gap: 10,
+            padding: collapsed ? "12px 0" : "12px 16px",
+            color: "rgba(160,210,255,0.72)",
+            fontFamily: "'DM Mono', monospace",
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+          }}>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 12,
+                height: 12,
+                border: "2px solid rgba(160,210,255,0.24)",
+                borderTopColor: "#00c8ff",
+                borderRadius: "50%",
+                animation: "spin 0.75s linear infinite",
+                flexShrink: 0,
+              }}
+            />
+            {!collapsed ? <span>Loading menu...</span> : null}
+          </div>
+        ) : (
+          navItems.map((item) => (
+            <NavItem
+              key={item.id}
+              item={item}
+              active={active}
+              collapsed={collapsed}
+              setActive={(id) => {
+                setActive(id);
+                onClose?.();
+              }}
+            />
+          ))
+        )}
       </nav>
 
       {/* Bottom user card */}
@@ -728,6 +760,7 @@ export default function AppShell() {
     initials: "MB",
   });
   const [allowedPageIds, setAllowedPageIds] = useState<Set<string> | null>(null);
+  const [navAccessLoading, setNavAccessLoading] = useState(true);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
@@ -767,10 +800,17 @@ export default function AppShell() {
     window.localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, active);
   }, [active]);
 
+  useLayoutEffect(() => {
+    if (!session?.user.id) return;
+
+    setNavAccessLoading(true);
+    setAllowedPageIds(null);
+  }, [session?.user.id]);
+
   useEffect(() => {
     let cancelled = false;
 
-    async function loadMemberRole(): Promise<void> {
+    async function loadNavAccess(): Promise<void> {
       if (!session?.user.id) {
         setMemberRole(null);
         setMemberProfile({
@@ -778,8 +818,11 @@ export default function AppShell() {
           roleLabel: "Member",
           initials: "MB",
         });
+        setAllowedPageIds(null);
         return;
       }
+
+      setNavAccessLoading(true);
 
       try {
         const [memberByEmail] = session.user.email
@@ -801,51 +844,27 @@ export default function AppShell() {
         const role = (member?.role ?? null)
           ?.trim()
           .toLowerCase() ?? null;
+        const displayName = getMemberDisplayName(member, session.user.email);
 
-        if (!cancelled) {
-          const displayName = getMemberDisplayName(member, session.user.email);
+        if (cancelled) return;
 
-          setMemberRole(role);
-          setMemberProfile({
-            displayName,
-            roleLabel: formatRoleLabel(role),
-            initials: getMemberInitials(displayName),
-          });
+        setMemberRole(role);
+        setMemberProfile({
+          displayName,
+          roleLabel: formatRoleLabel(role),
+          initials: getMemberInitials(displayName),
+        });
+
+        if (!role) {
+          setAllowedPageIds(null);
+          return;
         }
-      } catch {
-        if (!cancelled) {
-          setMemberRole(null);
-          setMemberProfile({
-            displayName: session.user.email ?? "Member",
-            roleLabel: "Member",
-            initials: getMemberInitials(session.user.email ?? "Member"),
-          });
-        }
-      }
-    }
 
-    void loadMemberRole();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user.email, session?.user.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAcl(): Promise<void> {
-      if (!memberRole) {
-        setAllowedPageIds(null);
-        return;
-      }
-
-      try {
         const rows = await getSupabaseRows<AccessControlRow>(
           "access_control_lists",
           {
             select: "page_id,can_access",
-            eq: { role: memberRole },
+            eq: { role },
           },
         );
 
@@ -857,16 +876,28 @@ export default function AppShell() {
             : new Set(rows.filter((row) => row.can_access).map((row) => row.page_id)),
         );
       } catch {
-        if (!cancelled) setAllowedPageIds(null);
+        if (!cancelled) {
+          setMemberRole(null);
+          setMemberProfile({
+            displayName: session.user.email ?? "Member",
+            roleLabel: "Member",
+            initials: getMemberInitials(session.user.email ?? "Member"),
+          });
+          setAllowedPageIds(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setNavAccessLoading(false);
+        }
       }
     }
 
-    void loadAcl();
+    void loadNavAccess();
 
     return () => {
       cancelled = true;
     };
-  }, [memberRole]);
+  }, [session?.user.email, session?.user.id]);
 
   // Close drawer on ESC
   useEffect(() => {
@@ -889,16 +920,16 @@ export default function AppShell() {
   }, [drawerOpen]);
 
   const visibleNav = useMemo(
-    () => filterNavByAccess(NAV, allowedPageIds),
-    [allowedPageIds],
+    () => (navAccessLoading ? [] : filterNavByAccess(NAV, allowedPageIds)),
+    [allowedPageIds, navAccessLoading],
   );
 
   useEffect(() => {
-    if (!allowedPageIds) return;
+    if (navAccessLoading || !allowedPageIds) return;
     if (allowedPageIds.has(active)) return;
 
     setActive(getFirstAccessiblePage(visibleNav));
-  }, [active, allowedPageIds, visibleNav]);
+  }, [active, allowedPageIds, navAccessLoading, visibleNav]);
 
   const handleLogout = async () => {
     try {
@@ -978,6 +1009,7 @@ export default function AppShell() {
           setActive={setActive}
           navItems={visibleNav}
           memberProfile={memberProfile}
+          navLoading={navAccessLoading}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
         />
@@ -1016,6 +1048,7 @@ export default function AppShell() {
           setActive={setActive}
           navItems={visibleNav}
           memberProfile={memberProfile}
+          navLoading={navAccessLoading}
           onClose={() => setDrawerOpen(false)}
         />
       </aside>

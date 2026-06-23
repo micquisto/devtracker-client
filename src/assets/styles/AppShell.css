@@ -51,6 +51,12 @@
   }
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .burger-btn {
   display: none !important;
 }

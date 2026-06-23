@@ -47,10 +47,10 @@ function shouldHideSprintActionButtons(role: string | null): boolean {
 
 function getSyncDataMessage(status: string): string {
   if (status === "planning") {
-    return "This will replace the current sprint task data with the latest For Planning list cards from Trello.";
+    return "This will replace the current sprint task data with the latest eligible Trello cards. For Planning cards are synced for estimation but are not counted as planned tasks.";
   }
 
-  return "This will replace the current sprint task data with the latest cards from Trello.";
+  return "This will replace the current sprint task data with the latest cards from Trello. For Planning cards are not counted as planned tasks.";
 }
 
 export default function SprintSyncDataAction({

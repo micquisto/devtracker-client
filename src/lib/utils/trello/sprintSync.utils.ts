@@ -65,8 +65,6 @@ const TRELLO_LIST_MERGE_ORDER = [
 ];
 
 const PLANNING_SP_TYPE_LIST_NAMES = new Set([
-  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
-  "planning",
   "current sprint",
   "in development",
   "for dev deployment",
@@ -454,6 +452,10 @@ function getSprintPointType(card: TrelloSprintCard): TaskRow["sp_type"] {
     return "blocked";
   }
 
+  if (isForPlanningTrelloList(card.list.name)) {
+    return "done";
+  }
+
   if (!PLANNING_SP_TYPE_LIST_NAMES.has(normalizeLabel(card.list.name))) {
     return "done";
   }
@@ -639,6 +641,10 @@ function buildTaskUpdateFromCard(
 
   if (!shouldPreserveSpType) {
     taskUpdate.sp_type = task.sp_type;
+  }
+
+  if (isForPlanningTrelloList(getTrelloCardListName(card))) {
+    taskUpdate.sp_type = "done";
   }
 
   if (

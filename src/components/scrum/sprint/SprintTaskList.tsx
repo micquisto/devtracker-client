@@ -47,6 +47,8 @@ type TaskRow = {
   story_points: number;
   severity: number;
   sp_type: "planned" | "adhoc" | "done" | "blocked";
+  project_type: string | null;
+  project: string | null;
 };
 
 type MemberRow = {
@@ -54,6 +56,11 @@ type MemberRow = {
   full_name: string | null;
   first_name: string | null;
   last_name: string | null;
+};
+
+type ProjectTypeRow = {
+  id: string;
+  name: string;
 };
 
 type TaskListItem = {
@@ -70,6 +77,9 @@ type TaskListItem = {
   points: number;
   spType: "planned" | "adhoc" | "done" | "blocked";
   listName: string;
+  projectTypeId: string | null;
+  projectTypeName: string;
+  projectName: string;
 };
 
 const TASKS_PER_PAGE = 12;
@@ -78,6 +88,18 @@ const INCLUDED_SP_TYPES = new Set<TaskRow["sp_type"]>([
   "adhoc",
   "blocked",
 ]);
+const SP_TYPE_FILTER_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "adhoc", label: "Adhoc" },
+  { value: "blocked", label: "Blocked" },
+] as const;
+const SEVERITY_FILTER_OPTIONS = ["P1", "P2", "P3", "P4"] as const;
+const PRIORITY_FILTER_OPTIONS = [
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+] as const;
 const UNASSIGNED_COLOR = "#8a96a8";
 const ASSIGNEE_COLORS = [
   Palette.cyan,
@@ -136,9 +158,16 @@ function getSeverityLabel(value: number): string {
   return "P4";
 }
 
-function mapTask(task: TaskRow, membersById: Map<string, MemberRow>): TaskListItem {
+function mapTask(
+  task: TaskRow,
+  membersById: Map<string, MemberRow>,
+  projectTypesById: Map<string, ProjectTypeRow>,
+): TaskListItem {
   const member = task.assigned_to ? membersById.get(task.assigned_to) : undefined;
   const assigneeName = member ? getMemberName(member) : "Unassigned";
+  const projectTypeName = task.project_type
+    ? projectTypesById.get(task.project_type)?.name ?? "General"
+    : "General";
 
   return {
     id: String(task.trello_short_id ?? task.trello_card_id),
@@ -154,6 +183,9 @@ function mapTask(task: TaskRow, membersById: Map<string, MemberRow>): TaskListIt
     points: task.story_points,
     spType: task.sp_type,
     listName: task.trello_list_name ?? "Unknown",
+    projectTypeId: task.project_type,
+    projectTypeName,
+    projectName: task.project?.trim() || "General",
   };
 }
 
@@ -162,10 +194,16 @@ const SprintTaskList = () => {
     const [selectedSprintId, setSelectedSprintId] = useState("");
     const [selectedMemberId, setSelectedMemberId] = useState("");
     const [selectedListName, setSelectedListName] = useState("");
+    const [selectedSpType, setSelectedSpType] = useState("");
+    const [selectedProjectTypeId, setSelectedProjectTypeId] = useState("");
+    const [selectedProjectName, setSelectedProjectName] = useState("");
+    const [selectedSeverity, setSelectedSeverity] = useState("");
+    const [selectedPriority, setSelectedPriority] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [tasks, setTasks] = useState<TaskListItem[]>([]);
     const [sprints, setSprints] = useState<SprintRow[]>([]);
     const [members, setMembers] = useState<MemberRow[]>([]);
+    const [projectTypes, setProjectTypes] = useState<ProjectTypeRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [filtersLoaded, setFiltersLoaded] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -177,7 +215,7 @@ const SprintTaskList = () => {
         setError(null);
 
         try {
-          const [sprintRows, memberRows] = await Promise.all([
+          const [sprintRows, memberRows, projectTypeRows] = await Promise.all([
             getSupabaseRows<SprintRow>("sprints", {
               select: "id,name,sprint_number,is_current",
               order: { column: "sprint_number", ascending: false },
@@ -185,6 +223,10 @@ const SprintTaskList = () => {
             getSupabaseRows<MemberRow>("members", {
               select: "id,full_name,first_name,last_name",
               order: { column: "full_name", ascending: true },
+            }),
+            getSupabaseRows<ProjectTypeRow>("project_type", {
+              select: "id,name",
+              order: { column: "name", ascending: true },
             }),
           ]);
 
@@ -194,6 +236,7 @@ const SprintTaskList = () => {
 
             setSprints(sprintRows);
             setMembers(memberRows.filter((member) => Boolean(member.id)));
+            setProjectTypes(projectTypeRows);
             setSelectedSprintId((currentValue) =>
               currentValue || selectedSprint?.id || "",
             );
@@ -204,6 +247,7 @@ const SprintTaskList = () => {
             setError(error instanceof Error ? error.message : "Unable to load filters.");
             setSprints([]);
             setMembers([]);
+            setProjectTypes([]);
             setTasks([]);
             setFiltersLoaded(true);
             setLoading(false);
@@ -236,7 +280,7 @@ const SprintTaskList = () => {
         try {
           const taskRows = await getSupabaseRows<TaskRow>("tasks", {
             select:
-              "id,assigned_to,trello_card_id,trello_short_id,trello_card_url,trello_list_name,title,priority,status,story_points,severity,sp_type",
+              "id,assigned_to,trello_card_id,trello_short_id,trello_card_url,trello_list_name,title,priority,status,story_points,severity,sp_type,project_type,project",
             eq: { sprint_id: selectedSprintId },
           });
 
@@ -245,12 +289,15 @@ const SprintTaskList = () => {
               .filter((member) => member.id)
               .map((member) => [member.id as string, member]),
           );
+          const projectTypesById = new Map(
+            projectTypes.map((projectType) => [projectType.id, projectType]),
+          );
 
           if (!cancelled) {
             setTasks(
               taskRows
                 .filter((task) => INCLUDED_SP_TYPES.has(task.sp_type))
-                .map((task) => mapTask(task, membersById)),
+                .map((task) => mapTask(task, membersById, projectTypesById)),
             );
           }
         } catch (error) {
@@ -268,7 +315,7 @@ const SprintTaskList = () => {
       return () => {
         cancelled = true;
       };
-    }, [filtersLoaded, members, selectedSprintId]);
+    }, [filtersLoaded, members, projectTypes, selectedSprintId]);
 
     const listNames = useMemo(
       () =>
@@ -278,10 +325,38 @@ const SprintTaskList = () => {
       [tasks],
     );
 
+    const projectNames = useMemo(
+      () =>
+        Array.from(new Set(tasks.map((task) => task.projectName)))
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b)),
+      [tasks],
+    );
+
+    const resetTaskFilters = () => {
+      setSelectedMemberId("");
+      setSelectedListName("");
+      setSelectedSpType("");
+      setSelectedProjectTypeId("");
+      setSelectedProjectName("");
+      setSelectedSeverity("");
+      setSelectedPriority("");
+      setCurrentPage(1);
+    };
+
     const sorted = tasks
       .filter((task) => {
         if (selectedMemberId && task.assigneeId !== selectedMemberId) return false;
         if (selectedListName && task.listName !== selectedListName) return false;
+        if (selectedSpType && task.spType !== selectedSpType) return false;
+        if (selectedProjectTypeId && task.projectTypeId !== selectedProjectTypeId) {
+          return false;
+        }
+        if (selectedProjectName && task.projectName !== selectedProjectName) {
+          return false;
+        }
+        if (selectedSeverity && task.severity !== selectedSeverity) return false;
+        if (selectedPriority && task.priority !== selectedPriority) return false;
         return true;
       })
       .sort((a, b) => {
@@ -392,8 +467,7 @@ const SprintTaskList = () => {
             value={selectedSprintId}
             onChange={(value) => {
               setSelectedSprintId(value);
-              setSelectedListName("");
-              setCurrentPage(1);
+              resetTaskFilters();
             }}
             placeholder="Select sprint"
             accent={Palette.purple}
@@ -401,6 +475,81 @@ const SprintTaskList = () => {
             {sprints.map((sprint) => (
               <option key={sprint.id} value={sprint.id}>
                 {getSprintName(sprint)}
+              </option>
+            ))}
+          </StyledSelect>
+          <StyledSelect
+            value={selectedSpType}
+            onChange={(value) => {
+              setSelectedSpType(value);
+              setCurrentPage(1);
+            }}
+            placeholder="All task types"
+            accent={Palette.cyan}
+          >
+            {SP_TYPE_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </StyledSelect>
+          <StyledSelect
+            value={selectedProjectTypeId}
+            onChange={(value) => {
+              setSelectedProjectTypeId(value);
+              setCurrentPage(1);
+            }}
+            placeholder="All project types"
+            accent={Palette.indigo}
+          >
+            {projectTypes.map((projectType) => (
+              <option key={projectType.id} value={projectType.id}>
+                {projectType.name}
+              </option>
+            ))}
+          </StyledSelect>
+          <StyledSelect
+            value={selectedProjectName}
+            onChange={(value) => {
+              setSelectedProjectName(value);
+              setCurrentPage(1);
+            }}
+            placeholder="All projects"
+            accent={Palette.pink}
+          >
+            {projectNames.map((projectName) => (
+              <option key={projectName} value={projectName}>
+                {projectName}
+              </option>
+            ))}
+          </StyledSelect>
+          <StyledSelect
+            value={selectedSeverity}
+            onChange={(value) => {
+              setSelectedSeverity(value);
+              setCurrentPage(1);
+            }}
+            placeholder="All severities"
+            accent={Palette.orange}
+          >
+            {SEVERITY_FILTER_OPTIONS.map((severity) => (
+              <option key={severity} value={severity}>
+                {severity}
+              </option>
+            ))}
+          </StyledSelect>
+          <StyledSelect
+            value={selectedPriority}
+            onChange={(value) => {
+              setSelectedPriority(value);
+              setCurrentPage(1);
+            }}
+            placeholder="All priorities"
+            accent={Palette.redSoft}
+          >
+            {PRIORITY_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </StyledSelect>
