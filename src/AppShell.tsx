@@ -753,7 +753,6 @@ export default function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
-  const [memberRole, setMemberRole] = useState<string | null>(null);
   const [memberProfile, setMemberProfile] = useState<SidebarMemberProfile>({
     displayName: "Member",
     roleLabel: "Member",
@@ -812,7 +811,6 @@ export default function AppShell() {
 
     async function loadNavAccess(): Promise<void> {
       if (!session?.user.id) {
-        setMemberRole(null);
         setMemberProfile({
           displayName: "Member",
           roleLabel: "Member",
@@ -848,7 +846,6 @@ export default function AppShell() {
 
         if (cancelled) return;
 
-        setMemberRole(role);
         setMemberProfile({
           displayName,
           roleLabel: formatRoleLabel(role),
@@ -877,7 +874,6 @@ export default function AppShell() {
         );
       } catch {
         if (!cancelled) {
-          setMemberRole(null);
           setMemberProfile({
             displayName: session.user.email ?? "Member",
             roleLabel: "Member",
