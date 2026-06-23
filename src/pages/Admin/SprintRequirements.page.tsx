@@ -10,6 +10,7 @@ import {
 import { Background, Border, Palette, Text } from "@/lib/theme";
 import {
   buildSprintRequirementsFromCurrentRequirements,
+  type RequirementCriteria,
   type RequirementLevel,
 } from "@/lib/utils";
 import "@/assets/styles/RequirementsData.page.css";
@@ -30,6 +31,7 @@ type SprintRequirementRow = {
   name: string;
   code: string;
   level: RequirementLevel;
+  criteria: RequirementCriteria | null;
   min: number | null;
   max: number | null;
   value: number | null;
@@ -42,6 +44,7 @@ type SprintRequirementFormState = {
   name: string;
   code: string;
   level: RequirementLevel;
+  criteria: RequirementCriteria;
   min: string;
   max: string;
   value: string;
@@ -52,6 +55,7 @@ type SprintRequirementUpdateRow = {
   name: string;
   code: string;
   level: RequirementLevel;
+  criteria: RequirementCriteria;
   min: number;
   max: number;
   value: number;
@@ -65,12 +69,22 @@ const LEVEL_OPTIONS: RequirementLevel[] = [
   "senior",
   "lead",
 ];
+
+const CRITERIA_OPTIONS: RequirementCriteria[] = [
+  "productivity",
+  "efficiency",
+  "quality",
+  "professionalism",
+  "collaboration",
+];
+
 const SPRINT_REQUIREMENTS_PAGE_SIZE = 12;
 const INITIAL_EDIT_FORM: SprintRequirementFormState = {
   sprint_id: "",
   name: "",
   code: "",
   level: "all",
+  criteria: "productivity",
   min: "",
   max: "",
   value: "",
@@ -92,10 +106,15 @@ function rowToForm(row: SprintRequirementRow): SprintRequirementFormState {
     name: row.name,
     code: row.code,
     level: row.level,
+    criteria: row.criteria ?? "productivity",
     min: String(row.min ?? ""),
     max: String(row.max ?? ""),
     value: String(row.value ?? ""),
   };
+}
+
+function formatCriteriaLabel(criteria: RequirementCriteria): string {
+  return criteria.charAt(0).toUpperCase() + criteria.slice(1);
 }
 
 function buildSprintRequirementUpdateRow(
@@ -106,6 +125,7 @@ function buildSprintRequirementUpdateRow(
     name: form.name.trim(),
     code: form.code.trim(),
     level: form.level,
+    criteria: form.criteria,
     min: parseRequiredNumber(form.min, "Min"),
     max: parseRequiredNumber(form.max, "Max"),
     value: parseRequiredNumber(form.value, "Value"),
@@ -224,7 +244,7 @@ export default function SprintRequirementsPage() {
         "sprint_requirements",
         {
           select:
-            "id,sprint_id,name,code,level,min,max,value,created_at,updated_at",
+            "id,sprint_id,name,code,level,criteria,min,max,value,created_at,updated_at",
           order: { column: "code", ascending: true },
         },
       );
@@ -325,7 +345,7 @@ export default function SprintRequirementsPage() {
         SprintRequirementUpdateRow
       >("sprint_requirements", row, {
         eq: { id: editingRequirement.id },
-        select: "id,sprint_id,name,code,level,min,max,value,created_at,updated_at",
+        select: "id,sprint_id,name,code,level,criteria,min,max,value,created_at,updated_at",
       });
 
       await loadSprintRequirements();
@@ -547,6 +567,7 @@ export default function SprintRequirementsPage() {
                     <th>Name</th>
                     <th>Code</th>
                     <th>Level</th>
+                    <th>Criteria</th>
                     <th>Min</th>
                     <th>Max</th>
                     <th>Value</th>
@@ -566,6 +587,11 @@ export default function SprintRequirementsPage() {
                         <span className={getRequirementLevelClass(requirement.level)}>
                           {requirement.level}
                         </span>
+                      </td>
+                      <td data-label="Criteria">
+                        {requirement.criteria
+                          ? formatCriteriaLabel(requirement.criteria)
+                          : "-"}
                       </td>
                       <td data-label="Min">{requirement.min ?? "-"}</td>
                       <td data-label="Max">{requirement.max ?? "-"}</td>
@@ -849,6 +875,45 @@ export default function SprintRequirementsPage() {
                       {LEVEL_OPTIONS.map((level) => (
                         <option key={level} value={level}>
                           {level}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      aria-hidden="true"
+                      className="requirements-data-select-arrow"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                    >
+                      <path
+                        d="M2.5 4.5 6 8l3.5-3.5"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.7"
+                      />
+                    </svg>
+                  </div>
+                </label>
+
+                <label className="requirements-data-field">
+                  <span>Criteria</span>
+                  <div className="requirements-data-select-wrap">
+                    <select
+                      name="edit-criteria"
+                      onChange={(event) =>
+                        updateEditField(
+                          "criteria",
+                          event.target.value as RequirementCriteria,
+                        )
+                      }
+                      required
+                      value={editForm.criteria}
+                    >
+                      {CRITERIA_OPTIONS.map((criteria) => (
+                        <option key={criteria} value={criteria}>
+                          {formatCriteriaLabel(criteria)}
                         </option>
                       ))}
                     </select>

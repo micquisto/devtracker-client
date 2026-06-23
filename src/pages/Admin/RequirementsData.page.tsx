@@ -9,6 +9,7 @@ import {
   updateSupabaseRows,
 } from "@/lib/supabase";
 import { Background, Border, Palette, Text } from "@/lib/theme";
+import { type RequirementCriteria } from "@/lib/utils";
 import "@/assets/styles/RequirementsData.page.css";
 
 type RequirementLevel = "all" | "intern" | "junior" | "middle" | "senior" | "lead";
@@ -17,6 +18,7 @@ type RequirementFormState = {
   name: string;
   code: string;
   level: RequirementLevel;
+  criteria: RequirementCriteria;
   min: string;
   max: string;
   value: string;
@@ -26,13 +28,21 @@ type RequirementInsertRow = {
   name: string;
   code: string;
   level: RequirementLevel;
+  criteria: RequirementCriteria;
   min: number;
   max: number;
   value: number;
 };
 
-type RequirementRow = RequirementInsertRow & {
+type RequirementRow = {
   id: string;
+  name: string;
+  code: string;
+  level: RequirementLevel;
+  criteria: RequirementCriteria | null;
+  min: number;
+  max: number;
+  value: number;
   date_created?: string;
   date_updated?: string;
 };
@@ -53,10 +63,19 @@ const LEVEL_OPTIONS: RequirementLevel[] = [
   "lead",
 ];
 
+const CRITERIA_OPTIONS: RequirementCriteria[] = [
+  "productivity",
+  "efficiency",
+  "quality",
+  "professionalism",
+  "collaboration",
+];
+
 const INITIAL_FORM: RequirementFormState = {
   name: "",
   code: "",
   level: "all",
+  criteria: "productivity",
   min: "",
   max: "",
   value: "",
@@ -84,6 +103,7 @@ function buildRequirementRow(form: RequirementFormState): RequirementInsertRow {
     name: form.name.trim(),
     code: form.code.trim(),
     level: form.level,
+    criteria: form.criteria,
     min: parseRequiredNumber(form.min, "Min"),
     max: parseRequiredNumber(form.max, "Max"),
     value: parseRequiredNumber(form.value, "Value"),
@@ -101,10 +121,15 @@ function rowToForm(row: RequirementRow): RequirementFormState {
     name: row.name,
     code: row.code,
     level: row.level,
+    criteria: row.criteria ?? "productivity",
     min: String(row.min),
     max: String(row.max),
     value: String(row.value),
   };
+}
+
+function formatCriteriaLabel(criteria: RequirementCriteria): string {
+  return criteria.charAt(0).toUpperCase() + criteria.slice(1);
 }
 
 function buildRequirementCode(name: string): string {
@@ -198,7 +223,7 @@ export default function RequirementsDataPage() {
 
     try {
       const rows = await getSupabaseRows<RequirementRow>("requirements", {
-        select: "id,name,code,level,min,max,value,date_created,date_updated",
+        select: "id,name,code,level,criteria,min,max,value,date_created,date_updated",
         order: { column: "code", ascending: true },
       });
 
@@ -214,7 +239,7 @@ export default function RequirementsDataPage() {
 
   async function findRequirementByCode(code: string): Promise<RequirementRow | null> {
     const [requirement] = await getSupabaseRows<RequirementRow>("requirements", {
-      select: "id,name,code,level,min,max,value,date_created,date_updated",
+      select: "id,name,code,level,criteria,min,max,value,date_created,date_updated",
       eq: { code },
       limit: 1,
     });
@@ -438,7 +463,7 @@ export default function RequirementsDataPage() {
         RequirementInsertRow
       >("requirements", row, {
         eq: { id: editingRequirement.id },
-        select: "id,name,code,level,min,max,value,date_created,date_updated",
+        select: "id,name,code,level,criteria,min,max,value,date_created,date_updated",
       });
 
       await loadRequirements();
@@ -489,7 +514,7 @@ export default function RequirementsDataPage() {
       <Card className="requirements-data-card">
         <form className="requirements-data-form" onSubmit={(event) => void handleSubmit(event)}>
           <div className="requirements-data-grid">
-            <label className="requirements-data-field">
+            <label className="requirements-data-field is-full-width">
               <span>Name</span>
               <input
                 name="name"
@@ -534,6 +559,42 @@ export default function RequirementsDataPage() {
                   {LEVEL_OPTIONS.map((level) => (
                     <option key={level} value={level}>
                       {level}
+                    </option>
+                  ))}
+                </select>
+                <svg
+                  aria-hidden="true"
+                  className="requirements-data-select-arrow"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                >
+                  <path
+                    d="M2.5 4.5 6 8l3.5-3.5"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                  />
+                </svg>
+              </div>
+            </label>
+
+            <label className="requirements-data-field">
+              <span>Criteria</span>
+              <div className="requirements-data-select-wrap">
+                <select
+                  name="criteria"
+                  onChange={(event) =>
+                    updateField("criteria", event.target.value as RequirementCriteria)
+                  }
+                  required
+                  value={form.criteria}
+                >
+                  {CRITERIA_OPTIONS.map((criteria) => (
+                    <option key={criteria} value={criteria}>
+                      {formatCriteriaLabel(criteria)}
                     </option>
                   ))}
                 </select>
@@ -677,12 +738,13 @@ export default function RequirementsDataPage() {
         ) : (
           <>
             <div className="requirements-data-table-wrap">
-              <table className="requirements-data-table">
+              <table className="requirements-data-table requirements-baseline-table">
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Code</th>
                     <th>Level</th>
+                    <th>Criteria</th>
                     <th>Min</th>
                     <th>Max</th>
                     <th>Value</th>
@@ -699,6 +761,11 @@ export default function RequirementsDataPage() {
                         <span className={getRequirementLevelClass(requirement.level)}>
                           {requirement.level}
                         </span>
+                      </td>
+                      <td data-label="Criteria">
+                        {requirement.criteria
+                          ? formatCriteriaLabel(requirement.criteria)
+                          : "-"}
                       </td>
                       <td data-label="Min">{requirement.min}</td>
                       <td data-label="Max">{requirement.max}</td>
@@ -903,7 +970,7 @@ export default function RequirementsDataPage() {
               onSubmit={(event) => void handleEditSubmit(event)}
             >
               <div className="requirements-data-grid">
-                <label className="requirements-data-field">
+                <label className="requirements-data-field is-full-width">
                   <span>Name</span>
                   <input
                     name="edit-name"
@@ -946,6 +1013,45 @@ export default function RequirementsDataPage() {
                       {LEVEL_OPTIONS.map((level) => (
                         <option key={level} value={level}>
                           {level}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      aria-hidden="true"
+                      className="requirements-data-select-arrow"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                    >
+                      <path
+                        d="M2.5 4.5 6 8l3.5-3.5"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.7"
+                      />
+                    </svg>
+                  </div>
+                </label>
+
+                <label className="requirements-data-field">
+                  <span>Criteria</span>
+                  <div className="requirements-data-select-wrap">
+                    <select
+                      name="edit-criteria"
+                      onChange={(event) =>
+                        updateEditField(
+                          "criteria",
+                          event.target.value as RequirementCriteria,
+                        )
+                      }
+                      required
+                      value={editForm.criteria}
+                    >
+                      {CRITERIA_OPTIONS.map((criteria) => (
+                        <option key={criteria} value={criteria}>
+                          {formatCriteriaLabel(criteria)}
                         </option>
                       ))}
                     </select>

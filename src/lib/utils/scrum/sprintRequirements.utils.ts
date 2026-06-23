@@ -6,10 +6,18 @@ import {
 
 export type RequirementLevel = "all" | "intern" | "junior" | "middle" | "senior" | "lead";
 
+export type RequirementCriteria =
+  | "productivity"
+  | "efficiency"
+  | "quality"
+  | "professionalism"
+  | "collaboration";
+
 type RequirementRow = {
   name: string;
   code: string;
   level: RequirementLevel;
+  criteria: RequirementCriteria | null;
   min: number | null;
   max: number | null;
   value: number | null;
@@ -36,7 +44,7 @@ export async function buildSprintRequirementsFromCurrentRequirements(
   }
 
   const requirements = await getSupabaseRows<RequirementRow>("requirements", {
-    select: "name,code,level,min,max,value",
+    select: "name,code,level,criteria,min,max,value",
     order: { column: "code", ascending: true },
   });
   const existingSprintRequirements =
@@ -49,6 +57,7 @@ export async function buildSprintRequirementsFromCurrentRequirements(
     name: requirement.name,
     code: requirement.code,
     level: requirement.level,
+    criteria: requirement.criteria,
     min: requirement.min,
     max: requirement.max,
     value: requirement.value,

@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:push": "supabase db push --yes",
+    "db:migration:list": "supabase migration list"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

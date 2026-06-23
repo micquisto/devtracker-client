@@ -25,6 +25,10 @@
   min-width: 0;
 }
 
+.requirements-data-field.is-full-width {
+  grid-column: 1 / -1;
+}
+
 .requirements-data-field span {
   color: rgba(100, 180, 255, 0.64);
   font-family: "DM Mono", monospace;
@@ -282,7 +286,7 @@
 .requirements-data-table {
   border-collapse: separate;
   border-spacing: 0 8px;
-  min-width: 920px;
+  min-width: 1040px;
   table-layout: fixed;
   width: 100%;
 }
@@ -291,9 +295,18 @@
 .requirements-data-table td {
   box-sizing: border-box;
   min-width: 0;
+  overflow: hidden;
   padding-left: 10px;
   padding-right: 10px;
   text-align: left;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.requirements-data-table td[data-label="Actions"] {
+  overflow: visible;
+  white-space: normal;
 }
 
 .requirements-data-table th {
@@ -307,81 +320,99 @@
   text-transform: uppercase;
 }
 
-.requirements-data-table th:nth-child(1),
-.requirements-data-table td:nth-child(1) {
-  width: 18%;
+.requirements-baseline-table th:nth-child(1),
+.requirements-baseline-table td:nth-child(1) {
+  width: 16%;
 }
 
-.requirements-data-table th:nth-child(2),
-.requirements-data-table td:nth-child(2) {
-  width: 20%;
-}
-
-.requirements-data-table th:nth-child(3),
-.requirements-data-table td:nth-child(3) {
-  width: 10%;
-}
-
-.requirements-data-table th:nth-child(4),
-.requirements-data-table td:nth-child(4),
-.requirements-data-table th:nth-child(5),
-.requirements-data-table td:nth-child(5),
-.requirements-data-table th:nth-child(6),
-.requirements-data-table td:nth-child(6) {
-  width: 7%;
-}
-
-.requirements-data-table th:nth-child(7),
-.requirements-data-table td:nth-child(7) {
-  width: 17%;
-}
-
-.requirements-data-table th:nth-child(8),
-.requirements-data-table td:nth-child(8) {
+.requirements-baseline-table th:nth-child(2),
+.requirements-baseline-table td:nth-child(2) {
   width: 14%;
 }
 
+.requirements-baseline-table th:nth-child(3),
+.requirements-baseline-table td:nth-child(3) {
+  width: 8%;
+}
+
+.requirements-baseline-table th:nth-child(4),
+.requirements-baseline-table td:nth-child(4) {
+  width: 12%;
+}
+
+.requirements-baseline-table th:nth-child(5),
+.requirements-baseline-table td:nth-child(5),
+.requirements-baseline-table th:nth-child(6),
+.requirements-baseline-table td:nth-child(6),
+.requirements-baseline-table th:nth-child(7),
+.requirements-baseline-table td:nth-child(7) {
+  width: 6%;
+}
+
+.requirements-baseline-table th:nth-child(8),
+.requirements-baseline-table td:nth-child(8) {
+  width: 18%;
+}
+
+.requirements-baseline-table th:last-child,
+.requirements-baseline-table td:last-child,
+.sprint-requirements-table th:last-child,
+.sprint-requirements-table td:last-child {
+  overflow: visible;
+  padding-left: 6px;
+  padding-right: 8px;
+  text-align: right;
+  white-space: nowrap;
+  width: 88px;
+}
+
+.requirements-baseline-table .requirements-data-row-actions,
+.sprint-requirements-table .requirements-data-row-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
 .sprint-requirements-table {
-  min-width: 1080px;
+  min-width: 1180px;
 }
 
 .sprint-requirements-table th:nth-child(1),
 .sprint-requirements-table td:nth-child(1) {
-  width: 15%;
+  width: 12%;
 }
 
 .sprint-requirements-table th:nth-child(2),
 .sprint-requirements-table td:nth-child(2) {
-  width: 16%;
+  width: 14%;
 }
 
 .sprint-requirements-table th:nth-child(3),
 .sprint-requirements-table td:nth-child(3) {
-  width: 14%;
+  width: 12%;
 }
 
 .sprint-requirements-table th:nth-child(4),
 .sprint-requirements-table td:nth-child(4) {
-  width: 9%;
-}
-
-.sprint-requirements-table th:nth-child(5),
-.sprint-requirements-table td:nth-child(5),
-.sprint-requirements-table th:nth-child(6),
-.sprint-requirements-table td:nth-child(6),
-.sprint-requirements-table th:nth-child(7),
-.sprint-requirements-table td:nth-child(7) {
   width: 7%;
 }
 
+.sprint-requirements-table th:nth-child(5),
+.sprint-requirements-table td:nth-child(5) {
+  width: 11%;
+}
+
+.sprint-requirements-table th:nth-child(6),
+.sprint-requirements-table td:nth-child(6),
+.sprint-requirements-table th:nth-child(7),
+.sprint-requirements-table td:nth-child(7),
 .sprint-requirements-table th:nth-child(8),
 .sprint-requirements-table td:nth-child(8) {
-  width: 16%;
+  width: 5%;
 }
 
 .sprint-requirements-table th:nth-child(9),
 .sprint-requirements-table td:nth-child(9) {
-  width: 12%;
+  width: 17%;
 }
 
 .sprint-data-page .requirements-data-table-tools {

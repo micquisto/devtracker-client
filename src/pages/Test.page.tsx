@@ -80,6 +80,11 @@ const PROJECTS: ProjectRow[] = [
   { trello_board_id: "5oj0clmi", name: "Legacy Backend", status: "active" },
   { trello_board_id: "5oj0clmi", name: "MonekyWrench", status: "active" },
   { trello_board_id: "5oj0clmi", name: "PPN", status: "active" },
+  { trello_board_id: "5oj0clmi", name: "PSLite", status: "active" },
+  { trello_board_id: "5oj0clmi", name: "PSLite SEO", status: "active" },
+  { trello_board_id: "5oj0clmi", name: "PSLite ProStock", status: "active" },
+  { trello_board_id: "5oj0clmi", name: "SW Plumb", status: "active" },
+  { trello_board_id: "5oj0clmi", name: "Legacy", status: "active" },
   { trello_board_id: "l7BOmeGw", name: "All Gilbor's Team", status: "active" },
 ];
 
