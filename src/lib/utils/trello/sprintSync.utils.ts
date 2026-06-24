@@ -69,6 +69,10 @@ const PLANNING_SP_TYPE_LIST_NAMES = new Set([
   "in development",
   "for dev deployment",
 ]);
+const ADHOC_SYNC_LIST_NAMES = new Set([
+  "current sprint",
+  "in development",
+]);
 const PENDING_COMPLETION_LIST_NAMES = new Set([
   NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
   "planning",
@@ -294,6 +298,46 @@ function hasCardLabel(card: TrelloSprintCard, label: string): boolean {
   const targetLabel = normalizeLabel(label);
 
   return card.labels.some((item) => normalizeLabel(item.name) === targetLabel);
+}
+
+function isAdhocCard(card: TrelloSprintCard): boolean {
+  return hasCardLabel(card, "Ad hoc");
+}
+
+function isAdhocSyncList(listName?: string | null): boolean {
+  return ADHOC_SYNC_LIST_NAMES.has(normalizeLabel(listName ?? ""));
+}
+
+function isEligibleAdhocSyncCard(
+  card: TrelloSprintCard,
+  assigneeLookup: Map<string, string>,
+): boolean {
+  return (
+    isAdhocCard(card) &&
+    isAdhocSyncList(card.list.name) &&
+    hasSupabaseAssignee(card, assigneeLookup) &&
+    !isCardStatusDone(card)
+  );
+}
+
+function mergeSyncCardsWithEligibleAdhoc(
+  primaryCards: TrelloSprintCard[],
+  allTrelloCards: TrelloSprintCard[],
+  assigneeLookup: Map<string, string>,
+): TrelloSprintCard[] {
+  const cardsById = new Map(
+    dedupeTrelloCardsById(primaryCards).map((card) => [card.id, card]),
+  );
+
+  for (const card of dedupeTrelloCardsById(allTrelloCards)) {
+    if (!isEligibleAdhocSyncCard(card, assigneeLookup)) {
+      continue;
+    }
+
+    cardsById.set(card.id, card);
+  }
+
+  return Array.from(cardsById.values());
 }
 
 function hasCardMemberUsername(card: TrelloSprintCard, username: string): boolean {
@@ -816,19 +860,7 @@ async function replaceSprintTasks(
         preservedTasksByTrelloCardId.get(task.trello_card_id) ??
         existingTasksByTrelloCardId.get(task.trello_card_id);
 
-      if (!existingTask) {
-        if (nonCurrentSprintTrelloCardIds.has(task.trello_card_id)) {
-          continue;
-        }
-
-        tasksToInsert.push(task);
-        continue;
-      }
-
-      if (
-        isPlanningSprint ||
-        !isPlannedOrAdhocSpType(existingTask.sp_type)
-      ) {
+      if (existingTask) {
         await updateSprintTaskFromCard(
           sprint,
           existingTask,
@@ -836,7 +868,14 @@ async function replaceSprintTasks(
           task,
           preservedSpTypes,
         );
+        continue;
       }
+
+      if (nonCurrentSprintTrelloCardIds.has(task.trello_card_id)) {
+        continue;
+      }
+
+      tasksToInsert.push(task);
     }
   }
 
@@ -1159,10 +1198,10 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
       hasAdditionalSupabaseMember(card, supabaseMemberUsernames),
   );
   const memberFilteredCardIds = new Set(memberFilteredCards.map((card) => card.id));
-  const cards =
+  const primaryCards =
     sprint.status === "planning"
       ? trelloCards.filter((card) => {
-          if (hasCardLabel(card, "Ad hoc")) {
+          if (isAdhocCard(card)) {
             return false;
           }
 
@@ -1172,16 +1211,20 @@ export async function syncCurrentSprintTasks(expectedSprintId?: string): Promise
 
           return memberFilteredCardIds.has(card.id);
         })
-      : trelloCards.filter((card) => {
-          if (!hasCardLabel(card, "Ad hoc")) {
-            return (
-              hasCardMemberUsername(card, TRELLO_REQUIRED_MEMBER_USERNAME) &&
-              hasAdditionalSupabaseMember(card, supabaseMemberUsernames)
-            );
-          }
-
-          return hasSupabaseAssignee(card, assigneeLookup) && !isCardStatusDone(card);
-        });
+      : trelloCards.filter(
+          (card) =>
+            !isAdhocCard(card) &&
+            hasCardMemberUsername(card, TRELLO_REQUIRED_MEMBER_USERNAME) &&
+            hasAdditionalSupabaseMember(card, supabaseMemberUsernames),
+        );
+  const cards =
+    sprint.status === "planning"
+      ? primaryCards
+      : mergeSyncCardsWithEligibleAdhoc(
+          primaryCards,
+          trelloCards,
+          assigneeLookup,
+        );
   const taskCounts = await replaceSprintTasks(
     sprint,
     cards,

@@ -118,7 +118,8 @@ const FLOW_STEPS: FlowStep[] = [
     details: [
       "For Planning list excludes Ad hoc cards and is synced with sp_type done, not planned.",
       "Non-Ad hoc cards require the required Trello member and another Supabase member.",
-      "Ad hoc cards require a Supabase assignee and custom Status not Done.",
+      "Ad hoc cards on Current Sprint or In Development with a Supabase assignee are inserted or updated by Trello card id.",
+      "Ad hoc cards require custom Status not Done.",
     ],
     output: "Cards eligible for task sync.",
     accent: Palette.gold,
