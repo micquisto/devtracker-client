@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
 import { SPRINT_BOARD_TASKS } from "@/data/SprintBoard.data";
-import { Background, Border, Text, chartLabelStyle, chartLegendStyle, chartLabelSvgProps } from "@/lib/theme";
+import { Background, Border, Text, chartLegendStyle, chartLabelSvgProps } from "@/lib/theme";
 import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
 import { DoughnutChart } from "@/components/shared/Charts";

@@ -9,7 +9,6 @@ import {
   CHART_LABEL_FONT_SIZE,
   CHART_LABEL_LINE_HEIGHT_PX,
   CHART_LABEL_MAX_LINES,
-  chartLabelStyle,
   chartLegendStyle,
   chartLabelSvgProps,
   wrapChartLabel,

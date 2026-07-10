@@ -6,7 +6,6 @@ import {
   Chart,
   Palette,
   Text,
-  chartLabelStyle,
   chartLegendStyle,
   chartLabelSvgProps,
 } from "@/lib/theme";
