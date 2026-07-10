@@ -482,6 +482,7 @@ export default function StoryPointsPage() {
     }
 
     let cancelled = false;
+    const members = sourceData.members;
 
     async function loadEncodeRows() {
       setEncodeLoading(true);
@@ -494,7 +495,7 @@ export default function StoryPointsPage() {
             loadStoryPointsEncodeBreakdownData(encodeSprintId),
             loadStoryPointsEncodeProfessionalismData(
               encodeSprintId,
-              sourceData.members,
+              members,
             ),
           ]);
 
@@ -504,7 +505,7 @@ export default function StoryPointsPage() {
           );
           setEncodeRows(
             buildStoryPointsEncodeDraftRows(
-              sourceData.members,
+              members,
               encodeData.memberScores,
             ),
           );

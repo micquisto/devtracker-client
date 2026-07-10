@@ -101,8 +101,6 @@ function colorWithAlpha(hex: string, alpha: number): string {
   return `rgba(${red},${green},${blue},${alpha})`;
 }
 
-type RadarKey = (typeof RADAR_KEYS)[number];
-type RadarValues = Record<RadarKey, number>;
 type StatBar = {
   label: string;
   value: number;
@@ -1488,7 +1486,8 @@ function GradeDial({
   const [show, setShow] = useState(false);
   const isCompact = size === "compact";
   const isTopGrade = grade === "S";
-  const fillPercent = GRADE_DIAL_FILL_PERCENT[grade] ?? 50;
+  const fillPercent =
+    GRADE_DIAL_FILL_PERCENT[grade as PerformanceScoreGrade] ?? 50;
   const radius = 72;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (fillPercent / 100) * circumference;
@@ -1821,7 +1820,7 @@ export default function StatisticsPage({
   const [professionalismScores, setProfessionalismScores] = useState<
     MemberSprintProfessionalismScoreRow[]
   >([]);
-  const [passingScores, setPassingScores] = useState<PassingScoreRow[]>([]);
+  const [, setPassingScores] = useState<PassingScoreRow[]>([]);
   const [scorePointsLoading, setScorePointsLoading] = useState(false);
 
   const yearOptions = useMemo(() => getAvailableSprintYears(sprints), [sprints]);
