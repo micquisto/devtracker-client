@@ -17,6 +17,14 @@ import {
 } from "@/lib/supabase";
 import {
   buildSprintRequirementsFromCurrentRequirements,
+  buildScoreboardIncludedMemberIdSet,
+  filterTasksForScoreboardMembers,
+  finalizeCompletedSprintScores,
+  finalizePendingPlannedAdhocTasksOnOpenNewSprint,
+  getSprintListingQuarter,
+  getSprintListingYear,
+  isScoreboardIncludedMember,
+  resetPlannedAdhocTasksToPendingOnReopenSprint,
 } from "@/lib/utils";
 import { useSprintSync } from "@/contexts";
 import { Text } from "@/lib/theme";
@@ -64,6 +72,7 @@ type SprintMemberFilterRow = {
   full_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  role: string | null;
   sprint_approved: boolean | null;
 };
 
@@ -224,6 +233,10 @@ function buildSprintFilterOptions(sprints: CurrentSprintRow[]): SprintFilterOpti
     value: sprint.id,
     label: buildSprintFilterLabel(sprint),
     status: getSprintStatusStyleKey(sprint.status),
+    year: getSprintListingYear(sprint),
+    quarter: getSprintListingQuarter(sprint),
+    startDate: sprint.start_date,
+    endDate: sprint.end_date,
   }));
 }
 
@@ -540,8 +553,7 @@ export default function SprintPage() {
             order: { column: "start_date", ascending: false },
           }),
           getSupabaseRows<SprintMemberFilterRow>("members", {
-            select: "id,full_name,first_name,last_name,sprint_approved",
-            order: { column: "full_name", ascending: true },
+            select: "id,full_name,first_name,last_name,role,sprint_approved",
           }),
           getSupabaseSession(),
         ]);
@@ -579,6 +591,15 @@ export default function SprintPage() {
                   eq: { sprint_id: sprint.id },
                 })
               : [];
+        const includedMemberIds = buildScoreboardIncludedMemberIdSet(members);
+        const scoreboardTasks = filterTasksForScoreboardMembers(
+          tasks,
+          includedMemberIds,
+        );
+        const scoreboardCurrentSprintTasks = filterTasksForScoreboardMembers(
+          currentSprintTasks,
+          includedMemberIds,
+        );
         const restrictedDataMemberId = isRestrictedSprintActionRole(
           loggedInMember?.role ?? null,
         )
@@ -586,8 +607,10 @@ export default function SprintPage() {
           : "";
         const activeMemberFilterId = restrictedDataMemberId || selectedMemberId;
         const visibleTasks = activeMemberFilterId
-          ? tasks.filter((task) => task.assigned_to === activeMemberFilterId)
-          : tasks;
+          ? scoreboardTasks.filter(
+              (task) => task.assigned_to === activeMemberFilterId,
+            )
+          : scoreboardTasks;
         const count = visibleTasks.filter((task) =>
           countedListNames.has(normalizeListName(task.trello_list_name)),
         ).length;
@@ -599,7 +622,7 @@ export default function SprintPage() {
             .map((member) => [member.id, member.sprint_approved === true]),
         );
         const requiredApprovalMemberIds = new Set(
-          currentSprintTasks
+          scoreboardCurrentSprintTasks
             .map((task) => task.assigned_to)
             .filter((memberId): memberId is string => Boolean(memberId)),
         );
@@ -626,7 +649,9 @@ export default function SprintPage() {
           setMemberFilterOptions(
             restrictedDataMemberId
               ? members.filter((member) => member.id === restrictedDataMemberId)
-              : members.filter((member) => Boolean(member.id)),
+              : members.filter((member) =>
+                  isScoreboardIncludedMember(member),
+                ),
           );
         }
       } catch {
@@ -816,7 +841,10 @@ export default function SprintPage() {
     setSprintActionError(null);
 
     try {
-      await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
+      const updatedSprints = await updateSupabaseRows<
+        CurrentSprintRow,
+        SprintMutationRow
+      >(
         "sprints",
         { status: "active" },
         {
@@ -825,7 +853,18 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
+      const updatedSprint = updatedSprints[0];
+
+      if (!updatedSprint || normalizeSprintStatus(updatedSprint.status) !== "active") {
+        throw new Error("Failed to update sprint status to active.");
+      }
+
+      refreshSprintPageElements();
+      await runSync({
+        sprintId: sprintToProcess.id,
+        sprintStatus: "active",
+        trigger: "manual",
+      });
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -846,7 +885,10 @@ export default function SprintPage() {
     setSprintActionError(null);
 
     try {
-      await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
+      const updatedSprints = await updateSupabaseRows<
+        CurrentSprintRow,
+        SprintMutationRow
+      >(
         "sprints",
         { status: "active" },
         {
@@ -855,7 +897,19 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
+      const updatedSprint = updatedSprints[0];
+
+      if (!updatedSprint || normalizeSprintStatus(updatedSprint.status) !== "active") {
+        throw new Error("Failed to update sprint status to active.");
+      }
+
+      await resetPlannedAdhocTasksToPendingOnReopenSprint(sprintToProcess.id);
+      refreshSprintPageElements();
+      await runSync({
+        sprintId: sprintToProcess.id,
+        sprintStatus: "active",
+        trigger: "manual",
+      });
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -876,6 +930,11 @@ export default function SprintPage() {
     setSprintActionError(null);
 
     try {
+      await runSync({
+        sprintId: sprintToProcess.id,
+        sprintStatus: "active",
+        trigger: "manual",
+      });
       await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
         { status: "completed" },
@@ -885,7 +944,7 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await runSync({ sprintId: sprintToProcess.id, trigger: "manual" });
+      await finalizeCompletedSprintScores(sprintToProcess.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
@@ -936,9 +995,10 @@ export default function SprintPage() {
     setSprintActionError(null);
 
     try {
+      await finalizePendingPlannedAdhocTasksOnOpenNewSprint(sprintToProcess.id);
       await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
-        { is_current: 0 },
+        { is_current: 0, status: "done" },
         {
           select:
             "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
@@ -1168,7 +1228,7 @@ export default function SprintPage() {
                 requestSprintConfirmation({
                   title: "Sync Data",
                   message:
-                    "This will replace the current sprint task data with the latest eligible Trello cards. For Planning cards are synced for estimation but are not counted as planned tasks.",
+                    "This will sync eligible Trello cards from For Planning, Current Sprint, and In Development as planned tasks for the current sprint. Existing current-sprint tasks are updated, missing cards are added, and cards no longer on those lists are removed from the current sprint only.",
                   confirmLabel: "Sync Data",
                   accent: "#00c8ff",
                   onConfirm: () => void syncSprintData(),
@@ -1645,8 +1705,8 @@ export default function SprintPage() {
                 value={selectedMemberId}
                 onChange={setSelectedMemberId}
                 placeholder="All members"
-                accent={selectedSprintStatusStyle.color}
               >
+                <option value="">All members</option>
                 {memberFilterOptions.map((member) => (
                   <option key={member.id} value={member.id ?? ""}>
                     {getMemberFilterName(member)}
@@ -1676,6 +1736,7 @@ export default function SprintPage() {
       <SprintKanbanBoard
         key={`${selectedSprintRow?.id ?? "no-selected-sprint"}-${refreshKey}`}
         sprintId={selectedSprintRow?.id}
+        sprintStatus={selectedSprintRow?.status}
         selectedMemberId={effectiveSelectedMemberId}
       />
 

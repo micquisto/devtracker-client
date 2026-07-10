@@ -1,8 +1,17 @@
 import { Text } from "@/lib/theme";
 
-const SectionTitle = ({ children }: { children: React.ReactNode }) => {
+const SectionTitle = ({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) => {
+  const classes = ["section-title", className].filter(Boolean).join(" ");
+
   return (
     <div
+      className={classes}
       style={{
         fontSize: 10,
         fontFamily: "'DM Mono',monospace",

@@ -554,7 +554,7 @@ function buildTrelloSprintCard({
     board,
     list,
     labels: card.labels ?? [],
-    members: card.members ?? getCardMembers(card, boardMembers),
+    members: mergeCardMembers(card, boardMembers),
     storyPoints: getStoryPointsFromCardData(
       customFields,
       customFieldItems,
@@ -714,6 +714,24 @@ function getCardMembers(
   boardMembers: TrelloMember[],
 ): TrelloMember[] {
   return boardMembers.filter((member) => card.idMembers?.includes(member.id));
+}
+
+function mergeCardMembers(
+  card: TrelloCard,
+  boardMembers: TrelloMember[],
+): TrelloMember[] {
+  const membersById = new Map<string, TrelloMember>();
+
+  for (const member of getCardMembers(card, boardMembers)) {
+    membersById.set(member.id, member);
+  }
+
+  for (const member of card.members ?? []) {
+    const existing = membersById.get(member.id);
+    membersById.set(member.id, existing ? { ...existing, ...member } : member);
+  }
+
+  return Array.from(membersById.values());
 }
 
 function normalizeName(value?: string): string {

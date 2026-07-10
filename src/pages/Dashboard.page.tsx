@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import type { FilterState } from "../interfaces";
 import { getFilterLabel } from "@/lib/utils";
 import { getSupabaseRows } from "@/lib/supabase";
-import { NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME } from "@/lib/utils/trello/trello.listNames";
+import {
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
+  NORMALIZED_TRELLO_MIKE_HOLD_LIST_NAME,
+} from "@/lib/utils/trello/trello.listNames";
 import {
   ScoreKPI, 
   TeamLineChart, 
@@ -15,6 +18,7 @@ import {
 } from "../components/dashboard";
 
 import { Title } from "@/components/shared/page";
+import { SectionTitle } from "@/components/shared/Sections";
 import { Palette, Text } from "@/lib/theme";
 import {
   SPRINT_BOARD_BLOCKED_TASKS,
@@ -29,6 +33,7 @@ import "@/assets/styles/Dashboard.page.css";
 
 const DASHBOARD_HIDDEN_TRELLO_LIST_NAMES = new Set([
   NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
+  NORMALIZED_TRELLO_MIKE_HOLD_LIST_NAME,
   "planning",
   "project refinement",
   "on-deck sprint backlog",
@@ -278,19 +283,7 @@ export default function DashboardPage() {
 
       {filter.mode === "current" && (
         <div style={{ marginBottom: 20, ...anim(0.17) }}>
-          <div
-            style={{
-              color: Text.section,
-              fontFamily: "'DM Mono',monospace",
-              fontSize: 10,
-              fontWeight: 900,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}
-          >
-            Sprint Task Flow
-          </div>
+          <SectionTitle>Sprint Task Flow</SectionTitle>
           <div
             className="task-count-row"
             style={{

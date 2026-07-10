@@ -93,8 +93,9 @@ const FLOW_STEPS: FlowStep[] = [
     details: [
       "Fetch from Trello boards 5oj0clmi and l7BOmeGw.",
       "Fetch cards, members, labels, list names, and custom fields.",
+      "Mike Hold is fetched from every configured board when the list exists.",
       "Keep the original board fetch and merge the additional l7BOmeGw cards into the same sync flow.",
-      "Keep fetched-only lists hidden from the Kanban board.",
+      "Keep fetched-only lists such as Mike Hold hidden from the Kanban board.",
     ],
     output: "Raw Trello cards with custom field data.",
     accent: Palette.purple,
@@ -116,7 +117,8 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Filter Eligible Cards",
     summary: "Apply status-aware card filtering.",
     details: [
-      "For Planning list excludes Ad hoc cards and is synced with sp_type done, not planned.",
+      "When sprint status is planning, eligible cards come from For Planning, Current Sprint, and In Development (excluding Ad hoc) and sync as planned.",
+      "When sprint status is active, For Planning cards use sp_type done, not planned.",
       "Non-Ad hoc cards require the required Trello member and another Supabase member.",
       "Ad hoc cards on Current Sprint or In Development with a Supabase assignee are inserted or updated by Trello card id.",
       "Ad hoc cards require custom Status not Done.",
@@ -131,7 +133,7 @@ const FLOW_STEPS: FlowStep[] = [
     details: [
       "Map Trello IDs, title, description, list name, URL, assignee, priority, severity, project type, and story points.",
       "Set sp_type to planned, adhoc, done, or blocked.",
-      "For Planning list cards always use sp_type done.",
+      "For Planning list cards use sp_type planned during planning sync, and sp_type done when the sprint is active.",
       "Blocked cards become sp_type blocked and is_completed pending.",
       "Completion state becomes pending, completed, or incompleted based on list and Incomplete label.",
     ],
@@ -143,7 +145,7 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Update Tasks Table",
     summary: "Write mapped tasks to Supabase.",
     details: [
-      "Planning deletes and replaces all current sprint tasks.",
+      "Planning deletes all tasks for the current sprint only, then rebuilds the list from Trello.",
       "Active/completed/done preserve planned and adhoc rows.",
       "Preserved rows are updated by task id with latest Trello details including trello_list_name.",
       "Preserved sp_type is not changed, except Blocked cards become blocked.",
@@ -170,10 +172,41 @@ const FLOW_STEPS: FlowStep[] = [
     details: [
       "assigned_story_points sums planned tasks using story_points when sprint is planning or active.",
       "completed_story_points sums completed planned/adhoc tasks using real_story_points.",
+      "weighted_story_points is only calculated from sprint 2589f9a4-4c73-4500-aabe-7d460a20378d onward; earlier sprints keep 0.",
       "adhoc_story_points updates from story_points only when sprint is active.",
       "total_bonus_points is completed SP minus assigned SP, floored at zero.",
     ],
     output: "Updated story_points rows through the replace RPC.",
+    accent: Palette.redSoft,
+  },
+  {
+    id: "task-scores",
+    title: "Replace Sprint Task Scores",
+    summary: "Upsert per-task scoring rows from saved sprint tasks and Trello.",
+    details: [
+      "Runs only when the current sprint status is active or completed.",
+      "Loads planned and adhoc tasks from the tasks table, then enriches with Trello custom fields.",
+      "Replaces all sprint_task_scores rows for the sprint so counts always match tasks exactly.",
+      "Task fields provide member, title, URLs, and project; Trello provides completion rate, severity, and reject count.",
+      "accumulated_story_points and story_points_total are generated in the database.",
+      "Stale rows for tasks no longer in the sprint are deleted.",
+    ],
+    output: "Updated sprint_task_scores rows keyed by sprint_id and task_id.",
+    accent: Palette.redSoft,
+  },
+  {
+    id: "sprint-member-scores",
+    title: "Replace Sprint and Member Scores",
+    summary: "Aggregate sprint-level and per-member score rows after task scoring.",
+    details: [
+      "Runs after sprint_task_scores when sprint status is active or completed.",
+      "sprint_scores stores sprint totals; members_sprint_scores stores one row per member.",
+      "Member planned, completed, weighted, and adhoc story points come from saved sprint tasks.",
+      "Member reject counts come from sprint_task_scores Trello reject_count values.",
+      "is_completed is true when sprint status is completed and false when reopened to active.",
+      "Completed sprints skip task table mutations but still refresh score tables.",
+    ],
+    output: "Updated sprint_scores and members_sprint_scores rows for the sprint.",
     accent: Palette.redSoft,
   },
 ];
@@ -182,12 +215,27 @@ const TABLE_IMPACTS = [
   {
     table: "tasks",
     writes:
-      "Creates, updates, and deletes sprint tasks based on status rules and Trello card data.",
+      "Creates, updates, and deletes sprint tasks based on status rules and Trello card data. Skipped when sprint status is completed.",
   },
   {
     table: "story_points",
     writes:
       "Replaced after task sync using final saved task rows and sprint status gates.",
+  },
+  {
+    table: "sprint_task_scores",
+    writes:
+      "Upserted from saved sprint tasks enriched with Trello data when sprint status is active or completed.",
+  },
+  {
+    table: "sprint_scores",
+    writes:
+      "Upserted after sprint_task_scores with sprint-level planned, completed, reject, and adhoc totals.",
+  },
+  {
+    table: "members_sprint_scores",
+    writes:
+      "Upserted per member after sprint_scores with planned, completed, weighted, adhoc, reject, and completion fields.",
   },
   {
     table: "members",

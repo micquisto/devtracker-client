@@ -25,6 +25,7 @@ export type SprintSyncTrigger = "manual" | "auto" | "scheduled";
 
 type RunSyncOptions = {
   sprintId?: string;
+  sprintStatus?: string;
   trigger?: SprintSyncTrigger;
 };
 
@@ -110,7 +111,11 @@ export function SprintSyncProvider({
     try {
       const result = await runTrackedBackgroundProcess(
         BACKGROUND_PROCESS_KEYS.SPRINT_TRELLO_SYNC,
-        () => syncCurrentSprintTasks(options.sprintId),
+        () =>
+          syncCurrentSprintTasks({
+            sprintId: options.sprintId,
+            sprintStatus: options.sprintStatus,
+          }),
         {
           onStateChange: (row) => {
             if (row) patchProcess(row);

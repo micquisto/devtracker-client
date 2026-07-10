@@ -3,7 +3,10 @@ import { Card } from "@/components/shared/Containers";
 import { ThemedDatePicker } from "@/components/shared/Elements";
 import { Title } from "@/components/shared/page";
 import { getSupabaseRows, insertSupabaseRows } from "@/lib/supabase";
+import { compareMembersByLastName } from "@/lib/utils";
+import { SprintGroupedSelectOptions } from "@/components/scrum/sprint/SprintGroupedSelect";
 import { getMemberColor, getMemberInitials } from "@/lib/utils/memberColors.utils";
+import "@/assets/styles/SprintGroupedSelect.css";
 import "@/assets/styles/RequirementsData.page.css";
 
 type SprintOptionRow = {
@@ -812,14 +815,6 @@ export default function SprintStoryPointsCheckPage() {
     [newSprintForm.quarter],
   );
 
-  const sortedSprintOptions = useMemo(
-    () =>
-      [...sprints].sort((a, b) =>
-        getSprintOptionLabel(a).localeCompare(getSprintOptionLabel(b)),
-      ),
-    [sprints],
-  );
-
   const projectOptions = useMemo(
     () =>
       projects
@@ -833,7 +828,7 @@ export default function SprintStoryPointsCheckPage() {
   const memberOptions = useMemo(
     () =>
       [...members]
-        .sort((a, b) => getMemberName(a).localeCompare(getMemberName(b)))
+        .sort(compareMembersByLastName)
         .map((member) => ({
           value: member.id,
           label: getMemberName(member),
@@ -1333,17 +1328,19 @@ export default function SprintStoryPointsCheckPage() {
                   setShowMemberAddForm(false);
                   setShowProjectTypeAddForm(false);
                 }}
-                disabled={loading || sortedSprintOptions.length === 0}
+                disabled={loading || sprints.length === 0}
               >
-                {sortedSprintOptions.length === 0 ? (
+                {sprints.length === 0 ? (
                   <option value="">No sprints available</option>
                 ) : (
-                  sortedSprintOptions.map((sprint) => (
-                    <option key={sprint.id} value={sprint.id}>
-                      {getSprintOptionLabel(sprint)}
-                      {isCurrentSprint(sprint) ? " (Current)" : ""}
-                    </option>
-                  ))
+                  <SprintGroupedSelectOptions
+                    sprints={sprints}
+                    getLabel={(sprint) =>
+                      `${getSprintOptionLabel(sprint)}${
+                        isCurrentSprint(sprint) ? " (Current)" : ""
+                      }`
+                    }
+                  />
                 )}
               </select>
               <span className="requirements-data-select-arrow">▾</span>

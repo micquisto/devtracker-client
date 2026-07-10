@@ -1,3 +1,4 @@
+export { default as SprintGroupedSelect, SprintGroupedSelectOptions } from "./sprint/SprintGroupedSelect";
 export { default as SprintFilter } from "./sprint/SprintFilter";
 export {
   SPRINT_STATUS_STYLE,

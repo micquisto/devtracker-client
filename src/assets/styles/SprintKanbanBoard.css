@@ -1,3 +1,31 @@
+.sprint-kanban-closed {
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+}
+
+.sprint-kanban-closed__panel {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(100, 180, 255, 0.14);
+  border-radius: 16px;
+  box-sizing: border-box;
+  color: rgba(232, 244, 255, 0.88);
+  display: flex;
+  flex: 1;
+  font-family: "DM Sans", sans-serif;
+  font-size: clamp(18px, 2.2vw, 28px);
+  font-weight: 800;
+  justify-content: center;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  min-height: 100%;
+  padding: 32px 24px;
+  text-align: center;
+  width: 100%;
+}
+
 .sprint-kanban-card {
   animation: fadeUp 0.5s ease both;
   box-sizing: border-box;

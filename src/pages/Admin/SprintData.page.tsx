@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Card } from "@/components/shared/Containers";
 import { ThemedDatePicker } from "@/components/shared/Elements";
@@ -9,11 +9,13 @@ import {
   insertSupabaseRows,
   updateSupabaseRows,
 } from "@/lib/supabase";
+import {
+  getSprintListingYear,
+  getSprintQuarterGroupLabel,
+} from "@/lib/utils";
 import { Background, Border, Palette, Text } from "@/lib/theme";
 import "@/assets/styles/RequirementsData.page.css";
-
-type SprintDataSortKey = "date" | "sprint" | "quarter" | "year";
-type SprintDataSortDirection = "asc" | "desc";
+import "@/assets/styles/SprintGroupedSelect.css";
 
 type SprintDataFormState = {
   year: string;
@@ -33,6 +35,9 @@ type SprintContextRow = {
   project_id: string;
   name: string;
   sprint_number: number;
+  sprint_year?: number | null;
+  sprint_quarter?: number | null;
+  sprint_month?: number | null;
   start_date: string;
   end_date: string;
   month: number | null;
@@ -86,7 +91,8 @@ const INITIAL_FORM: SprintDataFormState = {
   month: String(new Date().getMonth() + 1),
 };
 
-const SPRINTS_PAGE_SIZE = 10;
+const SPRINTS_PAGE_SIZE_OPTIONS = ["10", "20", "30", "all"] as const;
+const DEFAULT_SPRINTS_PAGE_SIZE = "10";
 const SPRINT_STATUS_OPTIONS = ["planning", "active", "completed", "done"];
 
 function parseDateOnly(value: string): Date {
@@ -106,6 +112,14 @@ function addDays(date: Date, days: number): Date {
 
 function isCurrentSprint(sprint: SprintContextRow): boolean {
   return sprint.is_current === 1 || sprint.is_current === true;
+}
+
+function isActiveSprint(sprint: SprintContextRow): boolean {
+  return (sprint.status ?? "planning") === "active";
+}
+
+function isNonDeletableSprint(sprint: SprintContextRow): boolean {
+  return isCurrentSprint(sprint) || isActiveSprint(sprint);
 }
 
 function getQuarterFromDate(date: Date): number {
@@ -158,15 +172,109 @@ function buildSprintUpdateRow(form: SprintDataEditFormState): SprintUpdateRow {
 }
 
 function getSprintYear(sprint: SprintContextRow): number {
+  if (sprint.sprint_year !== null && sprint.sprint_year !== undefined) {
+    return Number(sprint.sprint_year);
+  }
+
   const yearFromName = sprint.name.match(/^(\d{4})\b/u)?.[1];
   if (yearFromName) return Number(yearFromName);
   return parseDateOnly(sprint.start_date).getUTCFullYear();
 }
 
 function getSprintQuarter(sprint: SprintContextRow): number {
+  if (sprint.sprint_quarter !== null && sprint.sprint_quarter !== undefined) {
+    return Number(sprint.sprint_quarter);
+  }
+
   const quarterFromName = sprint.name.match(/\bQ([1-4])\b/iu)?.[1];
   if (quarterFromName) return Number(quarterFromName);
   return getQuarterFromDate(parseDateOnly(sprint.start_date));
+}
+
+function parseSprintPeriodFromName(name: string): {
+  year: number | null;
+  quarter: number | null;
+} {
+  const yearFromName = name.match(/^(\d{4})\b/u)?.[1];
+  const quarterFromName = name.match(/\bQ([1-4])\b/iu)?.[1];
+
+  return {
+    year: yearFromName ? Number(yearFromName) : null,
+    quarter: quarterFromName ? Number(quarterFromName) : null,
+  };
+}
+
+function getSprintPeriodFromRow(sprint: SprintContextRow): {
+  year: number | null;
+  quarter: number | null;
+} {
+  const year =
+    sprint.sprint_year !== null && sprint.sprint_year !== undefined
+      ? Number(sprint.sprint_year)
+      : null;
+  const quarter =
+    sprint.sprint_quarter !== null && sprint.sprint_quarter !== undefined
+      ? Number(sprint.sprint_quarter)
+      : null;
+
+  if (year !== null && quarter !== null) {
+    return { year, quarter };
+  }
+
+  return parseSprintPeriodFromName(sprint.name);
+}
+
+function getSprintPeriodFromForm(form: SprintDataFormState): {
+  year: number;
+  quarter: number;
+} {
+  const fromName = parseSprintPeriodFromName(buildSprintName(form));
+
+  return {
+    year: fromName.year ?? Number(form.year),
+    quarter: fromName.quarter ?? Number(form.quarter),
+  };
+}
+
+function findConflictingSprint(
+  sprints: SprintContextRow[],
+  projectId: string,
+  year: number,
+  quarter: number,
+  sprintNumber: number,
+  excludeSprintId?: string,
+): SprintContextRow | null {
+  return (
+    sprints.find((sprint) => {
+      if (excludeSprintId && sprint.id === excludeSprintId) {
+        return false;
+      }
+
+      if (sprint.project_id !== projectId) {
+        return false;
+      }
+
+      const period = getSprintPeriodFromRow(sprint);
+      if (period.year === null || period.quarter === null) {
+        return false;
+      }
+
+      return (
+        period.year === year &&
+        period.quarter === quarter &&
+        sprint.sprint_number === sprintNumber
+      );
+    }) ?? null
+  );
+}
+
+function formatSprintDuplicateError(
+  conflictingSprint: SprintContextRow,
+  year: number,
+  quarter: number,
+  sprintNumber: number,
+): string {
+  return `Sprint ${sprintNumber} already exists for ${year} Q${quarter} (${conflictingSprint.name}, ${formatSprintDate(conflictingSprint.start_date)} - ${formatSprintDate(conflictingSprint.end_date)}).`;
 }
 
 function formatSprintDate(value: string | null | undefined): string {
@@ -185,7 +293,132 @@ function formatSprintDate(value: string | null | undefined): string {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
+
+  if (error && typeof error === "object") {
+    const { message, details, hint } = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+    };
+
+    return (
+      [message, details, hint]
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .join(" ") || fallback
+    );
+  }
+
   return fallback;
+}
+
+function getSprintDeleteErrorMessage(error: unknown, fallback: string): string {
+  const message = getErrorMessage(error, fallback);
+
+  if (message.includes("foreign key") || message.includes("violates")) {
+    return "Unable to delete this sprint because related tasks or records still reference it.";
+  }
+
+  return message;
+}
+
+function getSprintSaveErrorMessage(
+  error: unknown,
+  fallback: string,
+  sprints: SprintContextRow[],
+  projectId: string,
+  year: number,
+  quarter: number,
+  sprintNumber: number,
+  excludeSprintId?: string,
+): string {
+  const message = getErrorMessage(error, fallback);
+
+  if (
+    message.includes("uq_sprint_number_per_project_period") ||
+    message.includes("uq_sprint_number_per_project_year")
+  ) {
+    const conflictingSprint = findConflictingSprint(
+      sprints,
+      projectId,
+      year,
+      quarter,
+      sprintNumber,
+      excludeSprintId,
+    );
+
+    if (conflictingSprint) {
+      return formatSprintDuplicateError(
+        conflictingSprint,
+        year,
+        quarter,
+        sprintNumber,
+      );
+    }
+
+    return `Sprint ${sprintNumber} already exists for ${year} Q${quarter}.`;
+  }
+
+  return message;
+}
+
+function sprintDateRangesOverlap(
+  startDateA: string,
+  endDateA: string,
+  startDateB: string,
+  endDateB: string,
+): boolean {
+  const rangeAStart = parseDateOnly(startDateA).getTime();
+  const rangeAEnd = parseDateOnly(endDateA).getTime();
+  const rangeBStart = parseDateOnly(startDateB).getTime();
+  const rangeBEnd = parseDateOnly(endDateB).getTime();
+
+  return rangeAStart <= rangeBEnd && rangeAEnd >= rangeBStart;
+}
+
+function findOverlappingSprint(
+  startDate: string,
+  endDate: string,
+  existingSprints: SprintContextRow[],
+  excludeSprintId?: string,
+): SprintContextRow | null {
+  return (
+    existingSprints.find((sprint) => {
+      if (excludeSprintId && sprint.id === excludeSprintId) {
+        return false;
+      }
+
+      return sprintDateRangesOverlap(
+        startDate,
+        endDate,
+        sprint.start_date,
+        sprint.end_date,
+      );
+    }) ?? null
+  );
+}
+
+function getSprintDateOverlapError(
+  startDate: string,
+  endDate: string,
+  existingSprints: SprintContextRow[],
+  excludeSprintId?: string,
+): string | null {
+  if (parseDateOnly(startDate).getTime() > parseDateOnly(endDate).getTime()) {
+    return "End date must be on or after the start date.";
+  }
+
+  const overlappingSprint = findOverlappingSprint(
+    startDate,
+    endDate,
+    existingSprints,
+    excludeSprintId,
+  );
+
+  if (!overlappingSprint) {
+    return null;
+  }
+
+  return `Sprint dates overlap with ${overlappingSprint.name} (${formatSprintDate(overlappingSprint.start_date)} - ${formatSprintDate(overlappingSprint.end_date)}).`;
 }
 
 function sprintToEditForm(sprint: SprintContextRow): SprintDataEditFormState {
@@ -207,8 +440,7 @@ export default function SprintDataPage() {
   const [yearFilter, setYearFilter] = useState("all");
   const [quarterFilter, setQuarterFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SprintDataSortKey>("date");
-  const [sortDirection, setSortDirection] = useState<SprintDataSortDirection>("desc");
+  const [pageSize, setPageSize] = useState<string>(DEFAULT_SPRINTS_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -223,6 +455,7 @@ export default function SprintDataPage() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
@@ -234,7 +467,8 @@ export default function SprintDataPage() {
 
       try {
         const sprints = await getSupabaseRows<SprintContextRow>("sprints", {
-          select: "id,project_id,name,sprint_number,start_date,end_date,month,status,is_current",
+          select:
+            "id,project_id,name,sprint_number,sprint_year,sprint_quarter,sprint_month,start_date,end_date,month,status,is_current",
           order: { column: "start_date", ascending: false },
         });
         const current = sprints.find(isCurrentSprint) ?? sprints[0] ?? null;
@@ -311,6 +545,39 @@ export default function SprintDataPage() {
       return;
     }
 
+    const dateOverlapError = getSprintDateOverlapError(
+      form.startDate,
+      form.endDate,
+      sprints,
+    );
+    if (dateOverlapError) {
+      setError(dateOverlapError);
+      return;
+    }
+
+    const sprintPeriod = getSprintPeriodFromForm(form);
+    const sprintNumber = Number(form.sprintNumber);
+    const sprintMonth = Number(form.month);
+    const conflictingSprint = findConflictingSprint(
+      sprints,
+      currentSprint.project_id,
+      sprintPeriod.year,
+      sprintPeriod.quarter,
+      sprintNumber,
+    );
+
+    if (conflictingSprint) {
+      setError(
+        formatSprintDuplicateError(
+          conflictingSprint,
+          sprintPeriod.year,
+          sprintPeriod.quarter,
+          sprintNumber,
+        ),
+      );
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -320,10 +587,10 @@ export default function SprintDataPage() {
       const row: SprintInsertRow = {
         project_id: currentSprint.project_id,
         name: sprintName,
-        sprint_number: Number(form.sprintNumber),
+        sprint_number: sprintNumber,
         start_date: form.startDate,
         end_date: form.endDate,
-        month: Number(form.month),
+        month: sprintMonth,
         total_planned_points: 0,
         total_completed_points: 0,
         status: "planning",
@@ -333,7 +600,7 @@ export default function SprintDataPage() {
       const [createdSprint] = await insertSupabaseRows<SprintContextRow, SprintInsertRow>(
         "sprints",
         row,
-        "id,project_id,name,sprint_number,start_date,end_date,month,status,is_current",
+        "id,project_id,name,sprint_number,sprint_year,sprint_quarter,sprint_month,start_date,end_date,month,status,is_current",
       );
 
       if (createdSprint) {
@@ -347,7 +614,17 @@ export default function SprintDataPage() {
       setSuccess(`Sprint data created for ${sprintName}.`);
       setForm(buildDefaultForm(currentSprint));
     } catch (submitError) {
-      setError(getErrorMessage(submitError, "Unable to create sprint data."));
+      setError(
+        getSprintSaveErrorMessage(
+          submitError,
+          "Unable to create sprint data.",
+          sprints,
+          currentSprint.project_id,
+          sprintPeriod.year,
+          sprintPeriod.quarter,
+          sprintNumber,
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -370,6 +647,40 @@ export default function SprintDataPage() {
       return;
     }
 
+    const dateOverlapError = getSprintDateOverlapError(
+      editForm.startDate,
+      editForm.endDate,
+      sprints,
+      editingSprint.id,
+    );
+    if (dateOverlapError) {
+      setError(dateOverlapError);
+      return;
+    }
+
+    const sprintPeriod = getSprintPeriodFromForm(editForm);
+    const sprintNumber = Number(editForm.sprintNumber);
+    const conflictingSprint = findConflictingSprint(
+      sprints,
+      editingSprint.project_id,
+      sprintPeriod.year,
+      sprintPeriod.quarter,
+      sprintNumber,
+      editingSprint.id,
+    );
+
+    if (conflictingSprint) {
+      setError(
+        formatSprintDuplicateError(
+          conflictingSprint,
+          sprintPeriod.year,
+          sprintPeriod.quarter,
+          sprintNumber,
+        ),
+      );
+      return;
+    }
+
     setEditLoading(true);
     setError(null);
     setSuccess(null);
@@ -381,7 +692,8 @@ export default function SprintDataPage() {
         SprintUpdateRow
       >("sprints", row, {
         eq: { id: editingSprint.id },
-        select: "id,project_id,name,sprint_number,start_date,end_date,month,status,is_current",
+        select:
+          "id,project_id,name,sprint_number,sprint_year,sprint_quarter,sprint_month,start_date,end_date,month,status,is_current",
       });
 
       if (updatedSprint) {
@@ -399,22 +711,45 @@ export default function SprintDataPage() {
       setEditForm({ ...INITIAL_FORM, status: "planning" });
       setSuccess(`Updated sprint data for ${row.name}.`);
     } catch (submitError) {
-      setError(getErrorMessage(submitError, "Unable to update sprint data."));
+      setError(
+        getSprintSaveErrorMessage(
+          submitError,
+          "Unable to update sprint data.",
+          sprints,
+          editingSprint.project_id,
+          sprintPeriod.year,
+          sprintPeriod.quarter,
+          sprintNumber,
+          editingSprint.id,
+        ),
+      );
     } finally {
       setEditLoading(false);
     }
   }
 
   async function handleDelete(sprint: SprintContextRow): Promise<void> {
+    if (isNonDeletableSprint(sprint)) {
+      setDeleteError("The current or active sprint cannot be deleted.");
+      return;
+    }
+
     setDeletingId(sprint.id);
+    setDeleteError(null);
     setError(null);
     setSuccess(null);
 
     try {
-      await deleteSupabaseRows<SprintContextRow>("sprints", {
+      const deletedRows = await deleteSupabaseRows<SprintContextRow>("sprints", {
         eq: { id: sprint.id },
         select: "id",
       });
+
+      if (deletedRows.length === 0) {
+        throw new Error(
+          "Sprint was not deleted. You may not have permission, or the sprint is protected.",
+        );
+      }
 
       setSprints((current) => {
         const nextSprints = current.filter((currentSprint) => currentSprint.id !== sprint.id);
@@ -426,7 +761,9 @@ export default function SprintDataPage() {
       setDeleteConfirmation(null);
       setSuccess(`Deleted sprint data for ${sprint.name}.`);
     } catch (deleteError) {
-      setError(getErrorMessage(deleteError, "Unable to delete sprint data."));
+      setDeleteError(
+        getSprintDeleteErrorMessage(deleteError, "Unable to delete sprint data."),
+      );
     } finally {
       setDeletingId(null);
     }
@@ -469,42 +806,28 @@ export default function SprintDataPage() {
 
       return true;
     })
-    .sort((a, b) => {
-      const direction = sortDirection === "asc" ? 1 : -1;
-      const valueA =
-        sortBy === "date"
-          ? parseDateOnly(a.start_date).getTime()
-          : sortBy === "year"
-            ? getSprintYear(a)
-            : sortBy === "quarter"
-              ? getSprintQuarter(a)
-              : a.sprint_number;
-      const valueB =
-        sortBy === "date"
-          ? parseDateOnly(b.start_date).getTime()
-          : sortBy === "year"
-            ? getSprintYear(b)
-            : sortBy === "quarter"
-              ? getSprintQuarter(b)
-              : b.sprint_number;
-
-      if (valueA === valueB) return b.start_date.localeCompare(a.start_date);
-      return (valueA - valueB) * direction;
-    });
-  const totalPages = Math.max(1, Math.ceil(filteredSprints.length / SPRINTS_PAGE_SIZE));
+    .sort((a, b) => b.start_date.localeCompare(a.start_date));
+  const resolvedPageSize =
+    pageSize === "all"
+      ? Math.max(filteredSprints.length, 1)
+      : Number(pageSize);
+  const totalPages = Math.max(1, Math.ceil(filteredSprints.length / resolvedPageSize));
   const activePage = Math.min(currentPage, totalPages);
-  const pageStartIndex = (activePage - 1) * SPRINTS_PAGE_SIZE;
+  const pageStartIndex = (activePage - 1) * resolvedPageSize;
   const paginatedSprints = filteredSprints.slice(
     pageStartIndex,
-    pageStartIndex + SPRINTS_PAGE_SIZE,
+    pageStartIndex + resolvedPageSize,
   );
-  const pageEndIndex = Math.min(pageStartIndex + SPRINTS_PAGE_SIZE, filteredSprints.length);
+  const pageEndIndex = Math.min(
+    pageStartIndex + resolvedPageSize,
+    filteredSprints.length,
+  );
 
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, totalPages, pageSize]);
 
   return (
     <div className="requirements-data-page sprint-data-page">
@@ -744,37 +1067,20 @@ export default function SprintDataPage() {
               </div>
             </label>
             <label className="requirements-data-filter-field">
-              <span>Sort By</span>
+              <span>Show</span>
               <div className="requirements-data-select-wrap">
                 <select
                   onChange={(event) => {
-                    setSortBy(event.target.value as SprintDataSortKey);
+                    setPageSize(event.target.value);
                     setCurrentPage(1);
                   }}
-                  value={sortBy}
+                  value={pageSize}
                 >
-                  <option value="date">Date</option>
-                  <option value="sprint">Sprint</option>
-                  <option value="quarter">Quarter</option>
-                  <option value="year">Year</option>
-                </select>
-                <svg aria-hidden="true" className="requirements-data-select-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
-                </svg>
-              </div>
-            </label>
-            <label className="requirements-data-filter-field">
-              <span>Order</span>
-              <div className="requirements-data-select-wrap">
-                <select
-                  onChange={(event) => {
-                    setSortDirection(event.target.value as SprintDataSortDirection);
-                    setCurrentPage(1);
-                  }}
-                  value={sortDirection}
-                >
-                  <option value="desc">Descending</option>
-                  <option value="asc">Ascending</option>
+                  {SPRINTS_PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "all" ? "All" : option}
+                    </option>
+                  ))}
                 </select>
                 <svg aria-hidden="true" className="requirements-data-select-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
@@ -808,8 +1114,30 @@ export default function SprintDataPage() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedSprints.map((sprint) => (
-                  <tr key={sprint.id}>
+                {paginatedSprints.map((sprint, index) => {
+                  const canDeleteSprint = !isNonDeletableSprint(sprint);
+                  const quarter = getSprintQuarter(sprint);
+                  const previousSprint =
+                    index > 0 ? paginatedSprints[index - 1] : null;
+                  const showQuarterHeader =
+                    !previousSprint ||
+                    getSprintListingYear(previousSprint) !==
+                      getSprintListingYear(sprint) ||
+                    getSprintQuarter(previousSprint) !== quarter;
+
+                  return (
+                    <Fragment key={sprint.id}>
+                      {showQuarterHeader ? (
+                        <tr className="sprint-data-quarter-header">
+                          <td colSpan={10}>
+                            {getSprintQuarterGroupLabel(
+                              getSprintListingYear(sprint),
+                              quarter,
+                            )}
+                          </td>
+                        </tr>
+                      ) : null}
+                      <tr className="sprint-data-quarter-row">
                     <td data-label="Name">{sprint.name}</td>
                     <td data-label="Year">{getSprintYear(sprint)}</td>
                     <td data-label="Quarter">Q{getSprintQuarter(sprint)}</td>
@@ -854,13 +1182,19 @@ export default function SprintDataPage() {
                         <button
                           aria-label={`Delete ${sprint.name}`}
                           className="requirements-data-row-button is-danger"
-                          disabled={deletingId === sprint.id}
+                          disabled={!canDeleteSprint || deletingId === sprint.id}
                           onClick={() => {
+                            if (!canDeleteSprint) return;
                             setDeleteConfirmation(sprint);
+                            setDeleteError(null);
                             setError(null);
                             setSuccess(null);
                           }}
-                          title="Delete"
+                          title={
+                            canDeleteSprint
+                              ? "Delete"
+                              : "Current and active sprints cannot be deleted"
+                          }
                           type="button"
                         >
                           {deletingId === sprint.id ? (
@@ -888,7 +1222,9 @@ export default function SprintDataPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1181,11 +1517,18 @@ export default function SprintDataPage() {
               <strong>{deleteConfirmation.name}</strong>
             </div>
 
+            {deleteError ? (
+              <div className="requirements-data-message is-error">{deleteError}</div>
+            ) : null}
+
             <div className="requirements-data-confirmation-actions">
               <button
                 className="requirements-data-confirmation-button requirements-data-confirmation-button--secondary"
                 disabled={Boolean(deletingId)}
-                onClick={() => setDeleteConfirmation(null)}
+                onClick={() => {
+                  setDeleteConfirmation(null);
+                  setDeleteError(null);
+                }}
                 type="button"
               >
                 Cancel

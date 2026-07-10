@@ -4,3 +4,6 @@ export * from "./trello.utils";
 export * from "./trello.storyPoints";
 export * from "./trelloPowerUpQueue.utils";
 export * from "./sprintSync.utils";
+export * from "./sprintTaskScores.utils";
+export * from "./sprintBlockedTrello.utils";
+export * from "./sprintScores.utils";

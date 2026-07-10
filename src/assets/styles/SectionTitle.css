@@ -1,0 +1,18 @@
+/* #root defaults to text-align: center — keep all section titles left-aligned */
+.section-title,
+.story-points-section-title,
+.sprint-scoreboard-section-title,
+.app-flow-kicker,
+.requirements-data-kicker,
+.sprint-confirmation-eyebrow,
+.page-title__eyebrow {
+  display: block;
+  text-align: left !important;
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
+}
+
+.page-title--center .page-title__eyebrow {
+  text-align: center !important;
+}

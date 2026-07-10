@@ -914,7 +914,6 @@ export default function PlanningPokerPage() {
   const refreshMembers = useCallback(async () => {
     const memberRows = await getSupabaseRows<MemberRow>("members", {
       select: "id,full_name,first_name,last_name,role",
-      order: { column: "full_name", ascending: true },
     });
     setMembers(memberRows.filter((member) => Boolean(member.id)));
   }, []);
@@ -932,7 +931,6 @@ export default function PlanningPokerPage() {
           loadCurrentSprint(),
           getSupabaseRows<MemberRow>("members", {
             select: "id,full_name,first_name,last_name,role",
-            order: { column: "full_name", ascending: true },
           }),
         ]);
 

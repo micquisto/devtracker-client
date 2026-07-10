@@ -47,7 +47,7 @@ function shouldHideSprintActionButtons(role: string | null): boolean {
 
 function getSyncDataMessage(status: string): string {
   if (status === "planning") {
-    return "This will replace the current sprint task data with the latest eligible Trello cards. For Planning cards are synced for estimation but are not counted as planned tasks.";
+    return "This will sync eligible Trello cards from For Planning, Current Sprint, and In Development as planned tasks for the current sprint. Existing current-sprint tasks are updated, missing cards are added, and cards no longer on those lists are removed from the current sprint only.";
   }
 
   return "This will replace the current sprint task data with the latest cards from Trello. For Planning cards are not counted as planned tasks.";

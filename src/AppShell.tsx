@@ -13,6 +13,7 @@ import {
   TestPage,
   AppFlowPage,
   PublicSprintScoreboardPage,
+  PublicStatisticsPage,
   RequirementsDataPage,
   SprintRequirementsPage,
   SprintDataPage,
@@ -767,6 +768,10 @@ export default function AppShell() {
   const isPublicSprintScoreboardRoute =
     typeof window !== "undefined" &&
     window.location.pathname === "/public/current-sprint-scoreboard";
+  const isPublicStatisticsRoute =
+    typeof window !== "undefined" &&
+    window.location.pathname === "/public/statistics";
+  const isPublicRoute = isPublicSprintScoreboardRoute || isPublicStatisticsRoute;
 
   useEffect(() => {
     let mounted = true;
@@ -939,13 +944,14 @@ export default function AppShell() {
     }
   };
 
-  if (isPublicSprintScoreboardRoute) {
+  if (isPublicRoute) {
     return (
       <div style={{
         minHeight: "100vh",
         background: "linear-gradient(135deg,#060d1f 0%,#0a1628 40%,#071220 100%)",
       }}>
-        <PublicSprintScoreboardPage />
+        {isPublicSprintScoreboardRoute ? <PublicSprintScoreboardPage /> : null}
+        {isPublicStatisticsRoute ? <PublicStatisticsPage /> : null}
       </div>
     );
   }
@@ -981,6 +987,7 @@ export default function AppShell() {
       minHeight: "100vh",
       height: "100vh",
       background: "linear-gradient(135deg,#060d1f 0%,#0a1628 40%,#071220 100%)",
+      colorScheme: "dark",
       display: "flex",
       position: "relative",
       overflow: "hidden",

@@ -6,6 +6,12 @@ import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
 import { StackedColumnChart } from "@/components/shared/Charts";
 import { getSupabaseRows } from "@/lib/supabase";
+import {
+  buildScoreboardIncludedMemberIdSet,
+  filterRowsForScoreboardMembers,
+  filterTasksForScoreboardMembers,
+  isScoreboardIncludedMember,
+} from "@/lib/utils";
 
 type SprintRow = {
   id: string;
@@ -65,15 +71,6 @@ const MOCK_MEMBER_NAME_BY_TRELLO_USERNAME: Record<string, string> = {
   jpangs: "Mia Chen",
   thomasandrewzaragoza1: "Leo Santos",
 };
-
-const EXCLUDED_SCOREBOARD_MEMBER_IDS = new Set([
-  "c5726102-b436-4557-ad88-ac148f349558",
-]);
-
-const EXCLUDED_SCOREBOARD_MEMBER_ROLES = new Set([
-  "tech_lead",
-  "project_manager",
-]);
 
 function isProjectStoryPointTask(task: DashboardCompletionTaskRow): boolean {
   return task.sp_type === "planned" || task.sp_type === "adhoc";
@@ -151,10 +148,24 @@ const SprintStackedColumnChart = () => {
             }),
           ]);
 
-          const storyPointsByMemberId = new Map(
-            storyPoints.map((storyPoint) => [storyPoint.member_id, storyPoint]),
+          const includedMemberIds = buildScoreboardIncludedMemberIdSet(memberRows);
+          const scoreboardTasks = filterTasksForScoreboardMembers(
+            tasks,
+            includedMemberIds,
           );
-          const incompleteStoryPointsByMemberId = tasks.reduce<Map<string, number>>(
+          const scoreboardStoryPoints = filterRowsForScoreboardMembers(
+            storyPoints,
+            includedMemberIds,
+          );
+          const storyPointsByMemberId = new Map(
+            scoreboardStoryPoints.map((storyPoint) => [
+              storyPoint.member_id,
+              storyPoint,
+            ]),
+          );
+          const incompleteStoryPointsByMemberId = scoreboardTasks.reduce<
+            Map<string, number>
+          >(
             (sum, task) => {
               if (
                 task.assigned_to &&
@@ -173,13 +184,8 @@ const SprintStackedColumnChart = () => {
             new Map(),
           );
           const nextMembers = memberRows
-            .filter(
-              (member): member is MemberRow & { id: string } =>
-                Boolean(member.id) &&
-                !EXCLUDED_SCOREBOARD_MEMBER_IDS.has(member.id as string) &&
-                !EXCLUDED_SCOREBOARD_MEMBER_ROLES.has(
-                  member.role?.trim().toLowerCase() ?? "",
-                ),
+            .filter((member): member is MemberRow & { id: string } =>
+              isScoreboardIncludedMember(member),
             )
             .map((member) => {
               const memberName = getMemberName(member);

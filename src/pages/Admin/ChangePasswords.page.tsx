@@ -69,7 +69,6 @@ export default function ChangePasswordsPage() {
       try {
         const rows = await getSupabaseRows<MemberOptionRow>("members", {
           select: "id,auth_user_id,email,full_name,first_name,last_name",
-          order: { column: "full_name", ascending: true },
         });
 
         if (!cancelled) {

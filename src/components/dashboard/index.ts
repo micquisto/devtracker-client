@@ -1,5 +1,8 @@
 export { default as ScoreKPI } from "./ScoreKPI";
-export { default as TeamLineChart } from "./TeamLineChart";
+export { default as TeamLineChart, StoryPointsHoursLineChart } from "./TeamLineChart";
+export type { StoryPointsHoursPoint } from "./TeamLineChart";
+export { PerformanceScoresBySprintLineChart } from "./PerformanceScoresBySprintLineChart";
+export type { PerformanceScoresBySprintPoint } from "./PerformanceScoresBySprintLineChart";
 export { default as TeamMetricsLineChart } from "./TeamMetricsLineChart";
 export { default as SprintComparison } from "./SprintComparison";
 export { default as ContributionDoughnut } from "./ContributionDoughnut";

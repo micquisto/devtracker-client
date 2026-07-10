@@ -13,6 +13,8 @@ import {
   type RequirementCriteria,
   type RequirementLevel,
 } from "@/lib/utils";
+import { SprintGroupedSelectOptions } from "@/components/scrum/sprint/SprintGroupedSelect";
+import "@/assets/styles/SprintGroupedSelect.css";
 import "@/assets/styles/RequirementsData.page.css";
 
 type SprintRow = {
@@ -20,7 +22,10 @@ type SprintRow = {
   name: string;
   sprint_number: number | null;
   sprint_year: number | null;
+  sprint_quarter: number | null;
   sprint_month: number | null;
+  start_date: string | null;
+  end_date: string | null;
   status: string | null;
   is_current: number | null;
 };
@@ -225,7 +230,8 @@ export default function SprintRequirementsPage() {
 
   async function loadSprints(): Promise<void> {
     const rows = await getSupabaseRows<SprintRow>("sprints", {
-      select: "id,name,sprint_number,sprint_year,sprint_month,status,is_current",
+      select:
+        "id,name,sprint_number,sprint_year,sprint_quarter,sprint_month,start_date,end_date,status,is_current",
       order: { column: "start_date", ascending: false },
     });
 
@@ -420,11 +426,10 @@ export default function SprintRequirementsPage() {
                   {sprints.length === 0 ? (
                     <option value="">No sprints found</option>
                   ) : (
-                    sprints.map((sprint) => (
-                      <option key={sprint.id} value={sprint.id}>
-                        {getSprintLabel(sprint)}
-                      </option>
-                    ))
+                    <SprintGroupedSelectOptions
+                      sprints={sprints}
+                      getLabel={getSprintLabel}
+                    />
                   )}
                 </select>
                 <svg
@@ -490,11 +495,10 @@ export default function SprintRequirementsPage() {
                   value={sprintFilter}
                 >
                   <option value="all">All Sprints</option>
-                  {sprints.map((sprint) => (
-                    <option key={sprint.id} value={sprint.id}>
-                      {getSprintLabel(sprint)}
-                    </option>
-                  ))}
+                  <SprintGroupedSelectOptions
+                    sprints={sprints}
+                    getLabel={getSprintLabel}
+                  />
                 </select>
                 <svg
                   aria-hidden="true"
@@ -811,11 +815,10 @@ export default function SprintRequirementsPage() {
                       required
                       value={editForm.sprint_id}
                     >
-                      {sprints.map((sprint) => (
-                        <option key={sprint.id} value={sprint.id}>
-                          {getSprintLabel(sprint)}
-                        </option>
-                      ))}
+                      <SprintGroupedSelectOptions
+                        sprints={sprints}
+                        getLabel={getSprintLabel}
+                      />
                     </select>
                     <svg
                       aria-hidden="true"

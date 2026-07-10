@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/shared/Containers";
 import { StyledSelect } from "@/components/shared/Elements";
+import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
 import {
   Background,
   Border,
@@ -31,6 +32,10 @@ type SprintRow = {
   id: string;
   name: string | null;
   sprint_number: number | null;
+  sprint_year: number | null;
+  sprint_quarter: number | null;
+  start_date: string | null;
+  end_date: string | null;
   is_current: number | null;
 };
 
@@ -217,12 +222,12 @@ const SprintTaskList = () => {
         try {
           const [sprintRows, memberRows, projectTypeRows] = await Promise.all([
             getSupabaseRows<SprintRow>("sprints", {
-              select: "id,name,sprint_number,is_current",
-              order: { column: "sprint_number", ascending: false },
+              select:
+                "id,name,sprint_number,sprint_year,sprint_quarter,start_date,end_date,is_current",
+              order: { column: "start_date", ascending: false },
             }),
             getSupabaseRows<MemberRow>("members", {
               select: "id,full_name,first_name,last_name",
-              order: { column: "full_name", ascending: true },
             }),
             getSupabaseRows<ProjectTypeRow>("project_type", {
               select: "id,name",
@@ -463,21 +468,16 @@ const SprintTaskList = () => {
             alignItems: "center",
           }}
         >
-          <StyledSelect
+          <SprintGroupedSelect
+            sprints={sprints}
             value={selectedSprintId}
             onChange={(value) => {
               setSelectedSprintId(value);
               resetTaskFilters();
             }}
+            getLabel={getSprintName}
             placeholder="Select sprint"
-            accent={Palette.purple}
-          >
-            {sprints.map((sprint) => (
-              <option key={sprint.id} value={sprint.id}>
-                {getSprintName(sprint)}
-              </option>
-            ))}
-          </StyledSelect>
+          />
           <StyledSelect
             value={selectedSpType}
             onChange={(value) => {
@@ -485,7 +485,6 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All task types"
-            accent={Palette.cyan}
           >
             {SP_TYPE_FILTER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -500,7 +499,6 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All project types"
-            accent={Palette.indigo}
           >
             {projectTypes.map((projectType) => (
               <option key={projectType.id} value={projectType.id}>
@@ -515,7 +513,6 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All projects"
-            accent={Palette.pink}
           >
             {projectNames.map((projectName) => (
               <option key={projectName} value={projectName}>
@@ -530,7 +527,6 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All severities"
-            accent={Palette.orange}
           >
             {SEVERITY_FILTER_OPTIONS.map((severity) => (
               <option key={severity} value={severity}>
@@ -545,7 +541,6 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All priorities"
-            accent={Palette.redSoft}
           >
             {PRIORITY_FILTER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -560,8 +555,8 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All members"
-            accent={Palette.cyan}
           >
+            <option value="">All members</option>
             {members.map((member) => (
               <option key={member.id} value={member.id ?? ""}>
                 {getMemberName(member)}
@@ -575,7 +570,6 @@ const SprintTaskList = () => {
               setCurrentPage(1);
             }}
             placeholder="All lists"
-            accent={Palette.gold}
           >
             {listNames.map((listName) => (
               <option key={listName} value={listName}>

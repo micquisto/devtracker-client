@@ -4,6 +4,8 @@ type SupabaseFilterValue = string | number | boolean | null;
 type SupabaseValue = string | number | boolean | null | Record<string, unknown>;
 type SupabaseRow = Record<string, SupabaseValue>;
 
+type SupabaseInFilterValue = string | number;
+
 type SupabaseOrder = {
   column: string;
   ascending?: boolean;
@@ -12,6 +14,7 @@ type SupabaseOrder = {
 export type GetSupabaseRowsOptions = {
   select?: string;
   eq?: Record<string, SupabaseFilterValue>;
+  in?: Record<string, SupabaseInFilterValue[]>;
   order?: SupabaseOrder;
   limit?: number;
 };
@@ -61,7 +64,12 @@ export async function getSupabaseRows<T>(
   table: string,
   options: GetSupabaseRowsOptions = {},
 ): Promise<T[]> {
-  const { select = "*", eq = {}, order, limit } = options;
+  const { select = "*", eq = {}, in: inFilters = {}, order, limit } = options;
+  const resolvedOrder =
+    order ??
+    (table === "members"
+      ? { column: "last_name", ascending: true }
+      : undefined);
 
   let query = supabase.from(table).select(select);
 
@@ -69,9 +77,15 @@ export async function getSupabaseRows<T>(
     query = query.eq(column, value);
   }
 
-  if (order) {
-    query = query.order(order.column, {
-      ascending: order.ascending ?? true,
+  for (const [column, values] of Object.entries(inFilters)) {
+    if (values.length > 0) {
+      query = query.in(column, values);
+    }
+  }
+
+  if (resolvedOrder) {
+    query = query.order(resolvedOrder.column, {
+      ascending: resolvedOrder.ascending ?? true,
     });
   }
 

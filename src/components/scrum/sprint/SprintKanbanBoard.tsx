@@ -9,7 +9,10 @@ import {
   StatusColor,
 } from "@/lib/theme";
 import { getSupabaseRows } from "@/lib/supabase";
-import { NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME } from "@/lib/utils/trello/trello.listNames";
+import {
+  NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
+  NORMALIZED_TRELLO_MIKE_HOLD_LIST_NAME,
+} from "@/lib/utils/trello/trello.listNames";
 import "@/assets/styles/SprintKanbanBoard.css";
 
 const SPRINT_KANBAN_COLUMNS = [
@@ -20,6 +23,7 @@ const SPRINT_KANBAN_COLUMNS = [
 
 const KANBAN_HIDDEN_TRELLO_LIST_NAMES = new Set([
   NORMALIZED_TRELLO_FOR_PLANNING_LIST_NAME,
+  NORMALIZED_TRELLO_MIKE_HOLD_LIST_NAME,
   "planning",
   "project refinement",
   "on-deck sprint backlog",
@@ -95,6 +99,7 @@ type KanbanTask = {
 type SprintKanbanBoardProps = {
   sprintId?: string;
   selectedMemberId?: string;
+  sprintStatus?: string | null;
 };
 
 const ASSIGNEE_COLORS = [
@@ -137,6 +142,24 @@ const SPRINT_BOARD_CONTAINER_STYLE: React.CSSProperties = {
   height: "calc(100vh - 170px)",
   minHeight: 420,
 };
+
+function isClosedSprintKanbanStatus(status: string | null | undefined): boolean {
+  const normalized = status?.trim().toLowerCase() ?? "";
+
+  return normalized === "completed" || normalized === "done";
+}
+
+function ClosedSprintKanbanMessage({ status }: { status: string }) {
+  const displayStatus = status.trim().toLowerCase();
+
+  return (
+    <div className="sprint-kanban-closed" style={SPRINT_BOARD_CONTAINER_STYLE}>
+      <div className="sprint-kanban-closed__panel">
+        The selected sprint is {displayStatus}.
+      </div>
+    </div>
+  );
+}
 
 function getAssigneeColor(member: MemberRow | undefined, fallbackName: string): string {
   if (!member || fallbackName === "Unassigned") return UNASSIGNED_COLOR;
@@ -641,12 +664,21 @@ function SprintTaskCard({
 export default function SprintKanbanBoard({
   sprintId = "",
   selectedMemberId = "",
+  sprintStatus = null,
 }: SprintKanbanBoardProps) {
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isClosedSprint = isClosedSprintKanbanStatus(sprintStatus);
 
   useEffect(() => {
+    if (isClosedSprint) {
+      setLoading(false);
+      setError(null);
+      setTasks([]);
+      return;
+    }
+
     let cancelled = false;
 
     async function loadTasks() {
@@ -714,7 +746,11 @@ export default function SprintKanbanBoard({
     return () => {
       cancelled = true;
     };
-  }, [selectedMemberId, sprintId]);
+  }, [isClosedSprint, selectedMemberId, sprintId]);
+
+  if (isClosedSprint) {
+    return <ClosedSprintKanbanMessage status={sprintStatus ?? "closed"} />;
+  }
 
   if (loading) {
     return (

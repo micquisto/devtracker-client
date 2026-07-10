@@ -1,0 +1,41 @@
+.sprint-grouped-select-wrap .styled-select-wrap select,
+.sprint-grouped-select-wrap .styled-select-wrap select option,
+.sprint-grouped-select-wrap .styled-select-wrap select optgroup,
+.requirements-data-select-wrap select,
+.requirements-data-select-wrap select option,
+.requirements-data-select-wrap select optgroup {
+  color-scheme: dark;
+}
+
+.sprint-grouped-select-wrap .styled-select-wrap select optgroup.sprint-quarter-group,
+.requirements-data-select-wrap select optgroup.sprint-quarter-group {
+  background-color: rgba(9, 18, 38, 0.98);
+  color: rgba(100, 180, 255, 0.82);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sprint-grouped-select-wrap .styled-select-wrap select option,
+.requirements-data-select-wrap select option {
+  background-color: rgba(9, 18, 38, 0.98);
+  color: rgba(232, 244, 255, 0.92);
+}
+
+.sprint-data-quarter-header td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 200, 255, 0.08);
+  color: rgba(100, 180, 255, 0.9);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  padding: 12px 14px;
+  text-transform: uppercase;
+}
+
+.sprint-data-quarter-row td:first-child {
+  box-shadow: inset 3px 0 0 rgba(0, 200, 255, 0.55);
+}

@@ -109,6 +109,16 @@ input[type="date"]:disabled {
   opacity: 0.68;
 }
 
+select {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: rgba(9, 18, 38, 0.98);
+  color: rgba(232, 244, 255, 0.92);
+}
+
 h1,
 h2 {
   font-family: var(--heading);

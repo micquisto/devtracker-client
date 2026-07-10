@@ -6,6 +6,11 @@ import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
 import { DoughnutChart } from "@/components/shared/Charts";
 import { getSupabaseRows } from "@/lib/supabase";
+import {
+  buildScoreboardIncludedMemberIdSet,
+  filterTasksForScoreboardMembers,
+  isScoreboardIncludedMember,
+} from "@/lib/utils";
 
 type SprintRow = {
   id: string;
@@ -58,15 +63,6 @@ const MOCK_MEMBER_NAME_BY_TRELLO_USERNAME: Record<string, string> = {
   jpangs: "Mia Chen",
   thomasandrewzaragoza1: "Leo Santos",
 };
-
-const EXCLUDED_SCOREBOARD_MEMBER_IDS = new Set([
-  "c5726102-b436-4557-ad88-ac148f349558",
-]);
-
-const EXCLUDED_SCOREBOARD_MEMBER_ROLES = new Set([
-  "tech_lead",
-  "project_manager",
-]);
 
 function isContributionTask(task: ContributionTaskRow): boolean {
   return task.sp_type === "planned" || task.sp_type === "adhoc";
@@ -167,7 +163,12 @@ const ContributionDoughnut = () => {
               select: "id,trello_username,role,full_name,first_name,last_name",
             }),
           ]);
-          const storyPointsByMemberId = tasks.reduce<Map<string, number>>(
+          const includedMemberIds = buildScoreboardIncludedMemberIdSet(members);
+          const scoreboardTasks = filterTasksForScoreboardMembers(
+            tasks,
+            includedMemberIds,
+          );
+          const storyPointsByMemberId = scoreboardTasks.reduce<Map<string, number>>(
             (sum, task) => {
               if (task.assigned_to && isContributionTask(task)) {
                 sum.set(
@@ -182,14 +183,10 @@ const ContributionDoughnut = () => {
           );
           const filteredMembers = members.filter(
             (member): member is MemberRow & { id: string } =>
-              Boolean(member.id) &&
-              !EXCLUDED_SCOREBOARD_MEMBER_IDS.has(member.id as string) &&
-              !EXCLUDED_SCOREBOARD_MEMBER_ROLES.has(
-                member.role?.trim().toLowerCase() ?? "",
-              ),
+              isScoreboardIncludedMember(member),
           );
-          const nextTotal = Array.from(storyPointsByMemberId.values()).reduce(
-            (sum, value) => sum + value,
+          const nextTotal = filteredMembers.reduce(
+            (sum, member) => sum + (storyPointsByMemberId.get(member.id) ?? 0),
             0,
           );
           const nextRows = filteredMembers.map((member) => {

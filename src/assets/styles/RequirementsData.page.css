@@ -56,6 +56,7 @@
 .requirements-data-field select {
   appearance: none;
   -webkit-appearance: none;
+  color-scheme: dark;
   cursor: pointer;
   padding-right: 38px;
 }
@@ -260,6 +261,7 @@
 }
 
 .requirements-data-filter-field select {
+  color-scheme: dark;
   cursor: pointer;
   text-transform: capitalize;
 }

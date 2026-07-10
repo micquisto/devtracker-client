@@ -122,11 +122,11 @@ export const Semantic = {
 
 /** Filter mode accent colors */
 export const FilterAccent = {
-  current: Palette.green,
+  current: Palette.cyan,
   sprint: Palette.cyan,
-  month: Palette.gold,
-  quarter: Palette.purple,
-  year: Palette.pink,
+  month: Palette.cyan,
+  quarter: Palette.cyan,
+  year: Palette.cyan,
 } as const;
 
 /** Default team member chart colors */

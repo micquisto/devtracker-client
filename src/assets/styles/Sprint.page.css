@@ -4,6 +4,15 @@
   min-width: 0;
 }
 
+.sprint-scoreboard-section-title {
+  margin-bottom: 8px;
+}
+
+.sprint-scoreboard-metric-label {
+  text-align: left;
+  width: 100%;
+}
+
 .sprint-board-column {
   min-width: 0;
   scroll-snap-align: start;
