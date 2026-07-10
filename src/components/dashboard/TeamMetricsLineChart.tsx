@@ -6,6 +6,9 @@ import {
   Chart,
   Palette,
   Text,
+  chartLabelStyle,
+  chartLegendStyle,
+  chartLabelSvgProps,
 } from "@/lib/theme";
 import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
@@ -138,9 +141,8 @@ const TeamMetricsLineChart = () => {
             />
             <span
               style={{
-                fontSize: 10,
+                ...chartLegendStyle,
                 color: Text.muted,
-                fontFamily: "'DM Sans',sans-serif",
               }}
             >
               {m.label}
@@ -182,9 +184,8 @@ const TeamMetricsLineChart = () => {
                   x={pL - 6}
                   y={y + 3}
                   textAnchor="end"
-                  fontSize="8"
                   fill={Text.faint}
-                  fontFamily="'DM Mono',monospace"
+                  {...chartLabelSvgProps}
                 >
                   {tick}
                 </text>
@@ -240,9 +241,8 @@ const TeamMetricsLineChart = () => {
                 x={p.x}
                 y={pT + cH + 17}
                 textAnchor="middle"
-                fontSize="8"
                 fill={Text.faint}
-                fontFamily="'DM Mono',monospace"
+                {...chartLabelSvgProps}
               >
                 {p.label}
               </text>
@@ -263,10 +263,8 @@ const TeamMetricsLineChart = () => {
                       key={metric.key}
                       x={Math.min(Math.max(p.x - 52, pL + 10), W - pR - 114)}
                       y={pT + 25 + mi * 12}
-                      fontSize="8"
                       fill={metric.color}
-                      fontFamily="'DM Mono',monospace"
-                      fontWeight="800"
+                      {...chartLabelSvgProps}
                     >
                       {metric.label}: {p.metrics[metric.key]}
                     </text>

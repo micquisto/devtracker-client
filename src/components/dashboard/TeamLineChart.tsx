@@ -6,6 +6,13 @@ import {
   Chart,
   Palette,
   Text,
+  CHART_LABEL_FONT_SIZE,
+  CHART_LABEL_LINE_HEIGHT_PX,
+  CHART_LABEL_MAX_LINES,
+  chartLabelStyle,
+  chartLegendStyle,
+  chartLabelSvgProps,
+  wrapChartLabel,
 } from "@/lib/theme";
 import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
@@ -23,9 +30,9 @@ type StoryPointsHoursLineChartProps = {
   showHeaderTotals?: boolean;
 };
 
-const LABEL_FONT_SIZE = 8;
-const LABEL_LINE_HEIGHT = 10;
-const LABEL_MAX_LINES = 3;
+const LABEL_FONT_SIZE = CHART_LABEL_FONT_SIZE;
+const LABEL_LINE_HEIGHT = CHART_LABEL_LINE_HEIGHT_PX;
+const LABEL_MAX_LINES = CHART_LABEL_MAX_LINES;
 
 function formatChartValue(value: number): string {
   return Number((Math.round(value * 100) / 100).toFixed(2)).toString();
@@ -68,79 +75,6 @@ function getDeltaArrow(delta: number | null): string {
   return delta > 0 ? " ▲" : " ▼";
 }
 
-function wrapAxisLabel(
-  label: string,
-  maxWidthPx: number,
-  fontSize: number,
-  maxLines = LABEL_MAX_LINES,
-): string[] {
-  const trimmed = label.trim();
-  if (!trimmed) {
-    return [""];
-  }
-
-  const avgCharWidth = fontSize * 0.58;
-  const maxChars = Math.max(4, Math.floor(maxWidthPx / avgCharWidth));
-  const words = trimmed.split(/\s+/u);
-  const lines: string[] = [];
-  let current = "";
-
-  const pushHardBroken = (word: string) => {
-    let rest = word;
-    while (rest.length > maxChars) {
-      lines.push(rest.slice(0, maxChars));
-      rest = rest.slice(maxChars);
-      if (lines.length >= maxLines) {
-        return;
-      }
-    }
-    current = rest;
-  };
-
-  for (const word of words) {
-    if (lines.length >= maxLines) {
-      break;
-    }
-
-    const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxChars) {
-      current = next;
-      continue;
-    }
-
-    if (current) {
-      lines.push(current);
-      current = "";
-      if (lines.length >= maxLines) {
-        break;
-      }
-    }
-
-    if (word.length > maxChars) {
-      pushHardBroken(word);
-    } else {
-      current = word;
-    }
-  }
-
-  if (current && lines.length < maxLines) {
-    lines.push(current);
-  }
-
-  if (lines.length === 0) {
-    return [trimmed.slice(0, maxChars)];
-  }
-
-  const usedLength = lines.join(" ").length;
-  if (usedLength < trimmed.length && lines.length > 0) {
-    const last = lines[lines.length - 1];
-    lines[lines.length - 1] =
-      last.length > 1 ? `${last.slice(0, Math.max(1, last.length - 1))}…` : "…";
-  }
-
-  return lines;
-}
-
 export function StoryPointsHoursLineChart({
   entries,
   glowFilterId = "teamComparisonGlow",
@@ -178,7 +112,7 @@ export function StoryPointsHoursLineChart({
     entries.length > 1 ? Math.max(step * 0.9, 64) : Math.min(cW * 0.5, 160);
 
   const wrappedLabels = entries.map((entry) =>
-    wrapAxisLabel(entry.label, labelMaxWidth, LABEL_FONT_SIZE),
+    wrapChartLabel(entry.label, labelMaxWidth, LABEL_FONT_SIZE, LABEL_MAX_LINES),
   );
   const maxLabelLines = Math.max(
     1,
@@ -319,9 +253,8 @@ export function StoryPointsHoursLineChart({
             />
             <span
               style={{
-                fontSize: 10,
+                ...chartLegendStyle,
                 color: Text.muted,
-                fontFamily: "'DM Sans',sans-serif",
               }}
             >
               {l}
@@ -383,9 +316,8 @@ export function StoryPointsHoursLineChart({
                     x={pL - 6}
                     y={y + 3}
                     textAnchor="end"
-                    fontSize="8"
                     fill={Text.faint}
-                    fontFamily="'DM Mono',monospace"
+                    {...chartLabelSvgProps}
                   >
                     {Math.round(maxStoryPoints * tick)}
                   </text>
@@ -393,9 +325,8 @@ export function StoryPointsHoursLineChart({
                     x={W - pR + 6}
                     y={y + 3}
                     textAnchor="start"
-                    fontSize="8"
                     fill={Text.faint}
-                    fontFamily="'DM Mono',monospace"
+                    {...chartLabelSvgProps}
                   >
                     {Math.round(maxHours * tick)}
                   </text>
@@ -406,10 +337,8 @@ export function StoryPointsHoursLineChart({
             <text
               x={pL}
               y={12}
-              fontSize="8"
               fill={Palette.cyan}
-              fontFamily="'DM Mono',monospace"
-              fontWeight="700"
+              {...chartLabelSvgProps}
             >
               SP
             </text>
@@ -417,10 +346,8 @@ export function StoryPointsHoursLineChart({
               x={W - pR}
               y={12}
               textAnchor="end"
-              fontSize="8"
               fill={Palette.gold}
-              fontFamily="'DM Mono',monospace"
-              fontWeight="700"
+              {...chartLabelSvgProps}
             >
               HRS
             </text>
@@ -485,10 +412,8 @@ export function StoryPointsHoursLineChart({
                   x={p.x}
                   y={pT + cH + 14}
                   textAnchor="middle"
-                  fontSize={LABEL_FONT_SIZE}
                   fill={Text.muted}
-                  fontFamily="'DM Sans',sans-serif"
-                  fontWeight="600"
+                  {...chartLabelSvgProps}
                 >
                   {p.labelLines.map((line, lineIndex) => (
                     <tspan

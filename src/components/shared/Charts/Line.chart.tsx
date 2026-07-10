@@ -7,6 +7,11 @@ import {
   Palette,
   Semantic,
   Text,
+  CHART_LABEL_FONT_SIZE,
+  CHART_LABEL_LINE_HEIGHT_PX,
+  CHART_LABEL_MAX_LINES,
+  chartLabelSvgProps,
+  wrapChartLabel,
 } from "@/lib/theme";
 import { detectTrendPoints } from ".";
 
@@ -20,15 +25,21 @@ import { detectTrendPoints } from ".";
 }) => {
   const [hov, setHov] = useState<number | null>(null);
   const W = 540,
-    H = 170,
     pL = 36,
     pR = 16,
-    pT = 26,
-    pB = 30;
-  const cW = W - pL - pR,
-    cH = H - pT - pB;
+    pT = 26;
+  const plotH = 114;
+  const cW = W - pL - pR;
   const n = data.length;
   const step = n > 1 ? cW / (n - 1) : 0;
+  const labelMaxWidth = n > 1 ? Math.max(step * 0.9, 48) : Math.min(cW * 0.5, 140);
+  const wrappedLabels = data.map((d) =>
+    wrapChartLabel(d.label, labelMaxWidth, CHART_LABEL_FONT_SIZE, CHART_LABEL_MAX_LINES),
+  );
+  const maxLabelLines = Math.max(1, ...wrappedLabels.map((lines) => lines.length));
+  const pB = 14 + maxLabelLines * CHART_LABEL_LINE_HEIGHT_PX;
+  const cH = plotH;
+  const H = pT + cH + pB;
   const vals = data.map((d) => d.value);
   const dMin = Math.max(0, Math.min(...vals) - 10);
   const dMax = Math.min(100, Math.max(...vals) + 10);
@@ -39,6 +50,7 @@ import { detectTrendPoints } from ".";
     y: pT + cH - ((d.value - dMin) / range) * cH,
     v: d.value,
     label: d.label,
+    labelLines: wrappedLabels[i] ?? [d.label],
   }));
 
   const linePath = pts
@@ -102,9 +114,8 @@ import { detectTrendPoints } from ".";
               x={pL - 4}
               y={y + 4}
               textAnchor="end"
-              fontSize="8"
               fill={Chart.label}
-              fontFamily="'DM Mono',monospace"
+              {...chartLabelSvgProps}
             >
               {v}
             </text>
@@ -194,10 +205,8 @@ import { detectTrendPoints } from ".";
               y={isUp ? arrowY - 7 : arrowY + ah + stemLen + 7}
               textAnchor="middle"
               dominantBaseline="middle"
-              fontSize="7"
               fill={color}
-              fontFamily="'DM Mono',monospace"
-              fontWeight="800"
+              {...chartLabelSvgProps}
             >
               {diff >= 0 ? "+" : ""}
               {diff}
@@ -245,10 +254,8 @@ import { detectTrendPoints } from ".";
                 y={p.y - 25}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize="10"
                 fill={Palette.cyan}
-                fontFamily="'DM Mono',monospace"
-                fontWeight="700"
+                {...chartLabelSvgProps}
               >
                 {p.label}: {p.v}
               </text>
@@ -258,13 +265,12 @@ import { detectTrendPoints } from ".";
                   y={p.y - 14}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize="8"
                   fill={
                     vals[i] - vals[i - 1] >= 0
                       ? Semantic.positive
                       : Semantic.negative
                   }
-                  fontFamily="'DM Mono',monospace"
+                  {...chartLabelSvgProps}
                 >
                   {vals[i] - vals[i - 1] >= 0 ? "+" : ""}
                   {vals[i] - vals[i - 1]}
@@ -288,13 +294,20 @@ import { detectTrendPoints } from ".";
         <text
           key={i}
           x={p.x}
-          y={pT + cH + 14}
+          y={pT + cH + 12}
           textAnchor="middle"
-          fontSize="8"
           fill={Text.faint}
-          fontFamily="'DM Mono',monospace"
+          {...chartLabelSvgProps}
         >
-          {p.label.length > 6 ? p.label.slice(0, 6) : p.label}
+          {p.labelLines.map((line, lineIndex) => (
+            <tspan
+              key={`${p.label}-${lineIndex}`}
+              x={p.x}
+              dy={lineIndex === 0 ? 0 : CHART_LABEL_LINE_HEIGHT_PX}
+            >
+              {line}
+            </tspan>
+          ))}
         </text>
       ))}
     </svg>

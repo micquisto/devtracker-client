@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
-import { Chart } from "@/lib/theme";
+import { Chart, chartLabelStyle } from "@/lib/theme";
 
 export type BarSegmentInput = {
   value: number;
@@ -85,9 +85,7 @@ function BarChart<T extends BarSegmentInput>({
             >
               <span
                 style={{
-                  fontSize: 10,
-                  fontFamily: "'DM Mono',monospace",
-                  fontWeight: 700,
+                  ...chartLabelStyle,
                   color,
                   marginBottom: 4,
                   opacity: anim ? 1 : 0,
@@ -110,12 +108,16 @@ function BarChart<T extends BarSegmentInput>({
               />
               <span
                 style={{
-                  fontSize: 8,
-                  fontFamily: "'DM Mono',monospace",
+                  ...chartLabelStyle,
                   color: isHighlight ? highlightColor : defaultLabelColor,
                   marginTop: 6,
                   textAlign: "center" as const,
-                  lineHeight: 1.2,
+                  width: "100%",
+                  maxWidth: "100%",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 4,
+                  WebkitBoxOrient: "vertical" as const,
+                  overflow: "hidden",
                 }}
               >
                 {s.label}

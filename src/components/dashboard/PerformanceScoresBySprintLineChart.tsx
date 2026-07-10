@@ -5,6 +5,13 @@ import {
   Chart,
   Palette,
   Text,
+  CHART_LABEL_FONT_SIZE,
+  CHART_LABEL_LINE_HEIGHT_PX,
+  CHART_LABEL_MAX_LINES,
+  chartLabelStyle,
+  chartLegendStyle,
+  chartLabelSvgProps,
+  wrapChartLabel,
 } from "@/lib/theme";
 
 export type PerformanceScoresBySprintPoint = {
@@ -29,9 +36,9 @@ const SERIES: Array<{ key: SeriesKey; label: string; color: string }> = [
   { key: "professionalism", label: "Professionalism", color: "#ff9f43" },
 ];
 
-const LABEL_FONT_SIZE = 8;
-const LABEL_LINE_HEIGHT = 10;
-const LABEL_MAX_LINES = 3;
+const LABEL_FONT_SIZE = CHART_LABEL_FONT_SIZE;
+const LABEL_LINE_HEIGHT = CHART_LABEL_LINE_HEIGHT_PX;
+const LABEL_MAX_LINES = Math.max(CHART_LABEL_MAX_LINES, 5);
 
 function formatScoreValue(value: number): string {
   return Number((Math.round(value * 100) / 100).toFixed(2)).toString();
@@ -74,79 +81,6 @@ function getScoreDeltaArrow(delta: number | null): string {
   return delta > 0 ? " ▲" : " ▼";
 }
 
-function wrapAxisLabel(
-  label: string,
-  maxWidthPx: number,
-  fontSize: number,
-  maxLines = LABEL_MAX_LINES,
-): string[] {
-  const trimmed = label.trim();
-  if (!trimmed) {
-    return [""];
-  }
-
-  const avgCharWidth = fontSize * 0.58;
-  const maxChars = Math.max(4, Math.floor(maxWidthPx / avgCharWidth));
-  const words = trimmed.split(/\s+/u);
-  const lines: string[] = [];
-  let current = "";
-
-  const pushHardBroken = (word: string) => {
-    let rest = word;
-    while (rest.length > maxChars) {
-      lines.push(rest.slice(0, maxChars));
-      rest = rest.slice(maxChars);
-      if (lines.length >= maxLines) {
-        return;
-      }
-    }
-    current = rest;
-  };
-
-  for (const word of words) {
-    if (lines.length >= maxLines) {
-      break;
-    }
-
-    const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxChars) {
-      current = next;
-      continue;
-    }
-
-    if (current) {
-      lines.push(current);
-      current = "";
-      if (lines.length >= maxLines) {
-        break;
-      }
-    }
-
-    if (word.length > maxChars) {
-      pushHardBroken(word);
-    } else {
-      current = word;
-    }
-  }
-
-  if (current && lines.length < maxLines) {
-    lines.push(current);
-  }
-
-  if (lines.length === 0) {
-    return [trimmed.slice(0, maxChars)];
-  }
-
-  const usedLength = lines.join(" ").length;
-  if (usedLength < trimmed.length && lines.length > 0) {
-    const last = lines[lines.length - 1];
-    lines[lines.length - 1] =
-      last.length > 1 ? `${last.slice(0, Math.max(1, last.length - 1))}…` : "…";
-  }
-
-  return lines;
-}
-
 type PerformanceScoresBySprintLineChartProps = {
   entries: PerformanceScoresBySprintPoint[];
   glowFilterId?: string;
@@ -166,49 +100,85 @@ export function PerformanceScoresBySprintLineChart({
   }, [entries]);
 
   const W = 560;
-  const pL = 42;
-  const pR = 16;
+  const pL = 48;
+  const pR = 48;
   const pT = 26;
   const plotH = 148;
   const cW = W - pL - pR;
   const step = entries.length > 1 ? cW / (entries.length - 1) : 0;
-  const labelMaxWidth =
-    entries.length > 1 ? Math.max(step * 0.9, 64) : Math.min(cW * 0.5, 160);
+  // Labels use CSS px (do not scale with viewBox). Wrap against the chart's
+  // min display width so lines stay inside each sprint column and do not overlap.
+  const MIN_SVG_CSS_WIDTH = 340;
+  const viewBoxToCss = MIN_SVG_CSS_WIDTH / W;
 
-  const wrappedLabels = entries.map((entry) =>
-    wrapAxisLabel(entry.label, labelMaxWidth, LABEL_FONT_SIZE),
-  );
+  const getLabelLayout = (index: number) => {
+    const pointX = pL + (entries.length === 1 ? cW / 2 : index * step);
+
+    if (entries.length <= 1) {
+      return {
+        textAnchor: "middle" as const,
+        labelX: pointX,
+        maxWidthCss: Math.min(cW * 0.45, 96) * viewBoxToCss,
+      };
+    }
+
+    // Keep each label under its point with a small gap between neighbors.
+    const maxWidthCss = Math.max(step * 0.72 * viewBoxToCss, 36);
+
+    return {
+      textAnchor: "middle" as const,
+      labelX: pointX,
+      maxWidthCss,
+    };
+  };
+
+  const wrappedLabels = entries.map((entry, index) => {
+    const { maxWidthCss } = getLabelLayout(index);
+    return wrapChartLabel(
+      entry.label,
+      maxWidthCss,
+      LABEL_FONT_SIZE,
+      LABEL_MAX_LINES,
+    );
+  });
   const maxLabelLines = Math.max(
     1,
     ...wrappedLabels.map((lines) => lines.length),
   );
-  const pB = 18 + maxLabelLines * LABEL_LINE_HEIGHT;
+  const pB = 20 + maxLabelLines * LABEL_LINE_HEIGHT;
   const cH = plotH;
   const H = pT + cH + pB;
   const maxScore = 100;
   const gridTicks = [0, 0.25, 0.5, 0.75, 1];
 
-  const points = entries.map((entry, index) => ({
-    key: entry.id ?? `${entry.label}-${index}`,
-    x: pL + (entries.length === 1 ? cW / 2 : index * step),
-    labelLines: wrappedLabels[index] ?? [entry.label],
-    values: {
-      productivity: entry.productivity,
-      efficiency: entry.efficiency,
-      quality: entry.quality,
-      collaboration: entry.collaboration,
-      velocity: entry.velocity,
-      professionalism: entry.professionalism,
-    },
-    ys: SERIES.reduce(
-      (acc, series) => {
-        acc[series.key] =
-          pT + cH - (Math.min(maxScore, Math.max(0, entry[series.key])) / maxScore) * cH;
-        return acc;
+  const points = entries.map((entry, index) => {
+    const layout = getLabelLayout(index);
+    return {
+      key: entry.id ?? `${entry.label}-${index}`,
+      x: pL + (entries.length === 1 ? cW / 2 : index * step),
+      labelX: layout.labelX,
+      textAnchor: layout.textAnchor,
+      labelLines: wrappedLabels[index] ?? [entry.label],
+      values: {
+        productivity: entry.productivity,
+        efficiency: entry.efficiency,
+        quality: entry.quality,
+        collaboration: entry.collaboration,
+        velocity: entry.velocity,
+        professionalism: entry.professionalism,
       },
-      {} as Record<SeriesKey, number>,
-    ),
-  }));
+      ys: SERIES.reduce(
+        (acc, series) => {
+          acc[series.key] =
+            pT +
+            cH -
+            (Math.min(maxScore, Math.max(0, entry[series.key])) / maxScore) * cH;
+          return acc;
+        },
+        {} as Record<SeriesKey, number>,
+      ),
+    };
+  });
 
   const pathFor = (key: SeriesKey) =>
     points
@@ -277,11 +247,8 @@ export function PerformanceScoresBySprintLineChart({
             />
             <span
               style={{
-                fontSize: 13,
+                ...chartLegendStyle,
                 color: "rgba(210, 230, 255, 0.92)",
-                fontFamily: "'DM Sans',sans-serif",
-                fontWeight: 700,
-                letterSpacing: "0.01em",
               }}
             >
               {series.label}
@@ -290,7 +257,7 @@ export function PerformanceScoresBySprintLineChart({
         ))}
       </div>
 
-      <div style={{ width: "100%", overflowX: "auto" }}>
+      <div style={{ width: "100%", overflowX: "auto", overflowY: "visible" }}>
         {entries.length === 0 ? (
           <div
             style={{
@@ -309,6 +276,9 @@ export function PerformanceScoresBySprintLineChart({
               position: "relative",
               width: "100%",
               minWidth: 340,
+              overflow: "visible",
+              paddingBottom: 8,
+              boxSizing: "border-box",
             }}
             onMouseLeave={() => setHovered(null)}
           >
@@ -343,9 +313,8 @@ export function PerformanceScoresBySprintLineChart({
                     x={pL - 6}
                     y={y + 3}
                     textAnchor="end"
-                    fontSize="8"
                     fill={Text.faint}
-                    fontFamily="'DM Mono',monospace"
+                    {...chartLabelSvgProps}
                   >
                     {Math.round(maxScore * tick)}
                   </text>
@@ -356,10 +325,8 @@ export function PerformanceScoresBySprintLineChart({
             <text
               x={pL}
               y={12}
-              fontSize="8"
               fill={Text.muted}
-              fontFamily="'DM Mono',monospace"
-              fontWeight="700"
+              {...chartLabelSvgProps}
             >
               SCORE
             </text>
@@ -407,18 +374,16 @@ export function PerformanceScoresBySprintLineChart({
                   />
                 ))}
                 <text
-                  x={point.x}
+                  x={point.labelX}
                   y={pT + cH + 14}
-                  textAnchor="middle"
-                  fontSize={LABEL_FONT_SIZE}
+                  textAnchor={point.textAnchor}
                   fill={Text.muted}
-                  fontFamily="'DM Sans',sans-serif"
-                  fontWeight="600"
+                  {...chartLabelSvgProps}
                 >
                   {point.labelLines.map((line, lineIndex) => (
                     <tspan
                       key={`${point.key}-line-${lineIndex}`}
-                      x={point.x}
+                      x={point.labelX}
                       dy={lineIndex === 0 ? 0 : LABEL_LINE_HEIGHT}
                     >
                       {line}

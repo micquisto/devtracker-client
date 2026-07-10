@@ -1307,9 +1307,11 @@ export default function SprintScoreboard({
                     <span
                       style={{
                         color: "rgba(220,238,255,0.82)",
-                        fontFamily: "'DM Sans', sans-serif",
+                        fontFamily: "'DM Mono', monospace",
                         fontSize: 10,
-                        fontWeight: 800,
+                        fontWeight: 700,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
                         lineHeight: 1.15,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -1322,8 +1324,10 @@ export default function SprintScoreboard({
                       style={{
                         color: project.color,
                         fontFamily: "'DM Mono', monospace",
-                        fontSize: 11,
-                        fontWeight: 900,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -2239,9 +2243,11 @@ export default function SprintScoreboard({
                         <span
                           style={{
                             color: "rgba(220,238,255,0.82)",
-                            fontFamily: "'DM Sans', sans-serif",
+                            fontFamily: "'DM Mono', monospace",
                             fontSize: 10,
-                            fontWeight: 800,
+                            fontWeight: 700,
+                            letterSpacing: "0.12em",
+                            textTransform: "uppercase",
                             lineHeight: 1.15,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -2254,8 +2260,10 @@ export default function SprintScoreboard({
                           style={{
                             color: project.color,
                             fontFamily: "'DM Mono', monospace",
-                            fontSize: 11,
-                            fontWeight: 900,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: "0.12em",
+                            textTransform: "uppercase",
                             whiteSpace: "nowrap",
                           }}
                         >

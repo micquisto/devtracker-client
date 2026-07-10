@@ -1,5 +1,5 @@
 import { SPRINT_BOARD_HISTORY } from "@/data/SprintBoard.data";
-import { Background, Border, Chart, Text } from "@/lib/theme";
+import { Background, Border, Chart, Text, chartLabelStyle } from "@/lib/theme";
 import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
 import { BarChart } from "@/components/shared/Charts";
@@ -47,19 +47,16 @@ const VelocityChart = () => {
               <div>
                 <div
                   style={{
-                    fontSize: 10,
+                    ...chartLabelStyle,
                     color: Text.subtle,
-                    fontFamily: "'DM Sans',sans-serif",
                   }}
                 >
                   avg SP / sprint
                 </div>
                 <div
                   style={{
-                    fontSize: 10,
+                    ...chartLabelStyle,
                     color: Text.greenMuted,
-                    fontFamily: "'DM Mono',monospace",
-                    fontWeight: 700,
                     marginTop: 2,
                   }}
                 >
@@ -76,9 +73,8 @@ const VelocityChart = () => {
                 borderRadius: 8,
                 background: Background.goldPanel,
                 border: `1px dashed ${Border.gold}`,
-                fontSize: 10,
+                ...chartLabelStyle,
                 color: Text.goldMuted,
-                fontFamily: "'DM Mono',monospace",
                 textAlign: "center" as const,
               }}
             >

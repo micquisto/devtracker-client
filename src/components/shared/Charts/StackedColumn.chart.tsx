@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
-import { Border, Chart, Text } from "@/lib/theme";
+import { Border, Chart, Text, chartLabelStyle, chartLegendStyle } from "@/lib/theme";
 
 export type StackLayerInput = {
   value: number;
@@ -107,11 +107,10 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
             >
               <span
                 style={{
-                  fontSize: 8,
+                  ...chartLabelStyle,
                   color: Text.dimmer,
-                  fontFamily: "'DM Mono',monospace",
                   position: "absolute",
-                  left: -20,
+                  left: -28,
                   top: -6,
                 }}
               >
@@ -170,13 +169,12 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
                   {s.topLabel && (
                     <div
                       style={{
+                        ...chartLabelStyle,
                         color: labelColor,
-                        fontFamily: "'DM Mono',monospace",
-                        fontSize: 9,
-                        fontWeight: 900,
                         marginBottom: 6,
                         textShadow: `0 0 10px ${labelColor}44`,
-                        whiteSpace: "nowrap",
+                        maxWidth: "100%",
+                        whiteSpace: "normal",
                       }}
                     >
                       {s.topLabel}
@@ -214,13 +212,13 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
                 >
                   <div
                     style={{
+                      ...chartLabelStyle,
                       color: labelColor,
-                      fontFamily: "'DM Mono',monospace",
-                      fontSize: 8,
-                      fontWeight: 700,
-                      lineHeight: 1.15,
-                      maxWidth: 72,
-                      overflowWrap: "anywhere",
+                      maxWidth: "100%",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 4,
+                      WebkitBoxOrient: "vertical" as const,
+                      overflow: "hidden",
                     }}
                   >
                     {s.label}
@@ -228,10 +226,14 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
                   {s.sublabel && (
                     <div
                       style={{
-                        fontSize: 7,
-                        fontFamily: "'DM Mono',monospace",
+                        ...chartLabelStyle,
                         color: Text.dimmer,
                         marginTop: 1,
+                        maxWidth: "100%",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical" as const,
+                        overflow: "hidden",
                       }}
                     >
                       {s.sublabel}
@@ -261,9 +263,8 @@ function StackedColumnChart<T extends StackedColumnSegmentInput>({
               />
               <span
                 style={{
-                  fontSize: 10,
+                  ...chartLegendStyle,
                   color: Text.legend,
-                  fontFamily: "'DM Sans',sans-serif",
                 }}
               >
                 {label}

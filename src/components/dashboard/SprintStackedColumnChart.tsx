@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
 import { SPRINT_BOARD_TASKS } from "@/data/SprintBoard.data";
-import { Background, Border, Chart } from "@/lib/theme";
+import { Background, Border, Chart, chartLabelStyle } from "@/lib/theme";
 import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
 import { StackedColumnChart } from "@/components/shared/Charts";
@@ -325,41 +325,33 @@ const SprintStackedColumnChart = () => {
                 >
                   <div
                     style={{
-                      fontSize: 10,
+                      ...chartLabelStyle,
                       color: s.color,
-                      fontFamily: "'DM Sans',sans-serif",
                       marginBottom: 4,
-                      fontWeight: 800,
                     }}
                   >
                     {s.name}
                   </div>
                   <div
                     style={{
-                      fontSize: 11,
+                      ...chartLabelStyle,
                       color: s.color,
-                      fontFamily: "'DM Mono',monospace",
-                      fontWeight: 700,
                     }}
                   >
                     Completed: {s.completed} SP
                   </div>
                   <div
                     style={{
-                      fontSize: 11,
+                      ...chartLabelStyle,
                       color: "#00e5a0",
-                      fontFamily: "'DM Mono',monospace",
-                      fontWeight: 800,
                     }}
                   >
                     Completion: {s.completedPercent}%
                   </div>
                   <div
                     style={{
-                      fontSize: 11,
+                      ...chartLabelStyle,
                       color: `${s.color}99`,
-                      fontFamily: "'DM Mono',monospace",
-                      fontWeight: 700,
                     }}
                   >
                     Not Completed: {s.notDone} SP

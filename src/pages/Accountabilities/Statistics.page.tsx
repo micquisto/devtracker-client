@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { DropArrow, StyledSelect } from "@/components/shared/Elements";
 import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
 import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart } from "@/components/dashboard";
 import { getSupabaseRows } from "@/lib/supabase";
-import { Palette } from "@/lib/theme";
+import { Palette, chartLabelStyle, chartLabelSvgProps } from "@/lib/theme";
 import {
   isScoreboardIncludedMember,
   sortMembersByLastName,
@@ -62,7 +62,7 @@ const PERFORMANCE_GRADE_COLORS: Record<PerformanceScoreGrade, string> = {
 };
 
 const MEMBER_RANKING_COLORS = [
-  "#ffcc00", // gold
+  "#ffe566", // gold (lighter highlight for rank 1)
   "#00e5a0", // green
   "#00c8ff", // blue
   "#c2783a", // dull orange
@@ -81,6 +81,17 @@ function getMemberRankingColor(rank: number): string {
   }
 
   return MEMBER_RANKING_COLORS[rank - 1];
+}
+
+function getMemberRankingHighlightIntensity(rank: number, total: number): number {
+  if (total <= 1) {
+    return 1;
+  }
+
+  // Rank 1 stays near full glow; lower ranks fall off quickly toward dim.
+  const progress = (Math.max(rank, 1) - 1) / (total - 1);
+  const eased = progress * progress;
+  return Math.max(0.08, 1 - eased * 0.92);
 }
 
 function getSkillValueGradeColor(
@@ -181,6 +192,19 @@ type MemberRankingEntry = {
   grade: PerformanceScoreGrade | null;
   rates: SkillRadarValues;
 };
+
+const MEMBER_RANKING_COLUMNS = [
+  { key: "rank", label: "Rank" },
+  { key: "name", label: "Name" },
+  { key: "grade", label: "Grade" },
+  { key: "score", label: "Score Points" },
+  { key: "productivity", label: "Productivity" },
+  { key: "efficiency", label: "Efficiency" },
+  { key: "quality", label: "Quality" },
+  { key: "collaboration", label: "Collaboration" },
+  { key: "velocity", label: "Velocity" },
+  { key: "professionalism", label: "Professionalism" },
+] as const;
 
 const MEMBER_RANKING_RATE_METRICS: Array<{
   key: keyof SkillRadarValues;
@@ -827,9 +851,7 @@ function RadarChart({
               textAnchor="middle"
               dominantBaseline="middle"
               fill="rgba(180,230,255,0.9)"
-              fontSize="9"
-              fontFamily="'DM Sans',sans-serif"
-              fontWeight="600"
+              {...chartLabelSvgProps}
             >
               {p.label}
             </text>
@@ -840,10 +862,12 @@ function RadarChart({
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill={p.color}
-                fontSize="9"
-                fontFamily="'DM Mono',monospace"
-                fontWeight="700"
-                style={{ opacity: anim ? 1 : 0, transition: `opacity 0.6s ease ${i * 0.08 + 0.2}s` }}
+                {...chartLabelSvgProps}
+                style={{
+                  ...chartLabelSvgProps.style,
+                  opacity: anim ? 1 : 0,
+                  transition: `opacity 0.6s ease ${i * 0.08 + 0.2}s`,
+                }}
               >
                 {p.value}%
               </text>
@@ -856,8 +880,7 @@ function RadarChart({
         y={410}
         textAnchor="middle"
         fill="rgba(150,200,240,0.65)"
-        fontSize="9"
-        fontFamily="'DM Mono',monospace"
+        {...chartLabelSvgProps}
       >
         Passing min {Math.round(scale.minValue)}% · scale {chartTicks.join(" / ")}%
       </text>
@@ -949,7 +972,7 @@ function SkillBarChart({
 }) {
   const [heights, setHeights] = useState(RADAR_KEYS.map(() => 0));
   const chartH = 160;
-  const labelH = 32;
+  const labelH = 48;
   const chartTicks = getSkillChartTicks(scale);
 
   useEffect(() => {
@@ -1000,12 +1023,11 @@ function SkillBarChart({
               >
                 <span
                   style={{
-                    fontSize: 9,
+                    ...chartLabelStyle,
                     color:
                       tick === Math.round(scale.minValue)
                         ? "rgba(255,120,130,0.7)"
                         : "rgba(100,160,210,0.45)",
-                    fontFamily: "'DM Mono',monospace",
                     marginTop: -8,
                     paddingRight: 4,
                     minWidth: 24,
@@ -1056,9 +1078,7 @@ function SkillBarChart({
                     bottom: `calc(${barHeight}px + 4px)`,
                     left: "50%",
                     transform: "translateX(-50%)",
-                    fontSize: 11,
-                    fontFamily: "'DM Mono',monospace",
-                    fontWeight: 700,
+                    ...chartLabelStyle,
                     color: barColor,
                     opacity: heights[i] > 0 || !passed ? 1 : 0,
                     transition: "opacity 0.5s ease, bottom 1s cubic-bezier(0.23,1,0.32,1)",
@@ -1084,15 +1104,18 @@ function SkillBarChart({
                     top: "calc(100% + 8px)",
                     left: "50%",
                     transform: "translateX(-50%)",
-                    fontSize: 10,
-                    fontFamily: "'DM Sans',sans-serif",
-                    fontWeight: 600,
+                    ...chartLabelStyle,
                     color: "rgba(150,200,240,0.7)",
                     textAlign: "center",
-                    whiteSpace: "nowrap",
+                    width: "100%",
+                    maxWidth: "100%",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: "vertical" as const,
+                    overflow: "hidden",
                   }}
                 >
-                  {RADAR_LABELS[i].slice(0, 5)}
+                  {RADAR_LABELS[i]}
                 </span>
               </div>
             );
@@ -1225,11 +1248,10 @@ function TeamContributionDoughnut({
                 y={segment.ly}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize="9"
                 fill={segment.color}
-                fontFamily="'DM Mono',monospace"
-                fontWeight="700"
+                {...chartLabelSvgProps}
                 style={{
+                  ...chartLabelSvgProps.style,
                   opacity: anim ? 1 : 0,
                   transition: `opacity 0.5s ease ${index * 0.07 + 0.3}s`,
                 }}
@@ -1259,10 +1281,8 @@ function TeamContributionDoughnut({
               y={cy + 8}
               textAnchor="middle"
               dominantBaseline="middle"
-              fontSize="9"
               fill="rgba(160,210,255,0.7)"
-              fontFamily="'DM Sans',sans-serif"
-              fontWeight="600"
+              {...chartLabelSvgProps}
             >
               {hoveredSegment.name}
             </text>
@@ -1271,9 +1291,8 @@ function TeamContributionDoughnut({
               y={cy + 22}
               textAnchor="middle"
               dominantBaseline="middle"
-              fontSize="8"
               fill={hoveredSegment.color}
-              fontFamily="'DM Mono',monospace"
+              {...chartLabelSvgProps}
             >
               {formatContributionStoryPoints(hoveredSegment.storyPoints)} SP
             </text>
@@ -1297,9 +1316,8 @@ function TeamContributionDoughnut({
               y={cy + 12}
               textAnchor="middle"
               dominantBaseline="middle"
-              fontSize="9"
               fill="rgba(120,180,240,0.55)"
-              fontFamily="'DM Sans',sans-serif"
+              {...chartLabelSvgProps}
             >
               Team SP
             </text>
@@ -3901,83 +3919,143 @@ export default function StatisticsPage({
       ) : null}
 
       <div className="scard">
-        <div className="stitle">Member&apos;s Ranking</div>
+        <div className="stitle">Leaderboard</div>
         {scorePointsLoading ? (
-          <div className="statistics-member-ranking__empty">Loading ranking…</div>
+          <div className="statistics-member-ranking__empty">Loading leaderboard…</div>
         ) : memberRankingEntries.length === 0 ? (
           <div className="statistics-member-ranking__empty">
             No member scores for the selected period.
           </div>
         ) : (
-          <ul className="statistics-member-ranking">
-            {memberRankingEntries.map((entry, index) => {
-              const entryGrade = entry.grade ?? "—";
-              const entryGradeColor = entry.grade
-                ? PERFORMANCE_GRADE_COLORS[entry.grade]
-                : "#fff";
+          <div className="statistics-member-ranking">
+            <div className="statistics-member-ranking__table">
+              <div className="statistics-member-ranking__header" role="row">
+                {MEMBER_RANKING_COLUMNS.map((column) => (
+                  <div
+                    key={column.key}
+                    className={`statistics-member-ranking__head-cell${
+                      column.key === "name"
+                        ? " statistics-member-ranking__head-cell--name"
+                        : ""
+                    }${
+                      column.key === "rank"
+                        ? " statistics-member-ranking__head-cell--rank"
+                        : ""
+                    }`}
+                    role="columnheader"
+                  >
+                    {column.label}
+                  </div>
+                ))}
+              </div>
 
-              return (
-                <li
-                  key={entry.memberId}
-                  className="statistics-member-ranking__row"
-                >
-                  <div className="statistics-member-ranking__identity">
-                    <span
-                      className="statistics-member-ranking__rank"
-                      style={{ color: getMemberRankingColor(entry.rank) }}
-                    >
-                      #{entry.rank}
-                    </span>
-                    <div className="statistics-member-ranking__member">
-                      <span className="statistics-member-ranking__name">
-                        {entry.name}
-                      </span>
-                      <GradeDial
-                        grade={entryGrade}
-                        color={entryGradeColor}
-                        delay={120 + index * 40}
-                        size="compact"
-                        glowFilterId={`statistics-ranking-grade-glow-${entry.memberId}`}
-                      />
-                    </div>
-                  </div>
-                  <div className="statistics-member-ranking__dials">
-                    <ScorePointsDial
-                      value={entry.scorePoints}
-                      color={entryGradeColor}
-                      delay={160 + index * 40}
-                      size="prominent"
-                      glowFilterId={`statistics-ranking-score-glow-${entry.memberId}`}
-                    />
-                  </div>
-                  <span
-                    className="statistics-member-ranking__separator"
-                    aria-hidden="true"
-                  />
-                  <div className="statistics-member-ranking__rates">
-                    {MEMBER_RANKING_RATE_METRICS.map((metric, metricIndex) => {
+              <ul className="statistics-member-ranking__list">
+                {memberRankingEntries.map((entry) => {
+                  const entryGrade = entry.grade ?? "—";
+                  const entryGradeColor = entry.grade
+                    ? PERFORMANCE_GRADE_COLORS[entry.grade]
+                    : "rgba(220, 235, 255, 0.92)";
+                  const rankColor = getMemberRankingColor(entry.rank);
+                  const highlightIntensity = getMemberRankingHighlightIntensity(
+                    entry.rank,
+                    memberRankingEntries.length,
+                  );
+                  const nameColor = `color-mix(in srgb, rgba(230, 240, 255, 0.98) ${Math.round(
+                    highlightIntensity * 100,
+                  )}%, rgba(140, 170, 200, 0.55))`;
+
+                  const cells = [
+                    {
+                      key: "rank",
+                      label: "Rank",
+                      value: String(entry.rank),
+                      color: rankColor,
+                      className:
+                        "statistics-member-ranking__box statistics-member-ranking__box--rank",
+                      valueClassName:
+                        "statistics-member-ranking__box-value statistics-member-ranking__box-value--rank",
+                    },
+                    {
+                      key: "name",
+                      label: "Name",
+                      value: entry.name,
+                      color: nameColor,
+                      className:
+                        "statistics-member-ranking__box statistics-member-ranking__box--name",
+                      valueClassName:
+                        "statistics-member-ranking__box-value statistics-member-ranking__box-value--name",
+                    },
+                    {
+                      key: "grade",
+                      label: "Grade",
+                      value: entryGrade,
+                      color: entryGradeColor,
+                      className: "statistics-member-ranking__box",
+                      valueClassName: "statistics-member-ranking__box-value",
+                    },
+                    {
+                      key: "score",
+                      label: "Score Points",
+                      value: formatScorePoints(entry.scorePoints),
+                      color: entryGradeColor,
+                      className: "statistics-member-ranking__box",
+                      valueClassName:
+                        "statistics-member-ranking__box-value statistics-member-ranking__box-value--score",
+                    },
+                    ...MEMBER_RANKING_RATE_METRICS.map((metric) => {
                       const rateValue = entry.rates[metric.key];
+                      return {
+                        key: metric.key,
+                        label: metric.label,
+                        value: `${Math.round(rateValue)}%`,
+                        color: getSkillValueGradeColor(
+                          rateValue,
+                          skillChartScale.minValue,
+                        ),
+                        className: "statistics-member-ranking__box",
+                        valueClassName: "statistics-member-ranking__box-value",
+                      };
+                    }),
+                  ];
 
-                      return (
-                        <ScorePointsDial
-                          key={`${entry.memberId}-${metric.key}`}
-                          value={rateValue}
-                          color={getSkillValueGradeColor(
-                            rateValue,
-                            skillChartScale.minValue,
-                          )}
-                          delay={200 + index * 40 + metricIndex * 20}
-                          size="default"
-                          label={metric.label}
-                          glowFilterId={`statistics-ranking-${metric.key}-glow-${entry.memberId}`}
-                        />
-                      );
-                    })}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                  return (
+                    <li
+                      key={entry.memberId}
+                      className="statistics-member-ranking__card"
+                      style={
+                        {
+                          "--ranking-accent": rankColor,
+                          "--ranking-intensity": String(highlightIntensity),
+                        } as CSSProperties
+                      }
+                    >
+                      <div
+                        className="statistics-member-ranking__grid"
+                        role="row"
+                        aria-label={`${entry.name}, rank ${entry.rank}`}
+                      >
+                        {cells.map((cell) => (
+                          <div
+                            key={`${entry.memberId}-${cell.key}`}
+                            className={cell.className}
+                            data-label={cell.label}
+                            role="cell"
+                          >
+                            <span
+                              className={cell.valueClassName}
+                              style={{ color: cell.color }}
+                            >
+                              {cell.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
         )}
       </div>
 

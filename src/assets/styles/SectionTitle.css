@@ -13,6 +13,19 @@
   box-sizing: border-box;
 }
 
+/* Graph labels — smaller than SectionTitle / .stitle (10px); wrap instead of clipping */
+.chart-label {
+  font-size: 5px !important;
+  font-family: "DM Mono", monospace !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
 .page-title--center .page-title__eyebrow {
   text-align: center !important;
 }

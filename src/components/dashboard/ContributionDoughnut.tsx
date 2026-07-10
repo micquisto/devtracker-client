@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TEAM_MEMBERS } from "@/data/Mock.data";
 import { SPRINT_BOARD_TASKS } from "@/data/SprintBoard.data";
-import { Background, Border, Text } from "@/lib/theme";
+import { Background, Border, Text, chartLabelStyle, chartLegendStyle, chartLabelSvgProps } from "@/lib/theme";
 import { Card } from "@/components/shared/Containers";
 import { SectionTitle } from "@/components/shared/Sections";
 import { DoughnutChart } from "@/components/shared/Charts";
@@ -244,9 +244,8 @@ const ContributionDoughnut = () => {
                   y={cy + 5}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize="9"
                   fill={Text.label}
-                  fontFamily="'DM Sans',sans-serif"
+                  {...chartLabelSvgProps}
                 >
                   {hovered.initials}
                 </text>
@@ -255,9 +254,8 @@ const ContributionDoughnut = () => {
                   y={cy + 20}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize="8"
                   fill={hovered.color}
-                  fontFamily="'DM Mono',monospace"
+                  {...chartLabelSvgProps}
                 >
                   {hovered.storyPoints} SP
                 </text>
@@ -281,9 +279,8 @@ const ContributionDoughnut = () => {
                   y={cy + 10}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize="9"
                   fill={Text.faint}
-                  fontFamily="'DM Sans',sans-serif"
+                  {...chartLabelSvgProps}
                 >
                   Total SP
                 </text>
@@ -334,10 +331,8 @@ const ContributionDoughnut = () => {
                     <div style={{ flex: 1 }}>
                       <div
                         style={{
-                          fontSize: 11,
-                          fontFamily: "'DM Sans',sans-serif",
+                          ...chartLegendStyle,
                           color: Text.body,
-                          fontWeight: 600,
                         }}
                       >
                         {member.name}
@@ -364,9 +359,7 @@ const ContributionDoughnut = () => {
                     </div>
                     <span
                       style={{
-                        fontSize: 11,
-                        fontFamily: "'DM Mono',monospace",
-                        fontWeight: 700,
+                        ...chartLegendStyle,
                         color: member.color,
                       }}
                     >
