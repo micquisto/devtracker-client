@@ -81,6 +81,7 @@ export function shouldHideMemberRow(
 export function getRequiredVoteTally(
   requiredMemberIds: string[],
   getMemberVote: (memberId: string) => number | null,
+  optionalMemberIds: string[] = [],
 ): RequiredVoteTally {
   if (requiredMemberIds.length === 0) {
     return {
@@ -91,8 +92,16 @@ export function getRequiredVoteTally(
     };
   }
 
-  const voteValues = requiredMemberIds.map((memberId) => getMemberVote(memberId));
-  const allRequiredVoted = voteValues.every((value) => value !== null);
+  const requiredVoteValues = requiredMemberIds.map((memberId) =>
+    getMemberVote(memberId),
+  );
+  const allRequiredVoted = requiredVoteValues.every((value) => value !== null);
+
+  // Include every cast vote in the tally — required and optional.
+  const voteValues = [
+    ...requiredVoteValues,
+    ...optionalMemberIds.map((memberId) => getMemberVote(memberId)),
+  ];
 
   const counts = new Map<number, number>();
   for (const value of voteValues) {

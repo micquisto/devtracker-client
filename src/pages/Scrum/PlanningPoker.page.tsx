@@ -463,6 +463,7 @@ export default function PlanningPokerPage() {
     );
     const membersById = new Map(members.map((member) => [member.id, member]));
     const requiredMemberIds = developerMembers.map((member) => member.id);
+    const optionalMemberIds = optionalMembers.map((member) => member.id);
 
     return votes
       .map((vote) => {
@@ -478,8 +479,12 @@ export default function PlanningPokerPage() {
 
         const session = taskSessionsByTaskId.get(vote.task_id);
         const isRevealed = session?.is_revealed ?? false;
-        const tally = getRequiredVoteTally(requiredMemberIds, (memberId) =>
-          votesByTaskAndMember.get(`${vote.task_id}:${memberId}`)?.story_points ?? null,
+        const tally = getRequiredVoteTally(
+          requiredMemberIds,
+          (memberId) =>
+            votesByTaskAndMember.get(`${vote.task_id}:${memberId}`)?.story_points ??
+            null,
+          optionalMemberIds,
         );
         const maskVote = shouldMaskVoteInTable(
           vote.member_id,
@@ -514,6 +519,7 @@ export default function PlanningPokerPage() {
   }, [
     currentMemberId,
     developerMembers,
+    optionalMembers,
     hideOthersNames,
     hideOthersVotes,
     isTaskController,
@@ -1317,10 +1323,13 @@ export default function PlanningPokerPage() {
     const tally = getRequiredVoteTally(
       developerMembers.map((member) => member.id),
       (memberId) => getMemberVote(activeTaskId, memberId),
+      optionalMembers.map((member) => member.id),
     );
 
     if (!tally.allRequiredVoted || tally.hasTie || tally.winningStoryPoints.length !== 1) {
-      setVoteMessage("Confirm is only available when all required votes agree.");
+      setVoteMessage(
+        "Confirm is only available when all required members have voted and the tally has a single winning story-point value.",
+      );
       return;
     }
 
@@ -1443,8 +1452,9 @@ export default function PlanningPokerPage() {
     return getRequiredVoteTally(
       developerMembers.map((member) => member.id),
       (memberId) => getMemberVote(activeTaskId, memberId),
+      optionalMembers.map((member) => member.id),
     );
-  }, [activeTaskId, developerMembers, votesByTaskAndMember]);
+  }, [activeTaskId, developerMembers, optionalMembers, votesByTaskAndMember]);
 
   const votingClosed =
     activeTaskSession?.is_revealed === true ||
@@ -1584,7 +1594,7 @@ export default function PlanningPokerPage() {
             <p className="planning-poker-subtitle">
               Estimate unpointed tasks from the Trello For Planning list. Confirm writes story
               points to the Trello Story Points custom field. Developer votes are required;
-              other members may vote optionally.
+              other members may vote optionally. All cast votes count toward the consensus.
             </p>
           </div>
           <div className="planning-poker-header-actions">

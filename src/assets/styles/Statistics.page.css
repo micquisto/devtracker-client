@@ -121,11 +121,23 @@
   font-weight: 900;
   gap: 8px;
   letter-spacing: 0.04em;
+  max-width: min(420px, calc(100vw - 48px));
   padding: 11px 16px;
   position: fixed;
   right: 24px;
   top: 76px;
   z-index: 120;
+}
+
+.statistics-copy-toast--error {
+  background:
+    linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(249, 115, 22, 0.12)),
+    rgba(6, 13, 31, 0.96);
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.34),
+    0 0 24px rgba(239, 68, 68, 0.18);
+  color: #ff8f8f;
 }
 
 @keyframes statistics-copy-toast-in {

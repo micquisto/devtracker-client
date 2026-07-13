@@ -6,6 +6,7 @@ import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
 import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart } from "@/components/dashboard";
 import { getSupabaseRows } from "@/lib/supabase";
 import { Palette, chartLabelStyle, chartLabelSvgProps } from "@/lib/theme";
+import { sanitizeHtml2CanvasClone } from "@/lib/utils/html2canvas.utils";
 import {
   isScoreboardIncludedMember,
   sortMembersByLastName,
@@ -1682,6 +1683,7 @@ export default function StatisticsPage({
   const [mounted, setMounted] = useState(false);
   const [publicLinkCopied, setPublicLinkCopied] = useState(false);
   const [isDownloadingStatistics, setIsDownloadingStatistics] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [showMode, setShowMode] = useState<StatisticsShowMode>(
     isStatisticsShowMode(initialShowMode) ? initialShowMode : "sprint",
   );
@@ -3143,6 +3145,20 @@ export default function StatisticsPage({
     };
   }, []);
 
+  useEffect(() => {
+    if (!downloadError) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDownloadError(null);
+    }, 4200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [downloadError]);
+
   const getPublicStatisticsUrl = () => {
     const url = new URL("/public/statistics", window.location.origin);
     url.searchParams.set("show", showMode);
@@ -3200,32 +3216,117 @@ export default function StatisticsPage({
     if (!target || isDownloadingStatistics) return;
 
     setIsDownloadingStatistics(true);
+    setDownloadError(null);
 
     try {
+      const sourceWidth = Math.max(target.scrollWidth, target.clientWidth, 1);
+      const sourceHeight = Math.max(target.scrollHeight, target.clientHeight, 1);
+      // Stay under browser canvas limits so tall public pages still render.
+      const maxDimension = 8192;
+      const maxArea = 16_777_216;
+      let scale = Math.min(window.devicePixelRatio || 1, 1.5);
+      while (
+        scale > 0.35 &&
+        (sourceWidth * scale > maxDimension ||
+          sourceHeight * scale > maxDimension ||
+          sourceWidth * scale * sourceHeight * scale > maxArea)
+      ) {
+        scale *= 0.85;
+      }
+
       const canvas = await html2canvas(target, {
         backgroundColor: "#060d1f",
         ignoreElements: (element) =>
-          element.classList.contains("statistics-header-action"),
-        scale: Math.min(window.devicePixelRatio || 1, 2),
+          element.classList.contains("statistics-header-action") ||
+          element.classList.contains("statistics-page-toolbar") ||
+          element.classList.contains("statistics-copy-toast"),
+        scale,
         useCORS: true,
-      });
-      const imageData = canvas.toDataURL("image/png");
-      const bounds = target.getBoundingClientRect();
-      const padding = 24;
-      const imageWidth = Math.max(bounds.width, 1);
-      const imageHeight = Math.max(bounds.height, 1);
-      const pageWidth = imageWidth + padding * 2;
-      const pageHeight = imageHeight + padding * 2;
-      const pdf = new jsPDF({
-        orientation: pageWidth >= pageHeight ? "landscape" : "portrait",
-        unit: "px",
-        format: [pageWidth, pageHeight],
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: sourceWidth,
+        windowHeight: sourceHeight,
+        onclone: (clonedDocument, clonedElement) => {
+          sanitizeHtml2CanvasClone(target, clonedDocument, clonedElement);
+
+          if (clonedElement instanceof HTMLElement) {
+            clonedElement.style.height = "auto";
+            clonedElement.style.maxHeight = "none";
+            clonedElement.style.overflow = "visible";
+          }
+
+          clonedDocument
+            .querySelectorAll<HTMLElement>(
+              ".statistics-public-filter, .statistics-member-ranking__header",
+            )
+            .forEach((element) => {
+              element.style.position = "static";
+              element.style.top = "auto";
+              element.style.zIndex = "auto";
+            });
+        },
       });
 
-      pdf.addImage(imageData, "PNG", padding, padding, imageWidth, imageHeight);
+      if (canvas.width < 2 || canvas.height < 2) {
+        throw new Error("Unable to capture the statistics page for download.");
+      }
+
+      const imageData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2;
+      const renderedHeight = (canvas.height * contentWidth) / canvas.width;
+
+      let heightLeft = renderedHeight;
+      let offsetY = margin;
+
+      pdf.addImage(
+        imageData,
+        "JPEG",
+        margin,
+        offsetY,
+        contentWidth,
+        renderedHeight,
+        undefined,
+        "FAST",
+      );
+      heightLeft -= contentHeight;
+
+      while (heightLeft > 1) {
+        offsetY = margin - (renderedHeight - heightLeft);
+        pdf.addPage();
+        pdf.addImage(
+          imageData,
+          "JPEG",
+          margin,
+          offsetY,
+          contentWidth,
+          renderedHeight,
+          undefined,
+          "FAST",
+        );
+        heightLeft -= contentHeight;
+      }
 
       const dateStamp = new Date().toISOString().slice(0, 10);
-      pdf.save(`statistics-${dateStamp}.pdf`);
+      const ofLabel =
+        selectedOfValue === TEAM_FILTER_VALUE ? "team" : "member";
+      pdf.save(`statistics-${showMode}-${ofLabel}-${dateStamp}.pdf`);
+    } catch (error) {
+      console.error("Failed to download statistics PDF", error);
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to download statistics PDF. Try again.",
+      );
     } finally {
       setIsDownloadingStatistics(false);
     }
@@ -3322,6 +3423,16 @@ export default function StatisticsPage({
         >
           <span aria-hidden="true">✓</span>
           Public statistics URL copied
+        </div>
+      ) : null}
+
+      {downloadError ? (
+        <div
+          aria-live="polite"
+          className="statistics-copy-toast statistics-copy-toast--error"
+          role="alert"
+        >
+          {downloadError}
         </div>
       ) : null}
 
