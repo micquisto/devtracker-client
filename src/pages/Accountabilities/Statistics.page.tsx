@@ -224,6 +224,22 @@ const MEMBER_RANKING_RATE_METRICS: Array<{
 
 const PROFESSIONALISM_PIP_COUNT = 5;
 
+function getProfessionalismScoreColor(score: number): string {
+  if (!Number.isFinite(score) || score < 2) {
+    return "#ef4444"; // red
+  }
+  if (score < 3) {
+    return "#f97316"; // orange
+  }
+  if (score < 4) {
+    return "#f5c842"; // yellow
+  }
+  if (score < 5) {
+    return "#a3e635"; // yellow green
+  }
+  return "#00e5a0"; // green
+}
+
 const TEAM_CONTRIBUTION_COLORS = [
   "#00c8ff",
   "#00e5a0",
@@ -3988,12 +4004,7 @@ export default function StatisticsPage({
                                 const filledCount = Math.round(
                                   (scoreValue / item.max) * PROFESSIONALISM_PIP_COUNT,
                                 );
-                                const percent =
-                                  item.max > 0 ? (scoreValue / item.max) * 100 : 0;
-                                const pipColor = getSkillValueGradeColor(
-                                  percent,
-                                  skillChartScale.minValue,
-                                );
+                                const pipColor = getProfessionalismScoreColor(scoreValue);
 
                                 return (
                                   <li
