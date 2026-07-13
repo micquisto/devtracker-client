@@ -184,6 +184,13 @@ type TeamContributionSegment = {
   contribution: number;
 };
 
+type MemberRankingProfessionalismItem = {
+  itemId: string;
+  label: string;
+  score: number | null;
+  max: number;
+};
+
 type MemberRankingEntry = {
   memberId: string;
   name: string;
@@ -191,6 +198,7 @@ type MemberRankingEntry = {
   scorePoints: number | null;
   grade: PerformanceScoreGrade | null;
   rates: SkillRadarValues;
+  professionalismItems: MemberRankingProfessionalismItem[];
 };
 
 const MEMBER_RANKING_COLUMNS = [
@@ -198,11 +206,7 @@ const MEMBER_RANKING_COLUMNS = [
   { key: "name", label: "Name" },
   { key: "grade", label: "Grade" },
   { key: "score", label: "Score Points" },
-  { key: "productivity", label: "Productivity" },
-  { key: "efficiency", label: "Efficiency" },
-  { key: "quality", label: "Quality" },
-  { key: "collaboration", label: "Collaboration" },
-  { key: "velocity", label: "Velocity" },
+  { key: "scoreBreakdown", label: "Score Breakdown" },
   { key: "professionalism", label: "Professionalism" },
 ] as const;
 
@@ -217,6 +221,8 @@ const MEMBER_RANKING_RATE_METRICS: Array<{
   { key: "velocity", label: "Velocity" },
   { key: "professionalism", label: "Professionalism" },
 ];
+
+const PROFESSIONALISM_PIP_COUNT = 5;
 
 const TEAM_CONTRIBUTION_COLORS = [
   "#00c8ff",
@@ -2392,12 +2398,33 @@ export default function StatisticsPage({
           professionalismItems: sortedProfessionalismItems,
         });
 
+        const professionalismItemScores = sortedProfessionalismItems.map(
+          (item) => {
+            const averageValue = getMemberProfessionalismItemAverage(
+              relevantProfessionalismScores,
+              member.id,
+              item.id,
+            );
+
+            return {
+              itemId: item.id,
+              label: item.name?.trim() || item.code?.trim() || "Professionalism",
+              score:
+                averageValue === null
+                  ? null
+                  : Math.round(averageValue * 10) / 10,
+              max: Math.max(Number(item.value) || PROFESSIONALISM_PIP_COUNT, 1),
+            };
+          },
+        );
+
         return {
           memberId: member.id,
           name: getStatisticsMemberName(member),
           scorePoints,
           grade,
           rates,
+          professionalismItems: professionalismItemScores,
         };
       })
       .sort((entryA, entryB) => {
@@ -3860,20 +3887,6 @@ export default function StatisticsPage({
                       valueClassName:
                         "statistics-member-ranking__box-value statistics-member-ranking__box-value--score",
                     },
-                    ...MEMBER_RANKING_RATE_METRICS.map((metric) => {
-                      const rateValue = entry.rates[metric.key];
-                      return {
-                        key: metric.key,
-                        label: metric.label,
-                        value: `${Math.round(rateValue)}%`,
-                        color: getSkillValueGradeColor(
-                          rateValue,
-                          skillChartScale.minValue,
-                        ),
-                        className: "statistics-member-ranking__box",
-                        valueClassName: "statistics-member-ranking__box-value",
-                      };
-                    }),
                   ];
 
                   return (
@@ -3907,6 +3920,139 @@ export default function StatisticsPage({
                             </span>
                           </div>
                         ))}
+
+                        <div
+                          className="statistics-member-ranking__box statistics-member-ranking__box--breakdown"
+                          data-label="Score Breakdown"
+                          role="cell"
+                        >
+                          <ul className="statistics-member-ranking__breakdown">
+                            {MEMBER_RANKING_RATE_METRICS.map((metric) => {
+                              const rateValue = entry.rates[metric.key];
+                              const safeValue = Number.isFinite(rateValue)
+                                ? Math.max(0, Math.min(100, rateValue))
+                                : 0;
+                              const barColor = getSkillValueGradeColor(
+                                safeValue,
+                                skillChartScale.minValue,
+                              );
+
+                              return (
+                                <li
+                                  key={`${entry.memberId}-${metric.key}`}
+                                  className="statistics-member-ranking__breakdown-item"
+                                >
+                                  <div className="statistics-member-ranking__breakdown-header">
+                                    <span className="statistics-member-ranking__breakdown-label">
+                                      {metric.label}
+                                    </span>
+                                    <span
+                                      className="statistics-member-ranking__breakdown-value"
+                                      style={{ color: barColor }}
+                                    >
+                                      {Math.round(safeValue)}%
+                                    </span>
+                                  </div>
+                                  <div className="statistics-member-ranking__breakdown-track">
+                                    <div
+                                      className="statistics-member-ranking__breakdown-fill"
+                                      style={{
+                                        width: `${safeValue}%`,
+                                        background: barColor,
+                                        boxShadow: `0 0 8px ${barColor}55`,
+                                      }}
+                                    />
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+
+                        <div
+                          className="statistics-member-ranking__box statistics-member-ranking__box--professionalism"
+                          data-label="Professionalism"
+                          role="cell"
+                        >
+                          {entry.professionalismItems.length === 0 ? (
+                            <span className="statistics-member-ranking__breakdown-label">
+                              No professionalism items
+                            </span>
+                          ) : (
+                            <ul className="statistics-member-ranking__breakdown">
+                              {entry.professionalismItems.map((item) => {
+                                const scoreValue =
+                                  item.score === null || !Number.isFinite(item.score)
+                                    ? 0
+                                    : Math.max(0, Math.min(item.max, item.score));
+                                const filledCount = Math.round(
+                                  (scoreValue / item.max) * PROFESSIONALISM_PIP_COUNT,
+                                );
+                                const percent =
+                                  item.max > 0 ? (scoreValue / item.max) * 100 : 0;
+                                const pipColor = getSkillValueGradeColor(
+                                  percent,
+                                  skillChartScale.minValue,
+                                );
+
+                                return (
+                                  <li
+                                    key={`${entry.memberId}-${item.itemId}`}
+                                    className="statistics-member-ranking__breakdown-item"
+                                  >
+                                    <div className="statistics-member-ranking__breakdown-header">
+                                      <span className="statistics-member-ranking__breakdown-label">
+                                        {item.label}
+                                      </span>
+                                      <span
+                                        className="statistics-member-ranking__breakdown-value"
+                                        style={{ color: pipColor }}
+                                      >
+                                        {item.score === null
+                                          ? "—"
+                                          : `${scoreValue}/${item.max}`}
+                                      </span>
+                                    </div>
+                                    <div
+                                      className="statistics-member-ranking__pips"
+                                      aria-label={`${item.label} ${
+                                        item.score === null
+                                          ? "no score"
+                                          : `${scoreValue} out of ${item.max}`
+                                      }`}
+                                    >
+                                      {Array.from(
+                                        { length: PROFESSIONALISM_PIP_COUNT },
+                                        (_, pipIndex) => {
+                                          const isFilled = pipIndex < filledCount;
+                                          return (
+                                            <span
+                                              key={`${item.itemId}-pip-${pipIndex}`}
+                                              className={`statistics-member-ranking__pip${
+                                                isFilled
+                                                  ? " statistics-member-ranking__pip--filled"
+                                                  : ""
+                                              }`}
+                                              style={
+                                                isFilled
+                                                  ? {
+                                                      background: pipColor,
+                                                      borderColor: pipColor,
+                                                      boxShadow: `0 0 6px ${pipColor}66`,
+                                                    }
+                                                  : undefined
+                                              }
+                                            />
+                                          );
+                                        },
+                                      )}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
                       </div>
                     </li>
                   );

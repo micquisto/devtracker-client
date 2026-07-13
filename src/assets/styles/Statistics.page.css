@@ -178,7 +178,13 @@
 .statistics-member-ranking__header,
 .statistics-member-ranking__grid {
   display: grid;
-  grid-template-columns: minmax(52px, 0.7fr) minmax(120px, 1.8fr) repeat(8, minmax(72px, 1fr));
+  grid-template-columns:
+    minmax(48px, 0.45fr)
+    minmax(110px, 1.1fr)
+    minmax(56px, 0.55fr)
+    minmax(68px, 0.7fr)
+    minmax(180px, 1.5fr)
+    minmax(210px, 1.7fr);
   gap: 6px;
   width: 100%;
   align-items: stretch;
@@ -303,6 +309,91 @@
   padding-right: 12px;
 }
 
+.statistics-member-ranking__box--breakdown,
+.statistics-member-ranking__box--professionalism {
+  align-items: stretch;
+  justify-content: stretch;
+  min-height: 0;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.statistics-member-ranking__breakdown {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+}
+
+.statistics-member-ranking__breakdown-item {
+  min-width: 0;
+}
+
+.statistics-member-ranking__breakdown-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.statistics-member-ranking__breakdown-label {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(180, 210, 240, 0.82);
+  line-height: 1.2;
+}
+
+.statistics-member-ranking__breakdown-value {
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.statistics-member-ranking__breakdown-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.statistics-member-ranking__breakdown-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.85s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.statistics-member-ranking__pips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.statistics-member-ranking__pip {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(140, 180, 220, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+  transition:
+    background 0.35s ease,
+    border-color 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+.statistics-member-ranking__pip--filled {
+  border-color: transparent;
+}
+
 .statistics-member-ranking__box-value {
   font-family: "DM Sans", sans-serif;
   font-size: 15px;
@@ -347,7 +438,7 @@
   }
 
   .statistics-member-ranking__table {
-    min-width: 980px;
+    min-width: 920px;
   }
 }
 
@@ -408,6 +499,19 @@
     justify-content: stretch;
     padding-left: 12px;
     padding-right: 12px;
+  }
+
+  .statistics-member-ranking__box--breakdown,
+  .statistics-member-ranking__box--professionalism {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .statistics-member-ranking__box--breakdown::before,
+  .statistics-member-ranking__box--professionalism::before {
+    display: block;
   }
 
   .statistics-member-ranking__box-value,
