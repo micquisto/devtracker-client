@@ -3892,7 +3892,8 @@ export default function StatisticsPage({
                       value: entryGrade,
                       color: entryGradeColor,
                       className: "statistics-member-ranking__box",
-                      valueClassName: "statistics-member-ranking__box-value",
+                      valueClassName:
+                        "statistics-member-ranking__box-value statistics-member-ranking__box-value--grade",
                     },
                     {
                       key: "score",
@@ -3948,6 +3949,7 @@ export default function StatisticsPage({
                               const safeValue = Number.isFinite(rateValue)
                                 ? Math.max(0, Math.min(100, rateValue))
                                 : 0;
+                              const isPerfect = safeValue >= 100;
                               const barColor = getSkillValueGradeColor(
                                 safeValue,
                                 skillChartScale.minValue,
@@ -3956,7 +3958,11 @@ export default function StatisticsPage({
                               return (
                                 <li
                                   key={`${entry.memberId}-${metric.key}`}
-                                  className="statistics-member-ranking__breakdown-item"
+                                  className={`statistics-member-ranking__breakdown-item${
+                                    isPerfect
+                                      ? " statistics-member-ranking__breakdown-item--perfect"
+                                      : ""
+                                  }`}
                                 >
                                   <div className="statistics-member-ranking__breakdown-header">
                                     <span className="statistics-member-ranking__breakdown-label">
@@ -3964,7 +3970,12 @@ export default function StatisticsPage({
                                     </span>
                                     <span
                                       className="statistics-member-ranking__breakdown-value"
-                                      style={{ color: barColor }}
+                                      style={{
+                                        color: barColor,
+                                        textShadow: isPerfect
+                                          ? `0 0 10px ${barColor}`
+                                          : undefined,
+                                      }}
                                     >
                                       {Math.round(safeValue)}%
                                     </span>
@@ -3975,7 +3986,9 @@ export default function StatisticsPage({
                                       style={{
                                         width: `${safeValue}%`,
                                         background: barColor,
-                                        boxShadow: `0 0 8px ${barColor}55`,
+                                        boxShadow: isPerfect
+                                          ? `0 0 10px ${barColor}, 0 0 18px ${barColor}cc`
+                                          : `0 0 6px ${barColor}44`,
                                       }}
                                     />
                                   </div>
@@ -4001,6 +4014,8 @@ export default function StatisticsPage({
                                   item.score === null || !Number.isFinite(item.score)
                                     ? 0
                                     : Math.max(0, Math.min(item.max, item.score));
+                                const isPerfect =
+                                  item.score !== null && scoreValue >= item.max;
                                 const filledCount = Math.round(
                                   (scoreValue / item.max) * PROFESSIONALISM_PIP_COUNT,
                                 );
@@ -4009,7 +4024,11 @@ export default function StatisticsPage({
                                 return (
                                   <li
                                     key={`${entry.memberId}-${item.itemId}`}
-                                    className="statistics-member-ranking__breakdown-item"
+                                    className={`statistics-member-ranking__breakdown-item${
+                                      isPerfect
+                                        ? " statistics-member-ranking__breakdown-item--perfect"
+                                        : ""
+                                    }`}
                                   >
                                     <div className="statistics-member-ranking__breakdown-header">
                                       <span className="statistics-member-ranking__breakdown-label">
@@ -4017,7 +4036,12 @@ export default function StatisticsPage({
                                       </span>
                                       <span
                                         className="statistics-member-ranking__breakdown-value"
-                                        style={{ color: pipColor }}
+                                        style={{
+                                          color: pipColor,
+                                          textShadow: isPerfect
+                                            ? `0 0 10px ${pipColor}`
+                                            : undefined,
+                                        }}
                                       >
                                         {item.score === null
                                           ? "—"
@@ -4025,7 +4049,11 @@ export default function StatisticsPage({
                                       </span>
                                     </div>
                                     <div
-                                      className="statistics-member-ranking__pips"
+                                      className={`statistics-member-ranking__pips${
+                                        isPerfect
+                                          ? " statistics-member-ranking__pips--perfect"
+                                          : ""
+                                      }`}
                                       aria-label={`${item.label} ${
                                         item.score === null
                                           ? "no score"
@@ -4043,13 +4071,19 @@ export default function StatisticsPage({
                                                 isFilled
                                                   ? " statistics-member-ranking__pip--filled"
                                                   : ""
+                                              }${
+                                                isFilled && isPerfect
+                                                  ? " statistics-member-ranking__pip--perfect"
+                                                  : ""
                                               }`}
                                               style={
                                                 isFilled
                                                   ? {
                                                       background: pipColor,
                                                       borderColor: pipColor,
-                                                      boxShadow: `0 0 6px ${pipColor}66`,
+                                                      boxShadow: isPerfect
+                                                        ? `0 0 8px ${pipColor}, 0 0 16px ${pipColor}bb`
+                                                        : `0 0 5px ${pipColor}55`,
                                                     }
                                                   : undefined
                                               }

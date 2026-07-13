@@ -363,10 +363,23 @@
   overflow: hidden;
 }
 
+.statistics-member-ranking__breakdown-item--perfect
+  .statistics-member-ranking__breakdown-track {
+  overflow: visible;
+}
+
 .statistics-member-ranking__breakdown-fill {
   height: 100%;
   border-radius: 99px;
-  transition: width 0.85s cubic-bezier(0.23, 1, 0.32, 1);
+  transition:
+    width 0.85s cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 0.35s ease;
+}
+
+.statistics-member-ranking__breakdown-item--perfect
+  .statistics-member-ranking__breakdown-fill {
+  height: 5px;
+  margin-top: -0.5px;
 }
 
 .statistics-member-ranking__pips {
@@ -374,6 +387,10 @@
   align-items: center;
   gap: 4px;
   width: 100%;
+}
+
+.statistics-member-ranking__pips--perfect {
+  filter: drop-shadow(0 0 4px rgba(0, 229, 160, 0.35));
 }
 
 .statistics-member-ranking__pip {
@@ -394,6 +411,10 @@
   border-color: transparent;
 }
 
+.statistics-member-ranking__pip--perfect {
+  height: 11px;
+}
+
 .statistics-member-ranking__box-value {
   font-family: "DM Sans", sans-serif;
   font-size: 15px;
@@ -407,6 +428,13 @@
   font-family: "DM Mono", monospace;
   font-size: 22px;
   letter-spacing: -0.03em;
+}
+
+.statistics-member-ranking__box-value--grade {
+  font-family: "DM Mono", monospace;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
 }
 
 .statistics-member-ranking__box-value--score {
@@ -522,6 +550,10 @@
 
   .statistics-member-ranking__box-value--score {
     font-size: 17px;
+  }
+
+  .statistics-member-ranking__box-value--grade {
+    font-size: 20px;
   }
 
   .statistics-member-ranking__box-value--rank {
