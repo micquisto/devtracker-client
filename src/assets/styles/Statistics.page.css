@@ -396,8 +396,8 @@
 .statistics-member-ranking__pip {
   flex: 1 1 0;
   min-width: 0;
-  height: 10px;
-  border-radius: 3px;
+  height: 5px;
+  border-radius: 2px;
   border: 1px solid rgba(140, 180, 220, 0.28);
   background: rgba(255, 255, 255, 0.04);
   box-sizing: border-box;
@@ -412,7 +412,7 @@
 }
 
 .statistics-member-ranking__pip--perfect {
-  height: 11px;
+  height: 6px;
 }
 
 .statistics-member-ranking__box-value {
