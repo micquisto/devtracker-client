@@ -2634,7 +2634,7 @@ export default function StatisticsPage({
         .sort(compareSprintsByQuarterThenNumberDesc);
 
       return involvedSprints
-        .map((sprint) => {
+        .map((sprint): MemberRankingSection | null => {
           const sprintPerformanceRows = relevantPerformanceRows.filter(
             (row) => row.sprint_id === sprint.id,
           );
