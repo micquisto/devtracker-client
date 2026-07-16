@@ -27,6 +27,7 @@ type SprintScoreRow = {
   planned_tasks_count: number;
   total_adhoc_count: number;
   blocked_tasks_count: number;
+  total_completed_story_points: number | null;
 };
 
 type ScoreboardTaskRow = {
@@ -90,6 +91,7 @@ type MemberSprintScoreRow = {
   planned_tasks_count: number;
   total_adhoc_count: number;
   completed_tasks_count: number;
+  completed_story_points: number;
 };
 
 type SprintScoreboardProps = {
@@ -295,6 +297,25 @@ function buildCompletedStoryPointsByMemberFromBreakdown(
   }, new Map());
 }
 
+function buildCompletedStoryPointsByMemberFromStoryPoints(
+  storyPoints: StoryPointRow[],
+  selectedMemberId: string,
+  includedMemberIds: Set<string>,
+  includeAllMembers = false,
+): Map<string, number> {
+  return storyPoints.reduce<Map<string, number>>((sum, row) => {
+    if (selectedMemberId && row.member_id !== selectedMemberId) return sum;
+    if (!includeAllMembers && !includedMemberIds.has(row.member_id)) return sum;
+
+    sum.set(
+      row.member_id,
+      (sum.get(row.member_id) ?? 0) + (row.completed_story_points ?? 0),
+    );
+
+    return sum;
+  }, new Map());
+}
+
 function aggregateSprintScoreRowFromMemberScores(
   memberRows: MemberSprintScoreRow[],
 ): SprintScoreRow {
@@ -306,6 +327,9 @@ function aggregateSprintScoreRowFromMemberScores(
       planned_tasks_count: totals.planned_tasks_count + row.planned_tasks_count,
       total_adhoc_count: totals.total_adhoc_count + row.total_adhoc_count,
       blocked_tasks_count: totals.blocked_tasks_count,
+      total_completed_story_points:
+        (totals.total_completed_story_points ?? 0) +
+        (row.completed_story_points ?? 0),
     }),
     {
       planned_story_points: 0,
@@ -313,6 +337,7 @@ function aggregateSprintScoreRowFromMemberScores(
       planned_tasks_count: 0,
       total_adhoc_count: 0,
       blocked_tasks_count: 0,
+      total_completed_story_points: 0,
     },
   );
 }
@@ -764,7 +789,7 @@ export default function SprintScoreboard({
         const sprintScoreRows = closedSprint
           ? await getSupabaseRows<SprintScoreRow>("sprint_scores", {
               select:
-                "planned_story_points,adhoc_story_points,planned_tasks_count,total_adhoc_count,blocked_tasks_count",
+                "planned_story_points,adhoc_story_points,planned_tasks_count,total_adhoc_count,blocked_tasks_count,total_completed_story_points",
               eq: { sprint_id: currentSprint.id },
               limit: 1,
             })
@@ -773,7 +798,7 @@ export default function SprintScoreboard({
           "members_sprint_scores",
           {
             select:
-              "member_id,planned_story_points,adhoc_story_points,planned_tasks_count,total_adhoc_count,completed_tasks_count",
+              "member_id,planned_story_points,adhoc_story_points,planned_tasks_count,total_adhoc_count,completed_tasks_count,completed_story_points",
             eq: { sprint_id: currentSprint.id },
           },
         );
@@ -952,37 +977,54 @@ export default function SprintScoreboard({
         const selectedMember = selectedMemberId
           ? members.find((member) => member.id === selectedMemberId)
           : null;
+        // Prefer story_points (updated by Encode + sprint sync), then
+        // sprint_story_points member breakdown, then live completed tasks.
         let completedStoryPointsByMemberId =
-          buildCompletedStoryPointsByMemberFromBreakdown(
-            sprintStoryPoints,
-            selectedMemberId,
-            includedMemberIds,
-            includeExcludedMembers,
-          );
+          scoreboardStoryPoints.length > 0
+            ? buildCompletedStoryPointsByMemberFromStoryPoints(
+                scoreboardStoryPoints,
+                selectedMemberId,
+                includedMemberIds,
+                includeExcludedMembers,
+              )
+            : buildCompletedStoryPointsByMemberFromBreakdown(
+                sprintStoryPoints,
+                selectedMemberId,
+                includedMemberIds,
+                includeExcludedMembers,
+              );
+
         let sprintCompletedStoryPoints = selectedMemberId
           ? completedStoryPointsByMemberId.get(selectedMemberId) ?? 0
-          : sprintStoryPoints.reduce((sum, row) => {
-              if (row.model !== "member") return sum;
-              if (
-                !includeExcludedMembers &&
-                !includedMemberIds.has(row.model_id)
-              ) {
-                return sum;
-              }
+          : Array.from(completedStoryPointsByMemberId.values()).reduce(
+              (sum, value) => sum + value,
+              0,
+            );
 
-              return sum + (row.real_points ?? 0);
-            }, 0);
-
-        const breakdownCompletedTotal = Array.from(
-          completedStoryPointsByMemberId.values(),
-        ).reduce((sum, value) => sum + value, 0);
-
-        if (breakdownCompletedTotal === 0) {
+        if (
+          scoreboardStoryPoints.length === 0 &&
+          Array.from(completedStoryPointsByMemberId.values()).reduce(
+            (sum, value) => sum + value,
+            0,
+          ) === 0
+        ) {
           completedStoryPointsByMemberId =
             buildCompletedStoryPointsByMemberFromTasks(scoreboardTasks);
           sprintCompletedStoryPoints = selectedMemberId
             ? completedStoryPointsByMemberId.get(selectedMemberId) ?? 0
             : buildSprintCompletedStoryPointsFromTasks(scoreboardTasks);
+        }
+
+        if (
+          !selectedMemberId &&
+          resolvedClosedSprintScoreRow?.total_completed_story_points != null &&
+          Number.isFinite(
+            Number(resolvedClosedSprintScoreRow.total_completed_story_points),
+          )
+        ) {
+          sprintCompletedStoryPoints = Number(
+            resolvedClosedSprintScoreRow.total_completed_story_points,
+          );
         }
         const completedTasksByMemberId = new Map(
           memberSprintScoreRows.map((row) => [

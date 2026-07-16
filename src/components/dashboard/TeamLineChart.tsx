@@ -19,6 +19,7 @@ import { SectionTitle } from "@/components/shared/Sections";
 export type StoryPointsHoursPoint = {
   id?: string;
   label: string;
+  sublabel?: string | null;
   storyPointsDone: number;
   hoursSpent: number;
 };
@@ -111,11 +112,18 @@ export function StoryPointsHoursLineChart({
     entries.length > 1 ? Math.max(step * 0.9, 64) : Math.min(cW * 0.5, 160);
 
   const wrappedLabels = entries.map((entry) =>
-    wrapChartLabel(entry.label, labelMaxWidth, LABEL_FONT_SIZE, LABEL_MAX_LINES),
+    wrapChartLabel(
+      entry.label,
+      labelMaxWidth,
+      LABEL_FONT_SIZE,
+      entry.sublabel ? Math.max(LABEL_MAX_LINES - 1, 1) : LABEL_MAX_LINES,
+    ),
   );
   const maxLabelLines = Math.max(
     1,
-    ...wrappedLabels.map((lines) => lines.length),
+    ...wrappedLabels.map((lines, index) =>
+      lines.length + (entries[index]?.sublabel ? 1 : 0),
+    ),
   );
   const pB = 18 + maxLabelLines * LABEL_LINE_HEIGHT;
   const cH = plotH;
@@ -130,6 +138,7 @@ export function StoryPointsHoursLineChart({
     storyY: pT + cH - (s.storyPointsDone / maxStoryPoints) * cH,
     hoursY: pT + cH - (s.hoursSpent / maxHours) * cH,
     labelLines: wrappedLabels[i] ?? [s.label],
+    sublabel: s.sublabel?.trim() || null,
     storyPointsDone: s.storyPointsDone,
     hoursSpent: s.hoursSpent,
   }));
@@ -423,6 +432,15 @@ export function StoryPointsHoursLineChart({
                       {line}
                     </tspan>
                   ))}
+                  {p.sublabel ? (
+                    <tspan
+                      x={p.x}
+                      dy={LABEL_LINE_HEIGHT}
+                      fill={Text.faint}
+                    >
+                      {p.sublabel}
+                    </tspan>
+                  ) : null}
                 </text>
               </g>
             ))}

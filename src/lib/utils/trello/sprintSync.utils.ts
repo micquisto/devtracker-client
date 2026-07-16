@@ -29,9 +29,11 @@ import {
 } from "./sprintTaskScores.utils";
 import {
   clearSprintAndMemberScores,
+  finalizeCompletedSprintScores,
   replaceSprintAndMemberScores,
 } from "./sprintScores.utils";
 import { countBlockedTrelloCards } from "./sprintBlockedTrello.utils";
+import { ENCODE_STORY_POINTS_PROJECT_ID } from "../scrum/storyPointsTable.utils";
 
 const TRELLO_CUSTOM_FIELD_NAMES = [
   "Date Completed",
@@ -1499,7 +1501,8 @@ async function replaceSprintStoryPoints(
     const existing = storyPointsByMember.get(task.assigned_to) ?? {
       member_id: task.assigned_to,
       sprint_id: sprint.id,
-      project_id: sprint.project_id,
+      // Keep Encode Story Points + Scoreboard on the same story_points project rows.
+      project_id: ENCODE_STORY_POINTS_PROJECT_ID,
       assigned_story_points: 0,
       completed_story_points: 0,
       total_bonus_points: 0,
@@ -1815,6 +1818,29 @@ export async function resetPlannedAdhocTasksToPendingOnReopenSprint(
   }
 
   return { updated: updatedRows?.length ?? 0 };
+}
+
+/**
+ * After a sprint is marked completed, refresh every datastore Encode Story Points
+ * and Scoreboard rely on (story_points, sprint_story_points, sprint/member scores).
+ */
+export async function finalizeCompletedSprintData(
+  sprintId: string,
+): Promise<void> {
+  const sprint = await getSprintById(sprintId);
+  if (!sprint) {
+    throw new Error(`Sprint not found: ${sprintId}`);
+  }
+
+  const completedSprint = {
+    ...sprint,
+    status: "completed",
+  };
+  const savedTasks = await getSavedSprintTasks(sprintId);
+
+  await replaceSprintStoryPoints(completedSprint, savedTasks);
+  await replaceSprintStoryPointBreakdown(completedSprint, savedTasks);
+  await finalizeCompletedSprintScores(sprintId);
 }
 
 export async function syncCurrentSprintTasks(

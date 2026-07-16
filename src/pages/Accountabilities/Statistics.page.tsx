@@ -4,11 +4,12 @@ import { jsPDF } from "jspdf";
 import { DropArrow, StyledSelect } from "@/components/shared/Elements";
 import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
 import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart } from "@/components/dashboard";
-import { getSupabaseRows } from "@/lib/supabase";
+import { getSupabaseRows, getSupabaseSession } from "@/lib/supabase";
 import { Palette, chartLabelStyle, chartLabelSvgProps } from "@/lib/theme";
 import { sanitizeHtml2CanvasClone } from "@/lib/utils/html2canvas.utils";
 import {
   isScoreboardIncludedMember,
+  isScoreboardIncludedMemberRole,
   sortMembersByLastName,
 } from "@/lib/utils/scrum/scoreboardMembers.utils";
 import {
@@ -202,6 +203,13 @@ type MemberRankingEntry = {
   professionalismItems: MemberRankingProfessionalismItem[];
 };
 
+type MemberRankingSection = {
+  key: string;
+  label: string | null;
+  peerCount: number;
+  entries: MemberRankingEntry[];
+};
+
 const MEMBER_RANKING_COLUMNS = [
   { key: "rank", label: "Rank" },
   { key: "name", label: "Name" },
@@ -292,6 +300,121 @@ function formatStatisticsSprintLabel(sprint: StatisticsSprintRow): string {
   }
 
   return "Sprint";
+}
+
+function formatStatisticsSprintStartDateLabel(
+  startDate: string | null | undefined,
+): string | null {
+  if (!startDate) {
+    return null;
+  }
+
+  const parsed = new Date(startDate);
+  if (!Number.isFinite(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatStatisticsSprintFullDateLabel(
+  dateValue: string | null | undefined,
+): string | null {
+  if (!dateValue) {
+    return null;
+  }
+
+  const parsed = new Date(dateValue);
+  if (!Number.isFinite(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatInvolvedSprintDateRangeLabel(
+  sprints: StatisticsSprintRow[],
+): string | null {
+  if (sprints.length === 0) {
+    return null;
+  }
+
+  const getStartSortTimestamp = (sprint: StatisticsSprintRow): number => {
+    if (sprint.start_date) {
+      const startTime = new Date(sprint.start_date).getTime();
+      if (Number.isFinite(startTime)) {
+        return startTime;
+      }
+    }
+
+    if (sprint.end_date) {
+      const endTime = new Date(sprint.end_date).getTime();
+      if (Number.isFinite(endTime)) {
+        return endTime;
+      }
+    }
+
+    return 0;
+  };
+
+  const sortedSprints = [...sprints].sort(
+    (sprintA, sprintB) =>
+      getStartSortTimestamp(sprintA) - getStartSortTimestamp(sprintB),
+  );
+  const firstSprint = sortedSprints[0];
+  const lastSprint = sortedSprints[sortedSprints.length - 1];
+  const startLabel = formatStatisticsSprintFullDateLabel(firstSprint.start_date);
+  const endLabel = formatStatisticsSprintFullDateLabel(lastSprint.end_date);
+
+  if (startLabel && endLabel) {
+    return `${startLabel} – ${endLabel}`;
+  }
+
+  return startLabel ?? endLabel;
+}
+
+function formatMemberSprintRankingLabel(sprint: StatisticsSprintRow): string {
+  const quarter = getSprintListingQuarter(sprint);
+  const sprintNumber = Number(sprint.sprint_number);
+  const sprintPart = Number.isFinite(sprintNumber) && sprintNumber > 0
+    ? `Sprint ${sprintNumber}`
+    : formatStatisticsSprintLabel(sprint);
+
+  if (Number.isFinite(quarter) && quarter > 0) {
+    return `Quarter ${quarter} ${sprintPart}`;
+  }
+
+  return sprintPart;
+}
+
+function compareSprintsByQuarterThenNumberDesc(
+  left: StatisticsSprintRow,
+  right: StatisticsSprintRow,
+): number {
+  const quarterDiff =
+    getSprintListingQuarter(right) - getSprintListingQuarter(left);
+  if (quarterDiff !== 0) {
+    return quarterDiff;
+  }
+
+  const leftNumber = Number(left.sprint_number);
+  const rightNumber = Number(right.sprint_number);
+  const safeLeft = Number.isFinite(leftNumber) ? leftNumber : -1;
+  const safeRight = Number.isFinite(rightNumber) ? rightNumber : -1;
+  if (safeRight !== safeLeft) {
+    return safeRight - safeLeft;
+  }
+
+  return formatStatisticsSprintLabel(left).localeCompare(
+    formatStatisticsSprintLabel(right),
+  );
 }
 
 function getStatisticsMemberName(member: StatisticsMemberRow): string {
@@ -1698,6 +1821,7 @@ export default function StatisticsPage({
   const [selectedOfValue, setSelectedOfValue] = useState(
     initialOfValue || TEAM_FILTER_VALUE,
   );
+  const [lockedOfMemberId, setLockedOfMemberId] = useState<string | null>(null);
   const [isEvaluateConfirmOpen, setIsEvaluateConfirmOpen] = useState(false);
   const [evaluateYear, setEvaluateYear] = useState("");
   const [isEvaluating, setIsEvaluating] = useState(false);
@@ -1823,6 +1947,14 @@ export default function StatisticsPage({
       showMode,
     ],
   );
+
+  const periodPerformanceDateRangeLabel = useMemo(() => {
+    const involvedSprints = selectableSprints.filter((sprint) =>
+      activeSprintIds.includes(sprint.id),
+    );
+
+    return formatInvolvedSprintDateRangeLabel(involvedSprints);
+  }, [activeSprintIds, selectableSprints]);
 
   const relevantPerformanceRows = useMemo(
     () =>
@@ -2045,6 +2177,7 @@ export default function StatisticsPage({
       return {
         id: sprint.id,
         label: formatStatisticsSprintLabel(sprint),
+        sublabel: formatStatisticsSprintStartDateLabel(sprint.start_date),
         storyPointsDone: Math.round(storyPointsDone * 100) / 100,
         hoursSpent: Math.round(hoursSpent * 100) / 100,
       };
@@ -2378,106 +2511,188 @@ export default function StatisticsPage({
     [professionalismItems],
   );
 
-  const memberRankingEntries = useMemo((): MemberRankingEntry[] => {
+  const memberRankingSections = useMemo((): MemberRankingSection[] => {
     if (activeSprintIds.length === 0) {
       return [];
     }
 
-    const ranked = memberOptions
-      .map((member) => {
-        const scorePoints = getMemberPerformanceFieldAverage(
-          relevantPerformanceRows,
-          member.id,
-          "average_score",
-        );
-
-        let grade: PerformanceScoreGrade | null = null;
-
-        if (showMode === "sprint" && activeSprintIds.length === 1) {
-          const memberScore = relevantPerformanceRows.find(
-            (row) => row.member_id === member.id,
+    const buildRankingEntries = (input: {
+      performanceRows: MemberPerformanceScoreRow[];
+      criteriaRows: MemberSprintCriteriaScoreRow[];
+      professionalismRows: MemberSprintProfessionalismScoreRow[];
+      useStoredGrade: boolean;
+    }): MemberRankingEntry[] => {
+      const ranked = memberOptions
+        .map((member) => {
+          const scorePoints = getMemberPerformanceFieldAverage(
+            input.performanceRows,
+            member.id,
+            "average_score",
           );
-          grade = memberScore?.score_grade ?? null;
-        }
 
-        if (grade === null && scorePoints !== null) {
-          grade = resolvePerformanceScoreGrade(
+          let grade: PerformanceScoreGrade | null = null;
+
+          if (input.useStoredGrade) {
+            const memberScore = input.performanceRows.find(
+              (row) => row.member_id === member.id,
+            );
+            grade = memberScore?.score_grade ?? null;
+          }
+
+          if (grade === null && scorePoints !== null) {
+            grade = resolvePerformanceScoreGrade(
+              scorePoints,
+              DEFAULT_PASSING_THRESHOLD,
+            );
+          }
+
+          const rates = buildSkillRadarValues({
+            criteriaScoreRows: input.criteriaRows,
+            performanceRows: input.performanceRows,
+            memberIds: scoreboardMemberIdList,
+            selectedMemberId: member.id,
+            professionalismScoreRows: input.professionalismRows,
+            professionalismItems: sortedProfessionalismItems,
+          });
+
+          const professionalismItemScores = sortedProfessionalismItems.map(
+            (item) => {
+              const averageValue = getMemberProfessionalismItemAverage(
+                input.professionalismRows,
+                member.id,
+                item.id,
+              );
+
+              return {
+                itemId: item.id,
+                label:
+                  item.name?.trim() || item.code?.trim() || "Professionalism",
+                score:
+                  averageValue === null
+                    ? null
+                    : Math.round(averageValue * 10) / 10,
+                max: Math.max(
+                  Number(item.value) || PROFESSIONALISM_PIP_COUNT,
+                  1,
+                ),
+              };
+            },
+          );
+
+          return {
+            memberId: member.id,
+            name: getStatisticsMemberName(member),
             scorePoints,
-            DEFAULT_PASSING_THRESHOLD,
-          );
-        }
+            grade,
+            rates,
+            professionalismItems: professionalismItemScores,
+          };
+        })
+        .sort((entryA, entryB) => {
+          const scoreA = entryA.scorePoints;
+          const scoreB = entryB.scorePoints;
 
-        const rates = buildSkillRadarValues({
-          criteriaScoreRows: relevantCriteriaRows,
-          performanceRows: relevantPerformanceRows,
-          memberIds: scoreboardMemberIdList,
-          selectedMemberId: member.id,
-          professionalismScoreRows: relevantProfessionalismScores,
-          professionalismItems: sortedProfessionalismItems,
+          if (scoreA === null && scoreB === null) {
+            return entryA.name.localeCompare(entryB.name);
+          }
+
+          if (scoreA === null) {
+            return 1;
+          }
+
+          if (scoreB === null) {
+            return -1;
+          }
+
+          if (scoreB !== scoreA) {
+            return scoreB - scoreA;
+          }
+
+          return entryA.name.localeCompare(entryB.name);
         });
 
-        const professionalismItemScores = sortedProfessionalismItems.map(
-          (item) => {
-            const averageValue = getMemberProfessionalismItemAverage(
-              relevantProfessionalismScores,
-              member.id,
-              item.id,
-            );
-
-            return {
-              itemId: item.id,
-              label: item.name?.trim() || item.code?.trim() || "Professionalism",
-              score:
-                averageValue === null
-                  ? null
-                  : Math.round(averageValue * 10) / 10,
-              max: Math.max(Number(item.value) || PROFESSIONALISM_PIP_COUNT, 1),
-            };
-          },
-        );
-
-        return {
-          memberId: member.id,
-          name: getStatisticsMemberName(member),
-          scorePoints,
-          grade,
-          rates,
-          professionalismItems: professionalismItemScores,
-        };
-      })
-      .sort((entryA, entryB) => {
-        const scoreA = entryA.scorePoints;
-        const scoreB = entryB.scorePoints;
-
-        if (scoreA === null && scoreB === null) {
-          return entryA.name.localeCompare(entryB.name);
-        }
-
-        if (scoreA === null) {
-          return 1;
-        }
-
-        if (scoreB === null) {
-          return -1;
-        }
-
-        if (scoreB !== scoreA) {
-          return scoreB - scoreA;
-        }
-
-        return entryA.name.localeCompare(entryB.name);
-      });
-
-    return ranked
-      .map((entry, index) => ({
+      return ranked.map((entry, index) => ({
         ...entry,
         rank: index + 1,
-      }))
-      .filter((entry) =>
-        selectedOfValue === TEAM_FILTER_VALUE
-          ? true
-          : entry.memberId === selectedOfValue,
-      );
+      }));
+    };
+
+    const showMemberSprintRankings =
+      selectedOfValue !== TEAM_FILTER_VALUE &&
+      (showMode === "year" || showMode === "quarter" || showMode === "month");
+
+    if (showMemberSprintRankings) {
+      const involvedSprints = selectableSprints
+        .filter((sprint) => activeSprintIds.includes(sprint.id))
+        .filter((sprint) =>
+          relevantPerformanceRows.some(
+            (row) =>
+              row.sprint_id === sprint.id &&
+              row.member_id === selectedOfValue,
+          ),
+        )
+        .sort(compareSprintsByQuarterThenNumberDesc);
+
+      return involvedSprints
+        .map((sprint) => {
+          const sprintPerformanceRows = relevantPerformanceRows.filter(
+            (row) => row.sprint_id === sprint.id,
+          );
+          const sprintCriteriaRows = relevantCriteriaRows.filter(
+            (row) => row.sprint_id === sprint.id,
+          );
+          const sprintProfessionalismRows = relevantProfessionalismScores.filter(
+            (row) => row.sprint_id === sprint.id,
+          );
+
+          const allSprintEntries = buildRankingEntries({
+            performanceRows: sprintPerformanceRows,
+            criteriaRows: sprintCriteriaRows,
+            professionalismRows: sprintProfessionalismRows,
+            useStoredGrade: true,
+          });
+          const sprintEntries = allSprintEntries.filter(
+            (entry) => entry.memberId === selectedOfValue,
+          );
+
+          if (sprintEntries.length === 0) {
+            return null;
+          }
+
+          return {
+            key: sprint.id,
+            label: formatMemberSprintRankingLabel(sprint),
+            peerCount: Math.max(allSprintEntries.length, 1),
+            entries: sprintEntries,
+          };
+        })
+        .filter((section): section is MemberRankingSection => section !== null);
+    }
+
+    const allPeriodEntries = buildRankingEntries({
+      performanceRows: relevantPerformanceRows,
+      criteriaRows: relevantCriteriaRows,
+      professionalismRows: relevantProfessionalismScores,
+      useStoredGrade: showMode === "sprint" && activeSprintIds.length === 1,
+    });
+    const periodEntries = allPeriodEntries.filter((entry) =>
+      selectedOfValue === TEAM_FILTER_VALUE
+        ? true
+        : entry.memberId === selectedOfValue,
+    );
+
+    if (periodEntries.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        key: "period",
+        label: null,
+        peerCount: Math.max(allPeriodEntries.length, 1),
+        entries: periodEntries,
+      },
+    ];
   }, [
     activeSprintIds,
     memberOptions,
@@ -2485,6 +2700,7 @@ export default function StatisticsPage({
     relevantPerformanceRows,
     relevantProfessionalismScores,
     scoreboardMemberIdList,
+    selectableSprints,
     selectedOfValue,
     showMode,
     sortedProfessionalismItems,
@@ -2611,6 +2827,7 @@ export default function StatisticsPage({
       return {
         id: sprint.id,
         label: formatStatisticsSprintLabel(sprint),
+        sublabel: formatStatisticsSprintStartDateLabel(sprint.start_date),
         productivity: skillValues.productivity,
         efficiency: skillValues.efficiency,
         quality: skillValues.quality,
@@ -3037,17 +3254,54 @@ export default function StatisticsPage({
             }),
           ]);
 
+        let nextLockedOfMemberId: string | null = null;
+
+        // On the authenticated Statistics page, restrict IC roles to their own "of" view.
+        if (showFilters) {
+          const session = await getSupabaseSession();
+          if (session?.user) {
+            const [memberByEmail] = session.user.email
+              ? await getSupabaseRows<StatisticsMemberRow>("members", {
+                  select: "id,full_name,first_name,last_name,role",
+                  eq: { email: session.user.email },
+                  limit: 1,
+                })
+              : [];
+            const [memberByAuthUserId] =
+              !memberByEmail && session.user.id
+                ? await getSupabaseRows<StatisticsMemberRow>("members", {
+                    select: "id,full_name,first_name,last_name,role",
+                    eq: { auth_user_id: session.user.id },
+                    limit: 1,
+                  })
+                : [];
+            const loggedInMember = memberByEmail ?? memberByAuthUserId ?? null;
+
+            if (
+              loggedInMember?.id &&
+              isScoreboardIncludedMemberRole(loggedInMember.role)
+            ) {
+              nextLockedOfMemberId = loggedInMember.id;
+            }
+          }
+        }
+
         if (!cancelled) {
           setSprints(sprintRows);
           setMembers(memberRows);
           setPassingScores(passingScoreRows);
           setProfessionalismItems(professionalismItemRows);
+          setLockedOfMemberId(nextLockedOfMemberId);
+          if (nextLockedOfMemberId) {
+            setSelectedOfValue(nextLockedOfMemberId);
+          }
         }
       } catch (error) {
         if (!cancelled) {
           setSprints([]);
           setMembers([]);
           setProfessionalismItems([]);
+          setLockedOfMemberId(null);
           setFiltersError(
             error instanceof Error
               ? error.message
@@ -3066,10 +3320,14 @@ export default function StatisticsPage({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showFilters]);
 
   useEffect(() => {
     setSelectedOfValue((currentValue) => {
+      if (lockedOfMemberId) {
+        return lockedOfMemberId;
+      }
+
       if (currentValue === TEAM_FILTER_VALUE) {
         return currentValue;
       }
@@ -3084,7 +3342,7 @@ export default function StatisticsPage({
 
       return TEAM_FILTER_VALUE;
     });
-  }, [memberOptions]);
+  }, [lockedOfMemberId, memberOptions]);
 
   useEffect(() => {
     if (!isEvaluateConfirmOpen) {
@@ -3704,22 +3962,28 @@ export default function StatisticsPage({
                 {allowMemberFilter ? (
                   <>
                     <span className="statistics-show-filter__label">of</span>
-                    <StyledSelect
-                      value={selectedOfValue}
-                      onChange={setSelectedOfValue}
-                      accent={Palette.cyan}
-                    >
-                      <option value={TEAM_FILTER_VALUE}>Team</option>
-                      {memberOptions.map((member) => (
-                        <option key={member.id} value={member.id}>
-                          {getStatisticsMemberName(member)}
-                        </option>
-                      ))}
-                    </StyledSelect>
+                    {lockedOfMemberId ? (
+                      <span className="statistics-show-filter__locked-of">
+                        {summarySubjectLabel}
+                      </span>
+                    ) : (
+                      <StyledSelect
+                        value={selectedOfValue}
+                        onChange={setSelectedOfValue}
+                        accent={Palette.cyan}
+                      >
+                        <option value={TEAM_FILTER_VALUE}>Team</option>
+                        {memberOptions.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {getStatisticsMemberName(member)}
+                          </option>
+                        ))}
+                      </StyledSelect>
+                    )}
                   </>
                 ) : null}
 
-                {showEvaluateButton ? (
+                {showEvaluateButton && !lockedOfMemberId ? (
                   <button
                     className="statistics-evaluate-button"
                     type="button"
@@ -3741,6 +4005,11 @@ export default function StatisticsPage({
       {periodPerformanceTitle ? (
         <div className="statistics-period-title-block">
           <h2 className="statistics-period-title">{periodPerformanceTitle}</h2>
+          {periodPerformanceDateRangeLabel ? (
+            <p className="statistics-period-dates">
+              {periodPerformanceDateRangeLabel}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -3931,10 +4200,17 @@ export default function StatisticsPage({
       ) : null}
 
       <div className="scard">
-        <div className="stitle">Leaderboard</div>
+        <div className="stitle">
+          {selectedOfValue !== TEAM_FILTER_VALUE &&
+          (showMode === "year" ||
+            showMode === "quarter" ||
+            showMode === "month")
+            ? "Sprint Ranking"
+            : "Leaderboard"}
+        </div>
         {scorePointsLoading ? (
           <div className="statistics-member-ranking__empty">Loading leaderboard…</div>
-        ) : memberRankingEntries.length === 0 ? (
+        ) : memberRankingSections.length === 0 ? (
           <div className="statistics-member-ranking__empty">
             No member scores for the selected period.
           </div>
@@ -3962,7 +4238,19 @@ export default function StatisticsPage({
               </div>
 
               <ul className="statistics-member-ranking__list">
-                {memberRankingEntries.map((entry) => {
+                {memberRankingSections.map((section) => (
+                  <li
+                    key={section.key}
+                    className="statistics-member-ranking__section"
+                  >
+                    {section.label ? (
+                      <div className="statistics-member-ranking__sprint-label">
+                        {section.label}
+                      </div>
+                    ) : null}
+
+                    <ul className="statistics-member-ranking__section-list">
+                      {section.entries.map((entry) => {
                   const entryGrade = entry.grade ?? "—";
                   const entryGradeColor = entry.grade
                     ? PERFORMANCE_GRADE_COLORS[entry.grade]
@@ -3970,7 +4258,7 @@ export default function StatisticsPage({
                   const rankColor = getMemberRankingColor(entry.rank);
                   const highlightIntensity = getMemberRankingHighlightIntensity(
                     entry.rank,
-                    memberRankingEntries.length,
+                    section.peerCount,
                   );
                   const nameColor = `color-mix(in srgb, rgba(230, 240, 255, 0.98) ${Math.round(
                     highlightIntensity * 100,
@@ -4019,7 +4307,7 @@ export default function StatisticsPage({
 
                   return (
                     <li
-                      key={entry.memberId}
+                      key={`${section.key}-${entry.memberId}`}
                       className="statistics-member-ranking__card"
                       style={
                         {
@@ -4031,11 +4319,11 @@ export default function StatisticsPage({
                       <div
                         className="statistics-member-ranking__grid"
                         role="row"
-                        aria-label={`${entry.name}, rank ${entry.rank}`}
+                        aria-label={`${section.label ? `${section.label}, ` : ""}${entry.name}, rank ${entry.rank}`}
                       >
                         {cells.map((cell) => (
                           <div
-                            key={`${entry.memberId}-${cell.key}`}
+                            key={`${section.key}-${entry.memberId}-${cell.key}`}
                             className={cell.className}
                             data-label={cell.label}
                             role="cell"
@@ -4068,7 +4356,7 @@ export default function StatisticsPage({
 
                               return (
                                 <li
-                                  key={`${entry.memberId}-${metric.key}`}
+                                  key={`${section.key}-${entry.memberId}-${metric.key}`}
                                   className={`statistics-member-ranking__breakdown-item${
                                     isPerfect
                                       ? " statistics-member-ranking__breakdown-item--perfect"
@@ -4134,7 +4422,7 @@ export default function StatisticsPage({
 
                                 return (
                                   <li
-                                    key={`${entry.memberId}-${item.itemId}`}
+                                    key={`${section.key}-${entry.memberId}-${item.itemId}`}
                                     className={`statistics-member-ranking__breakdown-item${
                                       isPerfect
                                         ? " statistics-member-ranking__breakdown-item--perfect"
@@ -4212,7 +4500,10 @@ export default function StatisticsPage({
                       </div>
                     </li>
                   );
-                })}
+                      })}
+                    </ul>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>

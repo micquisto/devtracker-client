@@ -16,6 +16,7 @@ import {
 export type PerformanceScoresBySprintPoint = {
   id?: string;
   label: string;
+  sublabel?: string | null;
   productivity: number;
   efficiency: number;
   quality: number;
@@ -24,7 +25,10 @@ export type PerformanceScoresBySprintPoint = {
   professionalism: number;
 };
 
-type SeriesKey = Exclude<keyof PerformanceScoresBySprintPoint, "id" | "label">;
+type SeriesKey = Exclude<
+  keyof PerformanceScoresBySprintPoint,
+  "id" | "label" | "sublabel"
+>;
 
 const SERIES: Array<{ key: SeriesKey; label: string; color: string }> = [
   { key: "productivity", label: "Productivity", color: Palette.cyan },
@@ -137,12 +141,14 @@ export function PerformanceScoresBySprintLineChart({
       entry.label,
       maxWidthCss,
       LABEL_FONT_SIZE,
-      LABEL_MAX_LINES,
+      entry.sublabel ? Math.max(LABEL_MAX_LINES - 1, 1) : LABEL_MAX_LINES,
     );
   });
   const maxLabelLines = Math.max(
     1,
-    ...wrappedLabels.map((lines) => lines.length),
+    ...wrappedLabels.map(
+      (lines, index) => lines.length + (entries[index]?.sublabel ? 1 : 0),
+    ),
   );
   const pB = 20 + maxLabelLines * LABEL_LINE_HEIGHT;
   const cH = plotH;
@@ -158,6 +164,7 @@ export function PerformanceScoresBySprintLineChart({
       labelX: layout.labelX,
       textAnchor: layout.textAnchor,
       labelLines: wrappedLabels[index] ?? [entry.label],
+      sublabel: entry.sublabel?.trim() || null,
       values: {
         productivity: entry.productivity,
         efficiency: entry.efficiency,
@@ -388,6 +395,15 @@ export function PerformanceScoresBySprintLineChart({
                       {line}
                     </tspan>
                   ))}
+                  {point.sublabel ? (
+                    <tspan
+                      x={point.labelX}
+                      dy={LABEL_LINE_HEIGHT}
+                      fill={Text.faint}
+                    >
+                      {point.sublabel}
+                    </tspan>
+                  ) : null}
                 </text>
               </g>
             ))}

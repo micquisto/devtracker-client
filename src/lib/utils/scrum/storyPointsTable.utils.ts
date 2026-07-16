@@ -1012,17 +1012,19 @@ export async function saveStoryPointsEncodeStoryPoints(
   sprintId: string,
   memberRows: StoryPointsEncodeUpdateRow[],
 ): Promise<void> {
+  // Replace all sprint story_points rows so Scoreboard/Encode cannot double-count
+  // leftover rows from an older project_id.
   const { error: deleteError } = await supabase
     .from("story_points")
     .delete()
-    .eq("sprint_id", sprintId)
-    .eq("project_id", ENCODE_STORY_POINTS_PROJECT_ID);
+    .eq("sprint_id", sprintId);
 
   if (deleteError) {
     throw deleteError;
   }
 
   if (memberRows.length === 0) {
+    await saveStoryPointsEncodeMemberSprintStoryPoints(sprintId, []);
     return;
   }
 
@@ -1045,6 +1047,47 @@ export async function saveStoryPointsEncodeStoryPoints(
   });
 
   const { error } = await supabase.from("story_points").insert(insertRows);
+
+  if (error) {
+    throw error;
+  }
+
+  // Keep Scoreboard's primary completed-SP source in sync (sprint_story_points model=member).
+  await saveStoryPointsEncodeMemberSprintStoryPoints(sprintId, memberRows);
+}
+
+/**
+ * Replaces member-level sprint_story_points rows used by Sprint Scoreboard for
+ * completed story points (sum of real_points where model = "member").
+ */
+export async function saveStoryPointsEncodeMemberSprintStoryPoints(
+  sprintId: string,
+  memberRows: StoryPointsEncodeUpdateRow[],
+): Promise<void> {
+  const { error: deleteError } = await supabase
+    .from("sprint_story_points")
+    .delete()
+    .eq("sprint_id", sprintId)
+    .eq("model", "member");
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (memberRows.length === 0) {
+    return;
+  }
+
+  const insertRows = memberRows.map((row) => ({
+    sprint_id: sprintId,
+    model: "member" as const,
+    model_id: row.memberId,
+    project: "General",
+    points: row.plannedStoryPoints,
+    real_points: row.completedStoryPoints,
+  }));
+
+  const { error } = await supabase.from("sprint_story_points").insert(insertRows);
 
   if (error) {
     throw error;

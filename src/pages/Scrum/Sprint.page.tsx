@@ -19,7 +19,7 @@ import {
   buildSprintRequirementsFromCurrentRequirements,
   buildScoreboardIncludedMemberIdSet,
   filterTasksForScoreboardMembers,
-  finalizeCompletedSprintScores,
+  finalizeCompletedSprintData,
   finalizePendingPlannedAdhocTasksOnOpenNewSprint,
   getSprintListingQuarter,
   getSprintListingYear,
@@ -944,7 +944,7 @@ export default function SprintPage() {
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
-      await finalizeCompletedSprintScores(sprintToProcess.id);
+      await finalizeCompletedSprintData(sprintToProcess.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(
