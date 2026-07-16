@@ -89,7 +89,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               margin: "10px 0 0",
             }}
           >
-            Login with your Supabase account to access the dashboard.
+            Login with your DevTracker account to access the dashboard.
           </p>
         </div>
 
