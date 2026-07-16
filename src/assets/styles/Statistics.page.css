@@ -281,6 +281,27 @@
   color: rgba(180, 220, 255, 0.92);
 }
 
+.statistics-member-ranking__sprint-label--overall {
+  margin-top: 0;
+  padding: 10px 14px;
+  border-width: 1px;
+  border-color: rgba(0, 200, 255, 0.55);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(0, 60, 140, 0.55),
+      rgba(0, 40, 100, 0.72)
+    );
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(235, 248, 255, 1);
+  text-shadow: 0 0 12px rgba(0, 200, 255, 0.45);
+  box-shadow:
+    0 0 16px rgba(0, 180, 255, 0.35),
+    0 0 32px rgba(0, 140, 255, 0.2),
+    inset 0 1px 0 rgba(180, 230, 255, 0.15);
+}
+
 .statistics-member-ranking__card {
   --ranking-accent: #00c8ff;
   --ranking-intensity: 1;

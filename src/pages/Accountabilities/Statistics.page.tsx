@@ -2617,56 +2617,180 @@ export default function StatisticsPage({
       }));
     };
 
-    const showMemberSprintRankings =
-      selectedOfValue !== TEAM_FILTER_VALUE &&
-      (showMode === "year" || showMode === "quarter" || showMode === "month");
+    const buildSprintRankingSection = (
+      sprint: StatisticsSprintRow,
+      performanceRows: MemberPerformanceScoreRow[],
+      criteriaRows: MemberSprintCriteriaScoreRow[],
+      professionalismRows: MemberSprintProfessionalismScoreRow[],
+      memberId: string,
+    ): MemberRankingSection | null => {
+      const sprintPerformanceRows = performanceRows.filter(
+        (row) => row.sprint_id === sprint.id,
+      );
+      const sprintCriteriaRows = criteriaRows.filter(
+        (row) => row.sprint_id === sprint.id,
+      );
+      const sprintProfessionalismRows = professionalismRows.filter(
+        (row) => row.sprint_id === sprint.id,
+      );
 
-    if (showMemberSprintRankings) {
-      const involvedSprints = selectableSprints
-        .filter((sprint) => activeSprintIds.includes(sprint.id))
+      const allSprintEntries = buildRankingEntries({
+        performanceRows: sprintPerformanceRows,
+        criteriaRows: sprintCriteriaRows,
+        professionalismRows: sprintProfessionalismRows,
+        useStoredGrade: true,
+      });
+      const sprintEntries = allSprintEntries.filter(
+        (entry) => entry.memberId === memberId,
+      );
+
+      if (sprintEntries.length === 0) {
+        return null;
+      }
+
+      return {
+        key: sprint.id,
+        label: formatMemberSprintRankingLabel(sprint),
+        peerCount: Math.max(allSprintEntries.length, 1),
+        entries: sprintEntries,
+      };
+    };
+
+    const getMemberInvolvedSprints = (
+      performanceRows: MemberPerformanceScoreRow[],
+      memberId: string,
+      sprintIds?: string[],
+    ) =>
+      selectableSprints
         .filter((sprint) =>
-          relevantPerformanceRows.some(
+          sprintIds ? sprintIds.includes(sprint.id) : true,
+        )
+        .filter((sprint) =>
+          performanceRows.some(
             (row) =>
-              row.sprint_id === sprint.id &&
-              row.member_id === selectedOfValue,
+              row.sprint_id === sprint.id && row.member_id === memberId,
           ),
         )
         .sort(compareSprintsByQuarterThenNumberDesc);
 
-      return involvedSprints
-        .map((sprint): MemberRankingSection | null => {
-          const sprintPerformanceRows = relevantPerformanceRows.filter(
-            (row) => row.sprint_id === sprint.id,
-          );
-          const sprintCriteriaRows = relevantCriteriaRows.filter(
-            (row) => row.sprint_id === sprint.id,
-          );
-          const sprintProfessionalismRows = relevantProfessionalismScores.filter(
-            (row) => row.sprint_id === sprint.id,
-          );
+    const getPeriodOverallRankingLabel = (): string | null => {
+      if (showMode === "year" && selectedYear) {
+        return `${selectedYear} Overall`;
+      }
 
-          const allSprintEntries = buildRankingEntries({
-            performanceRows: sprintPerformanceRows,
-            criteriaRows: sprintCriteriaRows,
-            professionalismRows: sprintProfessionalismRows,
-            useStoredGrade: true,
-          });
-          const sprintEntries = allSprintEntries.filter(
-            (entry) => entry.memberId === selectedOfValue,
-          );
+      if (showMode === "quarter") {
+        const option = quarterOptions.find(
+          (entry) => entry.value === selectedQuarter,
+        );
+        return option ? `${option.label} Overall` : null;
+      }
 
-          if (sprintEntries.length === 0) {
-            return null;
-          }
+      if (showMode === "month") {
+        const option = monthOptions.find(
+          (entry) => entry.value === selectedMonth,
+        );
+        return option ? `${option.label} Overall` : null;
+      }
 
-          return {
-            key: sprint.id,
-            label: formatMemberSprintRankingLabel(sprint),
-            peerCount: Math.max(allSprintEntries.length, 1),
-            entries: sprintEntries,
-          };
-        })
-        .filter((section): section is MemberRankingSection => section !== null);
+      return null;
+    };
+
+    const isMemberFiltered = selectedOfValue !== TEAM_FILTER_VALUE;
+
+    if (
+      isMemberFiltered &&
+      (showMode === "year" || showMode === "quarter" || showMode === "month")
+    ) {
+      const sections: MemberRankingSection[] = [];
+
+      const allPeriodEntries = buildRankingEntries({
+        performanceRows: relevantPerformanceRows,
+        criteriaRows: relevantCriteriaRows,
+        professionalismRows: relevantProfessionalismScores,
+        useStoredGrade: false,
+      });
+      const memberPeriodEntries = allPeriodEntries.filter(
+        (entry) => entry.memberId === selectedOfValue,
+      );
+
+      if (memberPeriodEntries.length > 0) {
+        sections.push({
+          key: "period-overall",
+          label: getPeriodOverallRankingLabel(),
+          peerCount: Math.max(allPeriodEntries.length, 1),
+          entries: memberPeriodEntries,
+        });
+      }
+
+      const involvedSprints = getMemberInvolvedSprints(
+        relevantPerformanceRows,
+        selectedOfValue,
+        activeSprintIds,
+      );
+
+      for (const sprint of involvedSprints) {
+        const section = buildSprintRankingSection(
+          sprint,
+          relevantPerformanceRows,
+          relevantCriteriaRows,
+          relevantProfessionalismScores,
+          selectedOfValue,
+        );
+
+        if (section) {
+          sections.push(section);
+        }
+      }
+
+      return sections;
+    }
+
+    if (isMemberFiltered && showMode === "sprint") {
+      const allPerformanceRows = sprintPerformanceScores.filter((row) =>
+        scoreboardMemberIds.has(row.member_id),
+      );
+      const allCriteriaRows = sprintCriteriaScores.filter((row) =>
+        scoreboardMemberIds.has(row.member_id),
+      );
+      const allProfessionalismRows = professionalismScores.filter((row) =>
+        scoreboardMemberIds.has(row.member_id),
+      );
+
+      const memberInvolvedSprints = getMemberInvolvedSprints(
+        allPerformanceRows,
+        selectedOfValue,
+      );
+      const selectedSprint = selectableSprints.find(
+        (sprint) => sprint.id === selectedSprintId,
+      );
+      const otherSprints = memberInvolvedSprints.filter(
+        (sprint) => sprint.id !== selectedSprintId,
+      );
+      const orderedSprints = [
+        ...(selectedSprint &&
+        memberInvolvedSprints.some((sprint) => sprint.id === selectedSprintId)
+          ? [selectedSprint]
+          : []),
+        ...otherSprints,
+      ];
+
+      const sections: MemberRankingSection[] = [];
+
+      for (const sprint of orderedSprints) {
+        const section = buildSprintRankingSection(
+          sprint,
+          allPerformanceRows,
+          allCriteriaRows,
+          allProfessionalismRows,
+          selectedOfValue,
+        );
+
+        if (section) {
+          sections.push(section);
+        }
+      }
+
+      return sections;
     }
 
     const allPeriodEntries = buildRankingEntries({
@@ -2696,14 +2820,24 @@ export default function StatisticsPage({
   }, [
     activeSprintIds,
     memberOptions,
+    monthOptions,
+    professionalismScores,
+    quarterOptions,
     relevantCriteriaRows,
     relevantPerformanceRows,
     relevantProfessionalismScores,
     scoreboardMemberIdList,
+    scoreboardMemberIds,
     selectableSprints,
+    selectedMonth,
     selectedOfValue,
+    selectedQuarter,
+    selectedSprintId,
+    selectedYear,
     showMode,
     sortedProfessionalismItems,
+    sprintCriteriaScores,
+    sprintPerformanceScores,
   ]);
 
   const professionalismTotalAverageMetric = useMemo(() => {
@@ -4201,12 +4335,7 @@ export default function StatisticsPage({
 
       <div className="scard">
         <div className="stitle">
-          {selectedOfValue !== TEAM_FILTER_VALUE &&
-          (showMode === "year" ||
-            showMode === "quarter" ||
-            showMode === "month")
-            ? "Sprint Ranking"
-            : "Leaderboard"}
+          {selectedOfValue !== TEAM_FILTER_VALUE ? "Sprint Ranking" : "Leaderboard"}
         </div>
         {scorePointsLoading ? (
           <div className="statistics-member-ranking__empty">Loading leaderboard…</div>
@@ -4244,7 +4373,13 @@ export default function StatisticsPage({
                     className="statistics-member-ranking__section"
                   >
                     {section.label ? (
-                      <div className="statistics-member-ranking__sprint-label">
+                      <div
+                        className={`statistics-member-ranking__sprint-label${
+                          section.key === "period-overall"
+                            ? " statistics-member-ranking__sprint-label--overall"
+                            : ""
+                        }`}
+                      >
                         {section.label}
                       </div>
                     ) : null}
