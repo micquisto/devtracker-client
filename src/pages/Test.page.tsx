@@ -175,7 +175,7 @@ function JsonTree({
 }
 
 export default function TestPage() {
-  const { isSyncing, runSync } = useSprintSync();
+  const { isSyncing, syncProgressPercent, runSync } = useSprintSync();
   const [state, setState] = useState<FetchState>({
     data: null,
     sprint: null,
@@ -399,7 +399,13 @@ export default function TestPage() {
                 }}
               />
             )}
-            {isSyncing ? "Syncing..." : "Sync with Trello"}
+            {isSyncing
+              ? `Syncing...${
+                  syncProgressPercent !== null
+                    ? ` ${syncProgressPercent}%`
+                    : ""
+                }`
+              : "Sync with Trello"}
           </button>
         </div>
       </div>

@@ -65,6 +65,8 @@ type CurrentSprintRow = {
   total_completed_points: number;
   status: string | null;
   is_current: number | boolean;
+  grading_set_id: string | null;
+  criteria_set_id: string | null;
 };
 
 type SprintMemberFilterRow = {
@@ -445,6 +447,9 @@ function buildNextSprintPayload(
     project_id: currentSprint.project_id,
     name: buildSprintName(draft),
     sprint_number: draft.sprintNumber,
+    sprint_year: draft.year,
+    sprint_quarter: draft.quarter,
+    sprint_month: draft.month,
     start_date: draft.startDate,
     end_date: draft.endDate,
     month: draft.month,
@@ -452,6 +457,8 @@ function buildNextSprintPayload(
     total_completed_points: 0,
     status: "planning",
     is_current: 1,
+    grading_set_id: currentSprint.grading_set_id,
+    criteria_set_id: currentSprint.criteria_set_id,
   };
 }
 
@@ -482,7 +489,7 @@ export default function SprintPage() {
     });
   const [confirmationDialog, setConfirmationDialog] =
     useState<SprintConfirmationDialog | null>(null);
-  const { isSyncing, runSync, syncVersion } = useSprintSync();
+  const { isSyncing, syncProgressPercent, runSync, syncVersion } = useSprintSync();
   const [nextSprintDraft, setNextSprintDraft] = useState<NextSprintDraft | null>(
     null,
   );
@@ -549,7 +556,7 @@ export default function SprintPage() {
         const [sprintRows, members, session] = await Promise.all([
           getSupabaseRows<CurrentSprintRow>("sprints", {
             select:
-              "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
+              "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
             order: { column: "start_date", ascending: false },
           }),
           getSupabaseRows<SprintMemberFilterRow>("members", {
@@ -849,7 +856,7 @@ export default function SprintPage() {
         { status: "active" },
         {
           select:
-            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
@@ -893,7 +900,7 @@ export default function SprintPage() {
         { status: "active" },
         {
           select:
-            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
@@ -940,7 +947,7 @@ export default function SprintPage() {
         { status: "completed" },
         {
           select:
-            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
@@ -1001,14 +1008,14 @@ export default function SprintPage() {
         { is_current: 0, status: "done" },
         {
           select:
-            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
           eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
         },
       );
       const [newSprint] = await insertSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
         buildNextSprintPayload(sprintToProcess, draft),
-        "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current",
+        "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
       );
 
       if (!newSprint?.id) {
@@ -1161,6 +1168,13 @@ export default function SprintPage() {
     const isLoading =
       sprintActionLoading === loadingKey ||
       (loadingKey === "sync-data" && isSyncing);
+    const showSyncPercent =
+      isLoading &&
+      isSyncing &&
+      syncProgressPercent !== null &&
+      (loadingKey === "sync-data" ||
+        loadingKey === "start-sync" ||
+        loadingKey === "end-sync");
 
     return (
       <>
@@ -1173,7 +1187,9 @@ export default function SprintPage() {
             }}
           />
         ) : null}
-        {isLoading ? loadingLabel : label}
+        {isLoading
+          ? `${loadingLabel}${showSyncPercent ? ` ${syncProgressPercent}%` : ""}`
+          : label}
       </>
     );
   };

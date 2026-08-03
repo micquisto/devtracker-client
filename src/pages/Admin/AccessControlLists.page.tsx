@@ -51,9 +51,10 @@ const ACCESS_CONTROL_TREE: AccessControlResource[] = [
   { id: "history", label: "History" },
   {
     id: "battlefield",
-    label: "Accountabilities",
+    label: "Reports",
     children: [
-      { id: "stats", label: "Statistics" },
+      { id: "stats", label: "Metrics" },
+      { id: "accountabilities", label: "Accountabilities" },
       { id: "favorite", label: "Favorite" },
       { id: "replays", label: "Replays" },
     ],
@@ -72,6 +73,7 @@ const ACCESS_CONTROL_TREE: AccessControlResource[] = [
           { id: "admin-requirements-data", label: "Requirements Data" },
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
           { id: "admin-sprint-data", label: "Sprint Data" },
+          { id: "admin-criteria-grading-sets", label: "Criteria & Grading Sets" },
           { id: "admin-dev-velocity", label: "Dev Velocity" },
           { id: "admin-sprint-story-points-check", label: "Sprint Story Points Check" },
         ],

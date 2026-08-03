@@ -59,7 +59,7 @@ export default function SprintSyncDataAction({
   memberRole,
   onSynced,
 }: SprintSyncDataActionProps) {
-  const { isSyncing, runSync, lastError } = useSprintSync();
+  const { isSyncing, syncProgressPercent, runSync, lastError } = useSprintSync();
   const [confirmationDialog, setConfirmationDialog] =
     useState<SprintConfirmationDialog | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -145,7 +145,11 @@ export default function SprintSyncDataAction({
           }}
         />
       ) : null}
-      {isSyncing ? loadingLabel : label}
+      {isSyncing
+        ? `${loadingLabel}${
+            syncProgressPercent !== null ? ` ${syncProgressPercent}%` : ""
+          }`
+        : label}
     </>
   );
 

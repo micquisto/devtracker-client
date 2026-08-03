@@ -610,6 +610,43 @@
   text-transform: uppercase;
 }
 
+.requirements-data-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.requirements-data-tab {
+  background: rgba(9, 18, 38, 0.84);
+  border: 1px solid rgba(100, 180, 255, 0.18);
+  border-radius: 999px;
+  color: rgba(160, 210, 255, 0.72);
+  cursor: pointer;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 8px 14px;
+  text-transform: uppercase;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.requirements-data-tab:hover {
+  border-color: rgba(100, 180, 255, 0.34);
+  color: rgba(200, 230, 255, 0.9);
+}
+
+.requirements-data-tab.is-active {
+  background: rgba(0, 200, 255, 0.12);
+  border-color: rgba(0, 200, 255, 0.45);
+  color: #7fe9ff;
+}
+
+.requirements-data-row.is-selected td {
+  background: rgba(0, 200, 255, 0.06);
+}
+
 .acl-tree {
   display: grid;
   gap: 10px;

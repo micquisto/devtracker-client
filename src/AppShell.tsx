@@ -8,15 +8,18 @@ import {
   SprintPage,
   StoryPointsPage,
   StatisticsPage,
+  AccountabilitiesPage,
   TasksListPage,
   PlanningPokerPage,
   TestPage,
   AppFlowPage,
   PublicSprintScoreboardPage,
   PublicStatisticsPage,
+  PublicAccountabilitiesPage,
   RequirementsDataPage,
   SprintRequirementsPage,
   SprintDataPage,
+  CriteriaGradingSetsPage,
   DevVelocityPage,
   AccessControlListsPage,
   ChangePasswordsPage,
@@ -86,9 +89,10 @@ const NAV: NavEntry[] = [
   },
   { id: "history", label: "History", icon: "history" },
   {
-    id: "battlefield", label: "Accountabilities", icon: "battlefield", badge: true,
+    id: "battlefield", label: "Reports", icon: "battlefield", badge: true,
     children: [
-      { id: "stats",    label: "Statistics", icon: "stats" },
+      { id: "stats",    label: "Metrics", icon: "stats" },
+      { id: "accountabilities", label: "Accountabilities", icon: "battlefield" },
       { id: "favorite", label: "Favorite",   icon: "favorite" },
       { id: "replays",  label: "Replays",    icon: "replays" },
     ],
@@ -108,6 +112,7 @@ const NAV: NavEntry[] = [
           { id: "admin-requirements-data", label: "Requirements Data" },
           { id: "admin-sprint-requirements", label: "Sprint Requirements" },
           { id: "admin-sprint-data", label: "Sprint Data" },
+          { id: "admin-criteria-grading-sets", label: "Criteria & Grading Sets" },
           { id: "admin-dev-velocity", label: "Dev Velocity" },
           { id: "admin-sprint-story-points-check", label: "Sprint Story Points Check" },
         ],
@@ -651,6 +656,10 @@ function PageContent({ active }: { active: string }) {
     return <StatisticsPage />;
   }
 
+  if (active === "accountabilities") {
+    return <AccountabilitiesPage />;
+  }
+
   if (active === "scrum-sprint") {
     return <SprintPage />;
   }
@@ -685,6 +694,10 @@ function PageContent({ active }: { active: string }) {
 
   if (active === "admin-sprint-data") {
     return <SprintDataPage />;
+  }
+
+  if (active === "admin-criteria-grading-sets") {
+    return <CriteriaGradingSetsPage />;
   }
 
   if (active === "admin-dev-velocity") {
@@ -771,7 +784,13 @@ export default function AppShell() {
   const isPublicStatisticsRoute =
     typeof window !== "undefined" &&
     window.location.pathname === "/public/statistics";
-  const isPublicRoute = isPublicSprintScoreboardRoute || isPublicStatisticsRoute;
+  const isPublicAccountabilitiesRoute =
+    typeof window !== "undefined" &&
+    window.location.pathname === "/public/accountabilities";
+  const isPublicRoute =
+    isPublicSprintScoreboardRoute ||
+    isPublicStatisticsRoute ||
+    isPublicAccountabilitiesRoute;
 
   useEffect(() => {
     let mounted = true;
@@ -952,6 +971,7 @@ export default function AppShell() {
       }}>
         {isPublicSprintScoreboardRoute ? <PublicSprintScoreboardPage /> : null}
         {isPublicStatisticsRoute ? <PublicStatisticsPage /> : null}
+        {isPublicAccountabilitiesRoute ? <PublicAccountabilitiesPage /> : null}
       </div>
     );
   }

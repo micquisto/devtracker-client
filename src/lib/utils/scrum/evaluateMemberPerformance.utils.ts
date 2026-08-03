@@ -509,6 +509,73 @@ async function loadYearSprints(year: number): Promise<EvaluateSprintRow[]> {
   });
 }
 
+function resolveSprintEvaluationSets(
+  sprint: EvaluateSprintRow,
+  yearSprints: EvaluateSprintRow[],
+): { grading_set_id: string; criteria_set_id: string } | null {
+  if (sprint.grading_set_id && sprint.criteria_set_id) {
+    return {
+      grading_set_id: sprint.grading_set_id,
+      criteria_set_id: sprint.criteria_set_id,
+    };
+  }
+
+  const sprintStart = sprint.start_date
+    ? new Date(sprint.start_date).getTime()
+    : Number.POSITIVE_INFINITY;
+
+  const candidates = yearSprints
+    .filter((row) => Boolean(row.grading_set_id && row.criteria_set_id))
+    .sort((left, right) => {
+      const leftStart = left.start_date
+        ? new Date(left.start_date).getTime()
+        : 0;
+      const rightStart = right.start_date
+        ? new Date(right.start_date).getTime()
+        : 0;
+      return rightStart - leftStart;
+    });
+
+  const priorOrSame = candidates.find((row) => {
+    if (!row.start_date) {
+      return false;
+    }
+
+    return new Date(row.start_date).getTime() <= sprintStart;
+  });
+
+  const fallback = priorOrSame ?? candidates[0] ?? null;
+  if (!fallback?.grading_set_id || !fallback.criteria_set_id) {
+    return null;
+  }
+
+  return {
+    grading_set_id: fallback.grading_set_id,
+    criteria_set_id: fallback.criteria_set_id,
+  };
+}
+
+async function healSprintEvaluationSets(
+  sprintId: string,
+  sets: { grading_set_id: string; criteria_set_id: string },
+): Promise<void> {
+  const { error } = await supabase
+    .from("sprints")
+    .update({
+      grading_set_id: sets.grading_set_id,
+      criteria_set_id: sets.criteria_set_id,
+    })
+    .eq("id", sprintId);
+
+  if (error) {
+    // Non-fatal: evaluation can still proceed with the resolved sets in-memory.
+    console.warn(
+      `Unable to backfill grading/criteria sets for sprint ${sprintId}:`,
+      error.message,
+    );
+  }
+}
+
 async function deleteCriteriaScoresForSprints(sprintIds: string[]): Promise<void> {
   if (sprintIds.length === 0) return;
 
@@ -794,18 +861,42 @@ export async function evaluateMemberPerformanceForYear(
   await deleteCriteriaScoresForSprints(sprintIds);
   await deletePerformanceScoresForSprints(sprintIds);
 
+  // Resolve missing grading/criteria sets from prior sprints in the same year,
+  // then include those resolved IDs when loading evaluation source data.
+  const resolvedSetsBySprintId = new Map<
+    string,
+    { grading_set_id: string; criteria_set_id: string }
+  >();
+  for (const sprint of sprints) {
+    const resolved = resolveSprintEvaluationSets(sprint, sprints);
+    if (!resolved) {
+      continue;
+    }
+
+    resolvedSetsBySprintId.set(sprint.id, resolved);
+
+    if (
+      sprint.grading_set_id !== resolved.grading_set_id ||
+      sprint.criteria_set_id !== resolved.criteria_set_id
+    ) {
+      await healSprintEvaluationSets(sprint.id, resolved);
+      sprint.grading_set_id = resolved.grading_set_id;
+      sprint.criteria_set_id = resolved.criteria_set_id;
+    }
+  }
+
   const gradingSetIds = Array.from(
     new Set(
-      sprints
-        .map((sprint) => sprint.grading_set_id)
-        .filter((id): id is string => Boolean(id)),
+      Array.from(resolvedSetsBySprintId.values()).map(
+        (sets) => sets.grading_set_id,
+      ),
     ),
   );
   const criteriaSetIds = Array.from(
     new Set(
-      sprints
-        .map((sprint) => sprint.criteria_set_id)
-        .filter((id): id is string => Boolean(id)),
+      Array.from(resolvedSetsBySprintId.values()).map(
+        (sets) => sets.criteria_set_id,
+      ),
     ),
   );
 
@@ -900,23 +991,17 @@ export async function evaluateMemberPerformanceForYear(
   let membersProcessed = 0;
 
   for (const sprint of sprints) {
-    if (!sprint.grading_set_id) {
+    const resolvedSets = resolvedSetsBySprintId.get(sprint.id);
+    if (!resolvedSets) {
       skippedSprints.push({
         sprintId: sprint.id,
-        reason: `Sprint "${sprint.name ?? sprint.id}" has no grading_set_id.`,
+        reason: `Sprint "${sprint.name ?? sprint.id}" has no grading_set_id/criteria_set_id, and no prior sprint in ${year} could be used as a fallback.`,
       });
       continue;
     }
 
-    if (!sprint.criteria_set_id) {
-      skippedSprints.push({
-        sprintId: sprint.id,
-        reason: `Sprint "${sprint.name ?? sprint.id}" has no criteria_set_id.`,
-      });
-      continue;
-    }
-
-    const linkedCriteriaIds = criteriaIdsBySetId.get(sprint.criteria_set_id) ?? [];
+    const linkedCriteriaIds =
+      criteriaIdsBySetId.get(resolvedSets.criteria_set_id) ?? [];
     const sprintCriteria = linkedCriteriaIds
       .map((criteriaId) => criteriaById.get(criteriaId))
       .filter((row): row is CriteriaRow => Boolean(row));
@@ -938,7 +1023,8 @@ export async function evaluateMemberPerformanceForYear(
       continue;
     }
 
-    const passingByLevel = passingByGradingSet.get(sprint.grading_set_id) ?? new Map();
+    const passingByLevel =
+      passingByGradingSet.get(resolvedSets.grading_set_id) ?? new Map();
 
     for (const memberScore of sprintMemberScores) {
       const member = membersById.get(memberScore.member_id);

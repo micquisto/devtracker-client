@@ -1144,6 +1144,11 @@
   line-height: 1.45;
 }
 
+.statistics-evaluate-result__details {
+  margin-top: 8px;
+  color: rgba(255, 210, 160, 0.92);
+}
+
 .two-col {
   display: grid;
   grid-template-columns: 1fr 2fr;
@@ -1180,10 +1185,10 @@
 }
 
 .statistics-skill-radar__legend {
-  flex: 0 0 200px;
-  width: 200px;
-  max-width: 200px;
-  min-width: 0;
+  flex: 0 0 280px;
+  width: 280px;
+  max-width: 280px;
+  min-width: 240px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1194,12 +1199,12 @@
 }
 
 .statistics-skill-radar__legend-title {
-  font-size: 10px;
+  font-size: 13px;
   font-family: "DM Mono", monospace;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(100, 180, 255, 0.55);
+  color: rgba(160, 210, 255, 0.78);
 }
 
 .statistics-skill-radar__legend-list {
@@ -1213,7 +1218,7 @@
 
 .statistics-skill-radar__legend-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) minmax(72px, auto);
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
@@ -1242,22 +1247,22 @@
 }
 
 .statistics-skill-radar__legend-label {
-  font-size: 10px;
+  font-size: 13px;
   font-family: "DM Mono", monospace;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(100, 180, 255, 0.55);
-  line-height: 1.2;
+  color: rgba(180, 220, 255, 0.88);
+  line-height: 1.25;
 }
 
 .statistics-skill-radar__legend-meta {
-  font-size: 10px;
+  font-size: 12px;
   font-family: "DM Mono", monospace;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(140, 180, 220, 0.62);
+  color: rgba(160, 200, 230, 0.75);
 }
 
 .statistics-skill-radar__legend-stats {
@@ -1266,24 +1271,26 @@
   align-items: flex-end;
   gap: 4px;
   flex-shrink: 0;
+  min-width: 72px;
 }
 
 .statistics-skill-radar__legend-value {
-  font-size: 13px;
+  font-size: 15px;
   font-family: "DM Mono", monospace;
   font-weight: 800;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .statistics-skill-radar__legend-grade {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  padding: 2px 6px;
+  min-width: 28px;
+  padding: 3px 7px;
   border-radius: 999px;
   border: 1px solid transparent;
-  font-size: 10px;
+  font-size: 12px;
   font-family: "DM Mono", monospace;
   font-weight: 800;
   line-height: 1;
@@ -1291,7 +1298,7 @@
 
 .statistics-skill-radar__legend-footnote {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   font-family: "DM Mono", monospace;
   color: rgba(140, 180, 220, 0.58);
   line-height: 1.4;
@@ -1417,26 +1424,26 @@
 }
 
 .statistics-team-contribution__legend-name {
-  font-size: 10px;
+  font-size: 12px;
   font-family: "DM Mono", monospace;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(100, 180, 255, 0.55);
-  line-height: 1.2;
+  color: rgba(180, 220, 255, 0.88);
+  line-height: 1.25;
 }
 
 .statistics-team-contribution__legend-points {
-  font-size: 10px;
+  font-size: 12px;
   font-family: "DM Mono", monospace;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(140, 180, 220, 0.62);
+  color: rgba(160, 200, 230, 0.75);
 }
 
 .statistics-team-contribution__legend-share {
-  font-size: 12px;
+  font-size: 14px;
   font-family: "DM Mono", monospace;
   font-weight: 800;
   flex-shrink: 0;

@@ -1,15 +1,14 @@
 /**
  * Graph/chart label typography site-wide.
  * Uses CSS `px` (not SVG user units) so size stays stable across viewBox scaling.
- * Kept smaller than SectionTitle / .stitle (10px).
  */
 export const ChartLabelTypography = {
-  fontSizePx: 5,
+  fontSizePx: 9,
   fontFamily: "'DM Mono',monospace",
   fontWeight: 700,
   textTransform: "uppercase" as const,
-  letterSpacing: "0.12em",
-  color: "rgba(100, 180, 255, 0.55)",
+  letterSpacing: "0.08em",
+  color: "rgba(160, 210, 255, 0.82)",
   lineHeight: 1.25,
   maxLines: 4,
 } as const;
@@ -39,7 +38,7 @@ export const chartLabelStyle = {
   wordBreak: "break-word" as const,
 } as const;
 
-export const CHART_LEGEND_FONT_SIZE = 10;
+export const CHART_LEGEND_FONT_SIZE = 13;
 
 /** CSS style for chart legend text (10px across all graphs). */
 export const chartLegendStyle = {

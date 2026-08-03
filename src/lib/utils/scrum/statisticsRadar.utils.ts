@@ -79,7 +79,7 @@ function roundRadarValue(value: number | null): number {
     return 0;
   }
 
-  return Math.round(capped);
+  return Math.round(capped * 100) / 100;
 }
 
 function getMemberCriteriaRateAverage(
@@ -212,7 +212,7 @@ function roundProfessionalismRadarValue(value: number | null): number {
     return 0;
   }
 
-  return Math.round(capped * 10) / 10;
+  return Math.round(capped * 100) / 100;
 }
 
 function getAggregateRadarRate(

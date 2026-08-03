@@ -31,6 +31,7 @@ type RunSyncOptions = {
 
 type SprintSyncContextValue = {
   isSyncing: boolean;
+  syncProgressPercent: number | null;
   syncVersion: number;
   lastError: string | null;
   lastMessage: string | null;
@@ -58,6 +59,9 @@ export function SprintSyncProvider({
   );
   const syncIntervalMs = getBackgroundProcessIntervalMs(sprintTrelloSyncProcess);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgressPercent, setSyncProgressPercent] = useState<number | null>(
+    null,
+  );
   const [syncVersion, setSyncVersion] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
@@ -106,6 +110,7 @@ export function SprintSyncProvider({
 
     isSyncingRef.current = true;
     setIsSyncing(true);
+    setSyncProgressPercent(0);
     setLastError(null);
 
     try {
@@ -115,6 +120,9 @@ export function SprintSyncProvider({
           syncCurrentSprintTasks({
             sprintId: options.sprintId,
             sprintStatus: options.sprintStatus,
+            onProgress: ({ percent }) => {
+              setSyncProgressPercent(percent);
+            },
           }),
         {
           onStateChange: (row) => {
@@ -134,6 +142,7 @@ export function SprintSyncProvider({
     } finally {
       isSyncingRef.current = false;
       setIsSyncing(false);
+      setSyncProgressPercent(null);
       void refreshProcesses();
     }
   }, [autoSyncEnabled, refreshProcesses, patchProcess]);
@@ -200,12 +209,13 @@ export function SprintSyncProvider({
   const value = useMemo(
     () => ({
       isSyncing,
+      syncProgressPercent,
       syncVersion,
       lastError,
       lastMessage,
       runSync,
     }),
-    [isSyncing, syncVersion, lastError, lastMessage, runSync],
+    [isSyncing, syncProgressPercent, syncVersion, lastError, lastMessage, runSync],
   );
 
   return (
@@ -215,8 +225,16 @@ export function SprintSyncProvider({
           aria-expanded={!syncIndicatorCollapsed}
           aria-label={
             syncIndicatorCollapsed
-              ? "Syncing data in progress. Click to expand."
-              : "Syncing data in progress. Click to collapse."
+              ? `Syncing data in progress${
+                  syncProgressPercent !== null
+                    ? ` ${syncProgressPercent}%`
+                    : ""
+                }. Click to expand.`
+              : `Syncing data in progress${
+                  syncProgressPercent !== null
+                    ? ` ${syncProgressPercent}%`
+                    : ""
+                }. Click to collapse.`
           }
           className={`sprint-floating-sync-indicator${
             syncIndicatorCollapsed
@@ -229,6 +247,7 @@ export function SprintSyncProvider({
           <span className="sprint-action-loader" aria-hidden="true" />
           <span className="sprint-floating-sync-indicator__label">
             Syncing data in progress
+            {syncProgressPercent !== null ? ` ${syncProgressPercent}%` : ""}
           </span>
         </button>
       ) : null}

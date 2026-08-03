@@ -1095,6 +1095,105 @@ async function updatePlannedAdhocTasksFromAllTrelloCards(
   }
 }
 
+/**
+ * Planned/adhoc tasks still in the DB but missing from the fetched Trello card set
+ * are treated as Done Sprint completed so their story points count across related tables.
+ */
+async function markMissingTrelloPlannedAdhocTasksAsDoneSprint(
+  sprint: SprintRow,
+  allTrelloCards: TrelloSprintCard[],
+  weightedStoryPointsCutoffStartDate: string | null = null,
+): Promise<number> {
+  if (normalizeSprintStatus(sprint.status) === "planning") {
+    return 0;
+  }
+
+  assertCurrentSprintForTaskSync(sprint);
+  assertSprintTasksMutable(sprint);
+
+  const fetchedTrelloCardIds = new Set(
+    dedupeTrelloCardsById(allTrelloCards).map((card) => card.id),
+  );
+
+  type MissingDoneSprintTaskRow = {
+    id: string;
+    story_points: number | null;
+    completion_percentage: number | null;
+    severity: number | null;
+    trello_card_id: string | null;
+    trello_list_name: string | null;
+    trello_last_synced_at: string | null;
+    is_completed: TaskRow["is_completed"];
+    sp_type: TaskRow["sp_type"];
+  };
+
+  const currentSprintTasks = await getSupabaseRows<MissingDoneSprintTaskRow>(
+    "tasks",
+    {
+      select:
+        "id,story_points,completion_percentage,severity,trello_card_id,trello_list_name,trello_last_synced_at,is_completed,sp_type",
+      eq: { sprint_id: sprint.id },
+    },
+  );
+
+  const missingTasks = currentSprintTasks.filter((task) => {
+    if (!isPlannedOrAdhocSpType(task.sp_type)) {
+      return false;
+    }
+
+    const trelloCardId = task.trello_card_id?.trim() ?? "";
+    if (!trelloCardId) {
+      return true;
+    }
+
+    return !fetchedTrelloCardIds.has(trelloCardId);
+  });
+
+  if (missingTasks.length === 0) {
+    return 0;
+  }
+
+  const syncedAt = new Date().toISOString();
+  let updated = 0;
+
+  for (const task of missingTasks) {
+    const completionPercentage =
+      Number(task.completion_percentage) > 0
+        ? Number(task.completion_percentage)
+        : 100;
+    const storyPoints = Number(task.story_points) || 0;
+    const severityMultiplier = Number(task.severity) || 1.0;
+    const realStoryPoints = (storyPoints * completionPercentage) / 100;
+    const weightedStoryPoints = resolveWeightedStoryPointsForSprint(
+      sprint,
+      weightedStoryPointsCutoffStartDate,
+      (storyPoints * completionPercentage * severityMultiplier) / 100,
+    );
+
+    const { error: updateError } = await supabase
+      .from("tasks")
+      .update({
+        trello_list_name: CANONICAL_DONE_SPRINT_LIST_NAME,
+        is_completed: "completed",
+        completed_at: task.trello_last_synced_at ?? syncedAt,
+        completion_percentage: completionPercentage,
+        real_story_points: realStoryPoints,
+        weighted_story_points: weightedStoryPoints,
+        trello_last_synced_at: syncedAt,
+      })
+      .eq("id", task.id)
+      .eq("sprint_id", sprint.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    updated += 1;
+  }
+
+  return updated;
+}
+
 async function deleteAllTasksForCurrentSprint(
   sprint: SprintRow,
 ): Promise<number> {
@@ -1423,6 +1522,11 @@ async function replaceSprintTasks(
       projectTypeLookup,
       weightedStoryPointsCutoffStartDate,
     );
+    await markMissingTrelloPlannedAdhocTasksAsDoneSprint(
+      sprint,
+      allTrelloCards,
+      weightedStoryPointsCutoffStartDate,
+    );
 
     return {
       deleted: deletedCount,
@@ -1448,6 +1552,11 @@ async function replaceSprintTasks(
     allTrelloCards,
     assigneeLookup,
     projectTypeLookup,
+    weightedStoryPointsCutoffStartDate,
+  );
+  await markMissingTrelloPlannedAdhocTasksAsDoneSprint(
+    sprint,
+    allTrelloCards,
     weightedStoryPointsCutoffStartDate,
   );
 
@@ -1657,10 +1766,27 @@ async function updateSprintTaskAggregates(
   }
 }
 
+export type SyncProgressUpdate = {
+  percent: number;
+  label?: string;
+};
+
 export type SyncCurrentSprintTasksOptions = {
   sprintId?: string;
   sprintStatus?: string;
+  onProgress?: (update: SyncProgressUpdate) => void;
 };
+
+function reportSyncProgress(
+  onProgress: SyncCurrentSprintTasksOptions["onProgress"],
+  percent: number,
+  label?: string,
+): void {
+  onProgress?.({
+    percent: Math.max(0, Math.min(100, Math.round(percent))),
+    label,
+  });
+}
 
 function isCurrentSprintFlag(
   value: number | boolean | null | undefined,
@@ -1849,11 +1975,17 @@ export async function syncCurrentSprintTasks(
   cards: TrelloSprintCard[];
   result: SprintSyncResult;
 }> {
-  const { sprintId: expectedSprintId, sprintStatus: expectedSprintStatus } =
-    options;
+  const {
+    sprintId: expectedSprintId,
+    sprintStatus: expectedSprintStatus,
+    onProgress,
+  } = options;
+
+  reportSyncProgress(onProgress, 2, "Preparing sync");
   const currentSprint = await getCurrentSprint();
 
   if (!currentSprint) {
+    reportSyncProgress(onProgress, 100, "Skipped");
     return {
       cards: [],
       result: {
@@ -1868,6 +2000,7 @@ export async function syncCurrentSprintTasks(
   }
 
   if (expectedSprintId && currentSprint.id !== expectedSprintId) {
+    reportSyncProgress(onProgress, 100, "Skipped");
     return {
       cards: [],
       result: {
@@ -1881,11 +2014,13 @@ export async function syncCurrentSprintTasks(
     };
   }
 
+  reportSyncProgress(onProgress, 8, "Loading sprint");
   const loadedSprint = expectedSprintId
     ? await getSprintById(expectedSprintId)
     : currentSprint;
 
   if (!loadedSprint) {
+    reportSyncProgress(onProgress, 100, "Skipped");
     return {
       cards: [],
       result: {
@@ -1905,6 +2040,7 @@ export async function syncCurrentSprintTasks(
       : loadedSprint;
 
   if (!isCurrentSprintFlag(loadedSprint.is_current)) {
+    reportSyncProgress(onProgress, 100, "Skipped");
     return {
       cards: [],
       result: {
@@ -1927,6 +2063,7 @@ export async function syncCurrentSprintTasks(
     sprintStatus !== "completed" &&
     sprintStatus !== "done"
   ) {
+    reportSyncProgress(onProgress, 100, "Skipped");
     return {
       cards: [],
       result: {
@@ -1940,6 +2077,7 @@ export async function syncCurrentSprintTasks(
     };
   }
 
+  reportSyncProgress(onProgress, 16, "Loading members");
   const [supabaseMembers, projectTypes] = await Promise.all([
     getSupabaseRows<MemberAssigneeRow>("members", {
       select:
@@ -1951,6 +2089,8 @@ export async function syncCurrentSprintTasks(
   ]);
   const assigneeLookup = buildAssigneeLookup(supabaseMembers);
   const projectTypeLookup = buildProjectTypeLookup(projectTypes);
+
+  reportSyncProgress(onProgress, 28, "Resolving Trello members");
   const requiredTrelloMember = await enrichRequiredTrelloMemberFromBoards(
     resolveRequiredTrelloMemberFilter(supabaseMembers),
     [...ORIGINAL_TRELLO_BOARD_IDS, ...EXTRA_TRELLO_BOARD_IDS],
@@ -1958,6 +2098,8 @@ export async function syncCurrentSprintTasks(
   const requiredMemberTrelloIds = Array.from(requiredTrelloMember.memberIds);
   const fetchMemberIds =
     requiredMemberTrelloIds.length > 0 ? requiredMemberTrelloIds : "all";
+
+  reportSyncProgress(onProgress, 40, "Fetching Trello cards");
   const [originalBoardCards, extraBoardCards] = await Promise.all([
     getTrelloSprintCards({
       boardIds: ORIGINAL_TRELLO_BOARD_IDS,
@@ -1995,6 +2137,7 @@ export async function syncCurrentSprintTasks(
     await getWeightedStoryPointsCutoffStartDate();
   let taskCounts = { deleted: 0, inserted: 0 };
 
+  reportSyncProgress(onProgress, 58, "Updating sprint tasks");
   if (shouldMutateSprintTasks(sprintStatus)) {
     assertCurrentSprintForTaskSync(sprint);
     taskCounts = await replaceSprintTasks(
@@ -2009,10 +2152,13 @@ export async function syncCurrentSprintTasks(
   }
 
   // Every successful Trello sync refreshes story points from the final saved task rows.
+  reportSyncProgress(onProgress, 72, "Refreshing story points");
   const savedTasks = await getSavedSprintTasks(sprint.id);
   await updateSprintTaskAggregates(sprint, savedTasks, trelloCards);
   await replaceSprintStoryPoints(sprint, savedTasks);
   await replaceSprintStoryPointBreakdown(sprint, savedTasks);
+
+  reportSyncProgress(onProgress, 88, "Updating scores");
   if (shouldUpdateSprintTaskScores(sprintStatus)) {
     await replaceSprintTaskScores(
       sprint.id,
@@ -2032,6 +2178,7 @@ export async function syncCurrentSprintTasks(
     await clearSprintAndMemberScores(sprint.id);
   }
 
+  reportSyncProgress(onProgress, 100, "Complete");
   return {
     cards,
     result: {

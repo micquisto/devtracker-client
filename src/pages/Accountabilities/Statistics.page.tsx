@@ -3,9 +3,9 @@ import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { DropArrow, StyledSelect } from "@/components/shared/Elements";
 import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
-import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart } from "@/components/dashboard";
+import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart, SkillRadarPanel, TeamContributionDoughnut, getTeamContributionMemberColor, GradeDial, PERFORMANCE_GRADE_COLORS, type TeamContributionSegment } from "@/components/dashboard";
 import { getSupabaseRows, getSupabaseSession } from "@/lib/supabase";
-import { Palette, chartLabelStyle, chartLabelSvgProps } from "@/lib/theme";
+import { Palette, chartLabelStyle } from "@/lib/theme";
 import { sanitizeHtml2CanvasClone } from "@/lib/utils/html2canvas.utils";
 import {
   isScoreboardIncludedMember,
@@ -53,16 +53,6 @@ const RADAR_LABELS = [
 const RADAR_KEYS = SKILL_RADAR_KEYS;
 const TEAM_FILTER_VALUE = "team";
 
-const PERFORMANCE_GRADE_COLORS: Record<PerformanceScoreGrade, string> = {
-  S: "#ffcc00",
-  A: "#00e5a0",
-  B: "#00c8ff",
-  C: "#f97316",
-  D: "#a78bfa",
-  E: "#b87333",
-  F: "#ef4444",
-};
-
 const MEMBER_RANKING_COLORS = [
   "#ffe566", // gold (lighter highlight for rank 1)
   "#00e5a0", // green
@@ -103,15 +93,6 @@ function getSkillValueGradeColor(
   return PERFORMANCE_GRADE_COLORS[
     resolvePerformanceScoreGrade(value, passingThreshold)
   ];
-}
-
-function colorWithAlpha(hex: string, alpha: number): string {
-  const normalized = hex.replace("#", "");
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-
-  return `rgba(${red},${green},${blue},${alpha})`;
 }
 
 type StatBar = {
@@ -178,14 +159,6 @@ type MemberSprintProfessionalismScoreRow = {
   score: number | null;
 };
 
-type TeamContributionSegment = {
-  memberId: string;
-  name: string;
-  color: string;
-  storyPoints: number;
-  contribution: number;
-};
-
 type MemberRankingProfessionalismItem = {
   itemId: string;
   label: string;
@@ -248,17 +221,6 @@ function getProfessionalismScoreColor(score: number): string {
   }
   return "#00e5a0"; // green
 }
-
-const TEAM_CONTRIBUTION_COLORS = [
-  "#00c8ff",
-  "#00e5a0",
-  "#f5c842",
-  "#a78bfa",
-  "#ff6eb4",
-  "#ff9f43",
-  "#6b89ff",
-  "#ff6b6b",
-];
 
 const SHOW_MODE_OPTIONS: Array<{ value: StatisticsShowMode; label: string }> = [
   { value: "year", label: "By Year" },
@@ -852,262 +814,10 @@ function getHighestCompletedStoryPoints(
   return Math.max(...values);
 }
 
-function getTeamContributionMemberColor(memberId: string, index: number): string {
-  const hash = Array.from(memberId).reduce(
-    (sum, character) => sum + character.charCodeAt(0),
-    0,
-  );
-
-  return TEAM_CONTRIBUTION_COLORS[
-    (hash + index) % TEAM_CONTRIBUTION_COLORS.length
-  ];
-}
-
-function formatContributionStoryPoints(value: number): string {
-  return value.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-  });
-}
-
-function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
 type PassingScoreRow = {
   level: string | null;
   value: number | null;
 };
-
-function RadarChart({
-  values,
-  scale,
-  hideValueLabels = false,
-}: {
-  values: SkillRadarValues;
-  scale: SkillChartScale;
-  hideValueLabels?: boolean;
-}) {
-  const cx = 200, cy = 200, maxR = 150, levels = 5, n = RADAR_KEYS.length;
-  const chartTicks = getSkillChartTicks(scale);
-  const polygonPoints = (r: number) => Array.from({ length: n }, (_, i) => {
-    const p = polarToCartesian(cx, cy, r, (360 / n) * i);
-    return `${p.x},${p.y}`;
-  }).join(" ");
-  const passingThreshold = scale.minValue;
-  const dataPoints = RADAR_KEYS.map((k, i) => {
-    const actualValue = values[k];
-    const chartValue = normalizeSkillValueForChart(actualValue, scale);
-    const r = (chartValue / 100) * maxR;
-    const color = getSkillValueGradeColor(actualValue, passingThreshold);
-    return {
-      ...polarToCartesian(cx, cy, r, (360 / n) * i),
-      value: actualValue,
-      passed: isSkillValuePassing(actualValue, scale),
-      color,
-      label: RADAR_LABELS[i],
-    };
-  });
-  const [anim, setAnim] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => setAnim(true), 400);
-    return () => clearTimeout(t);
-  }, [scale, values]);
-
-  return (
-    <svg viewBox="0 0 400 440" className="statistics-skill-radar__svg">
-      {Array.from({ length: levels }, (_, i) => (
-        <polygon
-          key={i}
-          points={polygonPoints((maxR / levels) * (i + 1))}
-          fill="none"
-          stroke="rgba(100,220,255,0.12)"
-          strokeWidth="1"
-        />
-      ))}
-      {Array.from({ length: n }, (_, i) => {
-        const p = polarToCartesian(cx, cy, maxR, (360 / n) * i);
-        return (
-          <line
-            key={i}
-            x1={cx}
-            y1={cy}
-            x2={p.x}
-            y2={p.y}
-            stroke="rgba(100,220,255,0.15)"
-            strokeWidth="1"
-          />
-        );
-      })}
-      {dataPoints.map((p, i) => {
-        const next = dataPoints[(i + 1) % n];
-        return (
-          <polygon
-            key={`wedge-${i}`}
-            points={`${cx},${cy} ${p.x},${p.y} ${next.x},${next.y}`}
-            fill={colorWithAlpha(p.color, 0.24)}
-            stroke="none"
-            style={{
-              transition: "all 1s cubic-bezier(0.23,1,0.32,1)",
-              opacity: anim ? 1 : 0,
-              transform: anim ? "scale(1)" : "scale(0.3)",
-              transformOrigin: `${cx}px ${cy}px`,
-            }}
-          />
-        );
-      })}
-      {dataPoints.map((p, i) => {
-        const next = dataPoints[(i + 1) % n];
-        return (
-          <line
-            key={`edge-${i}`}
-            x1={p.x}
-            y1={p.y}
-            x2={next.x}
-            y2={next.y}
-            stroke={colorWithAlpha(p.color, 0.9)}
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            style={{
-              transition: "all 1s cubic-bezier(0.23,1,0.32,1)",
-              opacity: anim ? 1 : 0,
-            }}
-          />
-        );
-      })}
-      {dataPoints.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r={5}
-          fill={p.color}
-          style={{ transition: `all 1s ease ${i * 0.08}s`, opacity: anim ? 1 : 0 }}
-        />
-      ))}
-      {dataPoints.map((p, i) => {
-        const labelPoint = polarToCartesian(cx, cy, maxR + 24, (360 / n) * i);
-        const valuePoint = polarToCartesian(cx, cy, maxR + 42, (360 / n) * i);
-        return (
-          <g key={`label-${i}`}>
-            <text
-              x={labelPoint.x}
-              y={labelPoint.y}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="rgba(180,230,255,0.9)"
-              {...chartLabelSvgProps}
-            >
-              {p.label}
-            </text>
-            {!hideValueLabels ? (
-              <text
-                x={valuePoint.x}
-                y={valuePoint.y}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill={p.color}
-                {...chartLabelSvgProps}
-                style={{
-                  ...chartLabelSvgProps.style,
-                  opacity: anim ? 1 : 0,
-                  transition: `opacity 0.6s ease ${i * 0.08 + 0.2}s`,
-                }}
-              >
-                {p.value}%
-              </text>
-            ) : null}
-          </g>
-        );
-      })}
-      <text
-        x={cx}
-        y={410}
-        textAnchor="middle"
-        fill="rgba(150,200,240,0.65)"
-        {...chartLabelSvgProps}
-      >
-        Passing min {Math.round(scale.minValue)}% · scale {chartTicks.join(" / ")}%
-      </text>
-    </svg>
-  );
-}
-
-function SkillRadarPanel({
-  values,
-  scale,
-}: {
-  values: SkillRadarValues;
-  scale: SkillChartScale;
-}) {
-  const passingThreshold = scale.minValue;
-  const criteriaItems = RADAR_KEYS.map((key, index) => {
-    const value = values[key];
-    const grade = resolvePerformanceScoreGrade(value, passingThreshold);
-
-    return {
-      key,
-      label: RADAR_LABELS[index],
-      value,
-      grade,
-      color: getSkillValueGradeColor(value, passingThreshold),
-      passed: isSkillValuePassing(value, scale),
-    };
-  });
-
-  return (
-    <div className="statistics-skill-radar">
-      <div className="statistics-skill-radar__chart">
-        <RadarChart values={values} scale={scale} hideValueLabels />
-      </div>
-      <aside className="statistics-skill-radar__legend" aria-label="Criteria values">
-        <div className="statistics-skill-radar__legend-title">Criteria Values</div>
-        <ul className="statistics-skill-radar__legend-list">
-          {criteriaItems.map((item) => (
-            <li
-              key={item.key}
-              className={`statistics-skill-radar__legend-item${item.passed ? "" : " statistics-skill-radar__legend-item--failed"}`}
-            >
-              <span
-                className="statistics-skill-radar__legend-swatch"
-                style={{ background: item.color, boxShadow: `0 0 10px ${item.color}66` }}
-                aria-hidden="true"
-              />
-              <div className="statistics-skill-radar__legend-copy">
-                <span className="statistics-skill-radar__legend-label">{item.label}</span>
-                <span className="statistics-skill-radar__legend-meta">
-                  {item.passed ? "Passing" : "Below passing"}
-                </span>
-              </div>
-              <div className="statistics-skill-radar__legend-stats">
-                <span
-                  className="statistics-skill-radar__legend-value"
-                  style={{ color: item.color }}
-                >
-                  {item.value}%
-                </span>
-                <span
-                  className="statistics-skill-radar__legend-grade"
-                  style={{
-                    color: item.color,
-                    borderColor: `${item.color}55`,
-                    background: `${item.color}14`,
-                  }}
-                >
-                  {item.grade}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <p className="statistics-skill-radar__legend-footnote">
-          Passing min {Math.round(scale.minValue)}%
-        </p>
-      </aside>
-    </div>
-  );
-}
 
 function SkillBarChart({
   values,
@@ -1272,240 +982,6 @@ function SkillBarChart({
   );
 }
 
-function TeamContributionDoughnut({
-  segments,
-  loading = false,
-}: {
-  segments: TeamContributionSegment[];
-  loading?: boolean;
-}) {
-  const [anim, setAnim] = useState(false);
-  const [hov, setHov] = useState<number | null>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => setAnim(true), 400);
-    return () => clearTimeout(t);
-  }, [segments]);
-
-  if (loading) {
-    return (
-      <div className="statistics-team-contribution statistics-team-contribution--loading">
-        Loading team contribution…
-      </div>
-    );
-  }
-
-  if (segments.length === 0) {
-    return (
-      <div className="statistics-team-contribution statistics-team-contribution--empty">
-        No completed story points for the selected period.
-      </div>
-    );
-  }
-
-  const cx = 130;
-  const cy = 130;
-  const outerR = 100;
-  const innerR = 56;
-  const gap = 2;
-  const totalStoryPoints = segments.reduce(
-    (sum, segment) => sum + segment.storyPoints,
-    0,
-  );
-  let cursor = -Math.PI / 2;
-  const chartSegments = segments.map((segment, index) => {
-    const frac =
-      totalStoryPoints > 0 ? segment.storyPoints / totalStoryPoints : 0;
-    const angle = frac * 2 * Math.PI - (gap * Math.PI) / 180;
-    const start = cursor;
-    const end = cursor + angle;
-    cursor += frac * 2 * Math.PI;
-    const largeArc = angle > Math.PI ? 1 : 0;
-    const x1 = cx + outerR * Math.cos(start);
-    const y1 = cy + outerR * Math.sin(start);
-    const x2 = cx + outerR * Math.cos(end);
-    const y2 = cy + outerR * Math.sin(end);
-    const x3 = cx + innerR * Math.cos(end);
-    const y3 = cy + innerR * Math.sin(end);
-    const x4 = cx + innerR * Math.cos(start);
-    const y4 = cy + innerR * Math.sin(start);
-    const mid = (start + end) / 2;
-    const lx = cx + (outerR + 20) * Math.cos(mid);
-    const ly = cy + (outerR + 20) * Math.sin(mid);
-
-    return {
-      ...segment,
-      index,
-      frac,
-      mid,
-      lx,
-      ly,
-      d: `M${x1},${y1} A${outerR},${outerR} 0 ${largeArc} 1 ${x2},${y2} L${x3},${y3} A${innerR},${innerR} 0 ${largeArc} 0 ${x4},${y4} Z`,
-    };
-  });
-  const hoveredSegment = hov !== null ? chartSegments[hov] : null;
-
-  return (
-    <div className="statistics-team-contribution">
-      <svg
-        viewBox="0 0 260 260"
-        className="statistics-team-contribution__chart"
-        onMouseLeave={() => setHov(null)}
-      >
-        <defs>
-          {chartSegments.map((segment) => (
-            <radialGradient
-              key={segment.memberId}
-              id={`tc-dg-${segment.memberId}`}
-              cx="50%"
-              cy="50%"
-              r="50%"
-            >
-              <stop offset="0%" stopColor={segment.color} />
-              <stop offset="100%" stopColor={segment.color} stopOpacity=".7" />
-            </radialGradient>
-          ))}
-        </defs>
-        {chartSegments.map((segment, index) => (
-          <g
-            key={segment.memberId}
-            style={{ cursor: "pointer" }}
-            onMouseEnter={() => setHov(index)}
-          >
-            <path
-              d={segment.d}
-              fill={`url(#tc-dg-${segment.memberId})`}
-              stroke="rgba(6,13,31,0.8)"
-              strokeWidth="2"
-              style={{
-                transform:
-                  hov === index
-                    ? `translate(${Math.cos(segment.mid) * 6}px,${Math.sin(segment.mid) * 6}px)`
-                    : "none",
-                transition: "transform 0.25s ease",
-                opacity: anim ? 1 : 0,
-                transitionDelay: `${index * 0.07}s`,
-                transformOrigin: `${cx}px ${cy}px`,
-              }}
-            />
-            {segment.contribution >= 8 ? (
-              <text
-                x={segment.lx}
-                y={segment.ly}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill={segment.color}
-                {...chartLabelSvgProps}
-                style={{
-                  ...chartLabelSvgProps.style,
-                  opacity: anim ? 1 : 0,
-                  transition: `opacity 0.5s ease ${index * 0.07 + 0.3}s`,
-                }}
-              >
-                {segment.contribution}%
-              </text>
-            ) : null}
-          </g>
-        ))}
-        <circle cx={cx} cy={cy} r={innerR - 3} fill="rgba(6,13,31,0.85)" />
-        {hoveredSegment ? (
-          <>
-            <text
-              x={cx}
-              y={cy - 12}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="20"
-              fill={hoveredSegment.color}
-              fontFamily="'DM Mono',monospace"
-              fontWeight="800"
-            >
-              {hoveredSegment.contribution}%
-            </text>
-            <text
-              x={cx}
-              y={cy + 8}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="rgba(160,210,255,0.7)"
-              {...chartLabelSvgProps}
-            >
-              {hoveredSegment.name}
-            </text>
-            <text
-              x={cx}
-              y={cy + 22}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill={hoveredSegment.color}
-              {...chartLabelSvgProps}
-            >
-              {formatContributionStoryPoints(hoveredSegment.storyPoints)} SP
-            </text>
-          </>
-        ) : (
-          <>
-            <text
-              x={cx}
-              y={cy - 8}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="22"
-              fill="#e8f4ff"
-              fontFamily="'DM Mono',monospace"
-              fontWeight="800"
-            >
-              {formatContributionStoryPoints(totalStoryPoints)}
-            </text>
-            <text
-              x={cx}
-              y={cy + 12}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="rgba(120,180,240,0.55)"
-              {...chartLabelSvgProps}
-            >
-              Team SP
-            </text>
-          </>
-        )}
-      </svg>
-      <div className="statistics-team-contribution__legend">
-        {chartSegments.map((segment, index) => (
-          <div
-            key={segment.memberId}
-            className="statistics-team-contribution__legend-item"
-            onMouseEnter={() => setHov(index)}
-            onMouseLeave={() => setHov(null)}
-          >
-            <span
-              className="statistics-team-contribution__legend-swatch"
-              style={{
-                background: segment.color,
-                boxShadow: `0 0 8px ${segment.color}88`,
-              }}
-            />
-            <div className="statistics-team-contribution__legend-copy">
-              <span className="statistics-team-contribution__legend-name">
-                {segment.name}
-              </span>
-              <span className="statistics-team-contribution__legend-points">
-                {formatContributionStoryPoints(segment.storyPoints)} SP
-              </span>
-            </div>
-            <span
-              className="statistics-team-contribution__legend-share"
-              style={{ color: segment.color }}
-            >
-              {segment.contribution}%
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function StatBar2({
   label,
   value,
@@ -1551,16 +1027,6 @@ function StatBar2({
     </div>
   );
 }
-
-const GRADE_DIAL_FILL_PERCENT: Record<PerformanceScoreGrade, number> = {
-  S: 100,
-  A: 95,
-  B: 85,
-  C: 75,
-  D: 65,
-  E: 57,
-  F: 50,
-};
 
 const DEFAULT_PASSING_THRESHOLD = 75;
 
@@ -1629,143 +1095,6 @@ function ScoreCircle2({
         }}
       >
         {label}
-      </span>
-    </div>
-  );
-}
-
-function GradeDial({
-  grade,
-  color,
-  delay = 0,
-  size = "default",
-  glowFilterId = "statistics-grade-dial-glow",
-}: {
-  grade: string;
-  color: string;
-  delay?: number;
-  size?: "default" | "compact";
-  glowFilterId?: string;
-}) {
-  const [show, setShow] = useState(false);
-  const isCompact = size === "compact";
-  const isTopGrade = grade === "S";
-  const fillPercent =
-    GRADE_DIAL_FILL_PERCENT[grade as PerformanceScoreGrade] ?? 50;
-  const radius = 72;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (fillPercent / 100) * circumference;
-  const topGlowFilterId = `${glowFilterId}-s`;
-  const dialWidth = isCompact ? (isTopGrade ? 96 : 90) : isTopGrade ? 158 : 148;
-  // SVG fontSize is viewBox units; scale so rendered letter stays readable at dialWidth.
-  const gradeFontSize = isCompact ? (isTopGrade ? 52 : 48) : isTopGrade ? 46 : 42;
-
-  useEffect(() => {
-    const t = setTimeout(() => setShow(true), delay);
-    return () => clearTimeout(t);
-  }, [delay]);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: isCompact ? 3 : 8 }}>
-      <svg
-        aria-label={`Grade ${grade}`}
-        role="img"
-        viewBox="0 0 190 190"
-        style={{
-          width: dialWidth,
-          height: dialWidth,
-          opacity: show ? 1 : 0,
-          transform: show ? "scale(1)" : "scale(0.6)",
-          transition: `all 0.7s cubic-bezier(0.23,1,0.32,1) ${delay}ms`,
-          filter: isTopGrade ? `drop-shadow(0 0 18px ${color}aa)` : undefined,
-        }}
-      >
-        <defs>
-          <filter id={glowFilterId} x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          {isTopGrade ? (
-            <filter id={topGlowFilterId} x="-60%" y="-60%" width="220%" height="220%">
-              <feGaussianBlur stdDeviation="7" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          ) : null}
-        </defs>
-        {isTopGrade ? (
-          <circle
-            cx="95"
-            cy="95"
-            fill="none"
-            r="84"
-            stroke={colorWithAlpha(color, 0.28)}
-            strokeWidth="4"
-          />
-        ) : null}
-        <circle
-          cx="95"
-          cy="95"
-          fill="rgba(255,255,255,0.025)"
-          r="78"
-          stroke="rgba(160,210,255,0.12)"
-          strokeWidth="10"
-        />
-        <circle
-          cx="95"
-          cy="95"
-          fill="none"
-          r={radius}
-          stroke="rgba(160,210,255,0.14)"
-          strokeLinecap="round"
-          strokeWidth="13"
-        />
-        <circle
-          cx="95"
-          cy="95"
-          fill="none"
-          filter={isTopGrade ? `url(#${topGlowFilterId})` : `url(#${glowFilterId})`}
-          r={radius}
-          stroke={color}
-          strokeDasharray={circumference}
-          strokeDashoffset={show ? dashOffset : circumference}
-          strokeLinecap="round"
-          strokeWidth={isTopGrade ? 15 : 13}
-          style={{
-            transform: "rotate(-90deg)",
-            transformOrigin: "95px 95px",
-            transition: `stroke-dashoffset 0.9s cubic-bezier(0.23,1,0.32,1) ${delay + 100}ms`,
-          }}
-        />
-        <text
-          dominantBaseline="middle"
-          fill={color}
-          fontFamily="'DM Mono', monospace"
-          fontSize={gradeFontSize}
-          fontWeight="900"
-          textAnchor="middle"
-          x="95"
-          y="95"
-        >
-          {grade}
-        </text>
-      </svg>
-      <span
-        style={{
-          fontSize: isCompact ? 11 : 12,
-          fontFamily: "'DM Sans',sans-serif",
-          color: "rgba(160,200,240,0.78)",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          fontWeight: 700,
-        }}
-      >
-        Grade
       </span>
     </div>
   );
@@ -2122,7 +1451,7 @@ export default function StatisticsPage({
         ...segment,
         contribution:
           totalStoryPoints > 0
-            ? Math.round((segment.storyPoints / totalStoryPoints) * 100)
+            ? Math.round((segment.storyPoints / totalStoryPoints) * 10000) / 100
             : 0,
       }))
       .sort((segmentA, segmentB) => segmentB.storyPoints - segmentA.storyPoints);
@@ -4162,6 +3491,14 @@ export default function StatisticsPage({
             ? ` · skipped ${evaluateResult.skippedSprints.length} sprint(s), ${evaluateResult.skippedMembers.length} member(s)`
             : ""}
           .
+          {evaluateResult.skippedSprints.length > 0 ? (
+            <div className="statistics-evaluate-result__details">
+              Skipped sprints:{" "}
+              {evaluateResult.skippedSprints
+                .map((entry) => entry.reason)
+                .join(" · ")}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
