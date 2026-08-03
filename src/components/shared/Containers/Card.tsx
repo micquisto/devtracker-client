@@ -18,6 +18,10 @@ const Card = ({
         borderRadius: 16,
         padding: 22,
         transition: "border-color 0.3s",
+        minWidth: 0,
+        maxWidth: "100%",
+        overflow: "hidden",
+        boxSizing: "border-box",
         ...style,
       }}
       onMouseEnter={(e) =>

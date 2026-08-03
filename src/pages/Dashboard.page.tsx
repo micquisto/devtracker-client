@@ -244,10 +244,10 @@ export default function DashboardPage() {
       </div>
 
       {/* Line chart */}
-      <div style={{ marginBottom: 20, ...anim(0.08) }}>
+      <div style={{ marginBottom: 20, minWidth: 0, maxWidth: "100%", ...anim(0.08) }}>
         <TeamLineChart />
       </div>
-      <div style={{ marginBottom: 20, ...anim(0.095) }}>
+      <div style={{ marginBottom: 20, minWidth: 0, maxWidth: "100%", ...anim(0.095) }}>
         <TeamMetricsLineChart />
       </div>
 

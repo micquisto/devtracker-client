@@ -355,9 +355,12 @@ function SidebarContent({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
+  const [userCardHidden, setUserCardHidden] = useState(false);
+
   return (
     <div style={{
       display: "flex", flexDirection: "column", height: "100%",
+      minHeight: 0,
     }}>
       {/* Logo / brand */}
       <div style={{
@@ -494,33 +497,54 @@ function SidebarContent({
         )}
       </nav>
 
-      {/* Bottom user card */}
+      {/* Bottom user card — sticky footer, can slide away */}
       {!collapsed && (
-        <div style={{
-          margin: "12px 12px 16px",
-          padding: "12px",
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(100,180,255,0.1)",
-          borderRadius: 12,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: "50%",
-              background: "linear-gradient(135deg, #00c8ff, #00e5a0)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 12, fontWeight: 800, color: "#060d1f",
-              fontFamily: "'DM Mono', monospace", flexShrink: 0,
-            }}>{memberProfile.initials}</div>
-            <div style={{ overflow: "hidden" }}>
-              <div style={{
-                fontSize: 12, fontWeight: 700, color: "#e8f4ff",
-                fontFamily: "'DM Sans', sans-serif",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-              }}>{memberProfile.displayName}</div>
-              <div style={{
-                fontSize: 10, color: "rgba(0,200,255,0.6)",
-                fontFamily: "'DM Mono', monospace",
-              }}>{memberProfile.roleLabel} · Grade A</div>
+        <div className="sidebar-user-footer">
+          <div
+            className={`sidebar-user-card${
+              userCardHidden ? " sidebar-user-card--hidden" : ""
+            }`}
+          >
+            <button
+              aria-expanded={!userCardHidden}
+              aria-label={
+                userCardHidden ? "Show user profile" : "Hide user profile"
+              }
+              className="sidebar-user-card__toggle"
+              onClick={() => setUserCardHidden((value) => !value)}
+              title={userCardHidden ? "Show profile" : "Hide profile"}
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="14"
+                viewBox="0 0 24 24"
+                width="14"
+              >
+                <path
+                  d="M6 9l6 6 6-6"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2.2"
+                />
+              </svg>
+            </button>
+            <div className="sidebar-user-card__body">
+              <div className="sidebar-user-card__row">
+                <div className="sidebar-user-card__avatar">
+                  {memberProfile.initials}
+                </div>
+                <div className="sidebar-user-card__meta">
+                  <div className="sidebar-user-card__name">
+                    {memberProfile.displayName}
+                  </div>
+                  <div className="sidebar-user-card__role">
+                    {memberProfile.roleLabel} · Grade A
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1060,7 +1084,7 @@ export default function AppShell() {
         borderRight: "1px solid rgba(100,180,255,0.12)",
         backdropFilter: "blur(20px)",
         zIndex: 50,
-        overflowY: "auto",
+        overflow: "hidden",
         display: "flex", flexDirection: "column",
         transform: drawerOpen ? "translateX(0)" : "translateX(-105%)",
         transition: "transform 0.35s cubic-bezier(0.23,1,0.32,1)",

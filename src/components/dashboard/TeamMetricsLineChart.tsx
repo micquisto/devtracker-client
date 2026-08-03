@@ -150,10 +150,17 @@ const TeamMetricsLineChart = () => {
         ))}
       </div>
 
-      <div style={{ width: "100%", overflowX: "auto" }}>
+      <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          style={{ width: "100%", minWidth: 360, display: "block" }}
+          preserveAspectRatio="xMidYMid meet"
+          style={{
+            width: "100%",
+            maxWidth: "100%",
+            height: "auto",
+            display: "block",
+            overflow: "hidden",
+          }}
           onMouseLeave={() => setHovered(null)}
         >
           <defs>

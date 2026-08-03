@@ -271,7 +271,7 @@ export function StoryPointsHoursLineChart({
         ))}
       </div>
 
-      <div style={{ width: "100%", overflowX: "auto" }}>
+      <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
         {entries.length === 0 ? (
           <div
             style={{
@@ -289,13 +289,21 @@ export function StoryPointsHoursLineChart({
             style={{
               position: "relative",
               width: "100%",
-              minWidth: 340,
+              maxWidth: "100%",
+              minWidth: 0,
             }}
             onMouseLeave={() => setHovered(null)}
           >
             <svg
               viewBox={`0 0 ${W} ${H}`}
-              style={{ width: "100%", display: "block", overflow: "visible" }}
+              preserveAspectRatio="xMidYMid meet"
+              style={{
+                width: "100%",
+                maxWidth: "100%",
+                height: "auto",
+                display: "block",
+                overflow: "hidden",
+              }}
             >
             <defs>
               <filter id={glowFilterId}>
