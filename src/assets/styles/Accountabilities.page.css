@@ -99,7 +99,7 @@
 .accountabilities-section {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 14px;
   width: 100%;
 }
@@ -138,7 +138,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
-  align-items: center;
+  align-items: stretch;
   width: 100%;
 }
 
@@ -196,47 +196,70 @@
 
 .accountabilities-output-layout__totals {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 28px;
+  gap: 20px;
   min-width: 0;
+  width: 100%;
+  min-height: 300px;
+  height: 100%;
   padding: 8px 4px;
+  container-type: inline-size;
+  container-name: output-totals;
 }
 
 .accountabilities-output-total {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.accountabilities-output-layout__totals .accountabilities-output-total {
+  height: 100%;
 }
 
 .accountabilities-output-total__value {
+  --circle-size: clamp(110px, 42cqi, 240px);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 120px;
-  height: 120px;
+  flex: 0 0 auto;
+  align-self: center;
+  width: var(--circle-size);
+  height: var(--circle-size);
+  min-width: var(--circle-size);
+  min-height: var(--circle-size);
+  max-width: var(--circle-size);
+  max-height: var(--circle-size);
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   border: 3px solid currentColor;
   box-shadow: 0 0 24px color-mix(in srgb, currentColor 27%, transparent),
     inset 0 0 20px color-mix(in srgb, currentColor 7%, transparent);
   background: rgba(10, 20, 40, 0.6);
-  font-size: 26px;
+  font-size: clamp(20px, 8cqi, 40px);
   font-weight: 800;
   font-family: "DM Mono", monospace;
   letter-spacing: -0.03em;
   line-height: 1;
+  box-sizing: border-box;
 }
 
 .accountabilities-output-total__label {
-  font-size: 13px;
+  font-size: clamp(11px, 3.2cqi, 13px);
   font-family: "DM Sans", sans-serif;
   color: rgba(160, 200, 240, 0.8);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 700;
   text-align: center;
+  max-width: 100%;
 }
 
 @media (max-width: 860px) {
@@ -255,8 +278,8 @@
 
   .accountabilities-output-layout__totals {
     flex-direction: row;
-    flex-wrap: wrap;
-    gap: 24px;
+    flex-wrap: nowrap;
+    gap: 20px;
   }
 }
 
@@ -421,14 +444,14 @@
 
 .accountabilities-metric-details__list {
   margin: 0;
-  padding: 0 0 0 18px;
+  padding: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
   text-align: left;
-  list-style-position: outside;
+  list-style: none;
 }
 
 .accountabilities-metric-details__item {
@@ -442,6 +465,128 @@
   font-size: 13px;
   line-height: 1.45;
   text-align: left;
+}
+
+.accountabilities-metric-details__item::before {
+  content: "•";
+  flex-shrink: 0;
+  width: 0.9em;
+  color: rgba(160, 210, 255, 0.75);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.accountabilities-sortable-item__handle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  margin-top: 1px;
+  color: rgba(140, 180, 220, 0.55);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: -0.12em;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.accountabilities-sortable-item__handle:active {
+  cursor: grabbing;
+}
+
+.accountabilities-sortable-item--dragging {
+  opacity: 0.55;
+}
+
+.accountabilities-sortable-item--over {
+  outline: 1px dashed rgba(0, 200, 255, 0.45);
+  outline-offset: 2px;
+}
+
+.accountabilities-metric-details__item.accountabilities-sortable-item--sortable::before {
+  display: none;
+}
+
+.accountabilities-metric-details__item.accountabilities-sortable-item--sortable
+  > .accountabilities-sortable-item__content {
+  display: contents;
+}
+
+.accountabilities-ongoing-project-card.accountabilities-sortable-item--sortable,
+.accountabilities-challenge-card.accountabilities-sortable-item--sortable {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.accountabilities-ongoing-project-card.accountabilities-sortable-item--sortable
+  > .accountabilities-sortable-item__handle,
+.accountabilities-challenge-card.accountabilities-sortable-item--sortable
+  > .accountabilities-sortable-item__handle {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.accountabilities-ongoing-project-card.accountabilities-sortable-item--sortable
+  > .accountabilities-sortable-item__content,
+.accountabilities-challenge-card.accountabilities-sortable-item--sortable
+  > .accountabilities-sortable-item__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  height: 100%;
+}
+
+.accountabilities-metric-details__item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.accountabilities-metric-details__icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(100, 180, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(160, 210, 255, 0.85);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.accountabilities-metric-details__icon-button:hover:not(:disabled) {
+  color: #00c8ff;
+  border-color: rgba(0, 200, 255, 0.45);
+  background: rgba(0, 200, 255, 0.1);
+}
+
+.accountabilities-metric-details__icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.accountabilities-metric-details__edit-icon {
+  display: block;
+}
+
+.accountabilities-metric-details__composer--inline {
+  width: 100%;
 }
 
 .accountabilities-metric-details__text {
@@ -618,9 +763,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 20px;
   width: 100%;
+  container-type: inline-size;
+  container-name: summary-totals;
+}
+
+.accountabilities-summary-layout__totals .accountabilities-output-total__value {
+  --circle-size: clamp(100px, 40cqi, 200px);
 }
 
 .accountabilities-summary-layout__part--grade {
@@ -651,7 +802,223 @@
   color: rgba(255, 141, 141, 0.9);
 }
 
-.accountabilities-ongoing-projects-card {
+.accountabilities-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   width: 100%;
-  min-height: 48px;
+  margin-bottom: 12px;
+}
+
+.accountabilities-section__header .accountabilities-section__title {
+  margin-bottom: 0;
+}
+
+.accountabilities-ongoing-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.accountabilities-ongoing-projects__subtitle {
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  color: rgba(180, 215, 255, 0.85);
+  letter-spacing: 0.02em;
+}
+
+.accountabilities-ongoing-project-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.accountabilities-ongoing-project-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin-bottom: 0;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.accountabilities-ongoing-project-card--composer {
+  width: 100%;
+  max-width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 0;
+}
+
+.accountabilities-ongoing-project-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 10px;
+  text-align: left;
+}
+
+.accountabilities-ongoing-project-card__title {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  color: rgba(220, 235, 255, 0.95);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.accountabilities-ongoing-project-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.accountabilities-ongoing-project-card__remove {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.accountabilities-ongoing-project-card .accountabilities-metric-row__details {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 72px;
+}
+
+.accountabilities-ongoing-project-card .accountabilities-metric-details__status,
+.accountabilities-ongoing-project-card .accountabilities-metric-details__list,
+.accountabilities-ongoing-project-card .accountabilities-metric-details__composer {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.accountabilities-ongoing-project__name-input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(100, 180, 255, 0.22);
+  background: rgba(6, 13, 31, 0.72);
+  color: rgba(220, 235, 255, 0.95);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.accountabilities-ongoing-project__name-input:focus {
+  border-color: rgba(0, 200, 255, 0.55);
+  box-shadow: 0 0 0 2px rgba(0, 200, 255, 0.12);
+}
+
+.accountabilities-challenges {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.accountabilities-challenge-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.accountabilities-challenge-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.accountabilities-challenge-card--composer {
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 0;
+}
+
+.accountabilities-challenge-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+
+.accountabilities-challenge-card__title {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  color: rgba(220, 235, 255, 0.95);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.accountabilities-challenge-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.accountabilities-challenge-card__remove {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.accountabilities-challenge-card__header .accountabilities-metric-details__composer--inline {
+  width: 100%;
+}
+
+@media (max-width: 700px) {
+  .accountabilities-ongoing-project-rows,
+  .accountabilities-challenge-rows {
+    grid-template-columns: 1fr;
+  }
 }

@@ -407,6 +407,17 @@ function formatStoryPoints(value: number | null): string {
   });
 }
 
+function formatAccumulatedHours(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "—";
+  }
+
+  return (Math.round(value * 10) / 10).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  });
+}
+
 function averageFiniteScores(values: number[]): number | null {
   if (values.length === 0) {
     return null;
@@ -1096,6 +1107,66 @@ function ScoreCircle2({
       >
         {label}
       </span>
+    </div>
+  );
+}
+
+function HoursRangeCircle({
+  min,
+  avg,
+  max,
+  label = "Accumulated Hours",
+  color = "#00c8ff",
+  delay = 0,
+}: {
+  min: string;
+  avg: string;
+  max: string;
+  label?: string;
+  color?: string;
+  delay?: number;
+}) {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), delay);
+    return () => clearTimeout(t);
+  }, [delay]);
+
+  return (
+    <div className="statistics-hours-range">
+      <div
+        className="statistics-hours-range__circle"
+        style={{
+          borderColor: color,
+          boxShadow: `0 0 24px ${color}44, inset 0 0 20px ${color}11`,
+          transition: `all 0.7s cubic-bezier(0.23,1,0.32,1) ${delay}ms`,
+          transform: show ? "scale(1)" : "scale(0.6)",
+          opacity: show ? 1 : 0,
+        }}
+      >
+        <div className="statistics-hours-range__values">
+          <span
+            className="statistics-hours-range__value statistics-hours-range__value--min"
+            style={{ color }}
+          >
+            {min}
+          </span>
+          <span
+            className="statistics-hours-range__value statistics-hours-range__value--avg"
+            style={{ color }}
+          >
+            {avg}
+          </span>
+          <span
+            className="statistics-hours-range__value statistics-hours-range__value--max"
+            style={{ color }}
+          >
+            {max}
+          </span>
+        </div>
+      </div>
+      <span className="statistics-hours-range__label">{label}</span>
     </div>
   );
 }
@@ -1797,6 +1868,78 @@ export default function StatisticsPage({
 
     return Math.max(...memberTotals);
   }, [activeSprintIds, relevantMemberScoreRows, scoreboardMemberIdList]);
+
+  const accumulatedHoursRange = useMemo(() => {
+    if (activeSprintIds.length === 0) {
+      return { min: null, avg: null, max: null };
+    }
+
+    const perSprintRanges = activeSprintIds
+      .map((sprintId) => {
+        const memberHours = (
+          selectedOfValue === TEAM_FILTER_VALUE
+            ? scoreboardMemberIdList
+            : [selectedOfValue]
+        )
+          .map((memberId) => {
+            const row = relevantMemberScoreRows.find(
+              (entry) =>
+                entry.sprint_id === sprintId && entry.member_id === memberId,
+            );
+
+            if (!row) {
+              return null;
+            }
+
+            const value = Number(row.accumulated_hours);
+            return Number.isFinite(value) ? value : null;
+          })
+          .filter((value): value is number => value !== null);
+
+        if (memberHours.length === 0) {
+          return null;
+        }
+
+        return {
+          min: Math.min(...memberHours),
+          avg: averageFiniteScores(memberHours),
+          max: Math.max(...memberHours),
+        };
+      })
+      .filter(
+        (
+          range,
+        ): range is { min: number; avg: number | null; max: number } =>
+          range !== null && range.avg !== null,
+      );
+
+    if (perSprintRanges.length === 0) {
+      return { min: null, avg: null, max: null };
+    }
+
+    const sprintAverages = perSprintRanges.map((range) => range.avg);
+
+    return {
+      min: Math.min(...perSprintRanges.map((range) => range.min)),
+      avg: averageFiniteScores(sprintAverages),
+      max: Math.max(...perSprintRanges.map((range) => range.max)),
+    };
+  }, [
+    activeSprintIds,
+    relevantMemberScoreRows,
+    scoreboardMemberIdList,
+    selectedOfValue,
+  ]);
+
+  const displayedHoursRangeMin = scorePointsLoading
+    ? "…"
+    : formatAccumulatedHours(accumulatedHoursRange.min);
+  const displayedHoursRangeAvg = scorePointsLoading
+    ? "…"
+    : formatAccumulatedHours(accumulatedHoursRange.avg);
+  const displayedHoursRangeMax = scorePointsLoading
+    ? "…"
+    : formatAccumulatedHours(accumulatedHoursRange.max);
 
   const teamBonusPointsTotal = useMemo(() => {
     if (activeSprintIds.length === 0) {
@@ -3595,10 +3738,17 @@ export default function StatisticsPage({
         <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", flexWrap: "wrap", gap: 20 }}>
           <ScoreCircle2 value={displayedScorePoints} label="Score Points" color="#ff6eb4" delay={200} />
           <ScoreCircle2 value={displayedStoryPoints} label="Story Points" color="#f5c842" delay={350} />
+          <HoursRangeCircle
+            min={displayedHoursRangeMin}
+            avg={displayedHoursRangeAvg}
+            max={displayedHoursRangeMax}
+            color="#00c8ff"
+            delay={425}
+          />
           <GradeDial
             grade={displayedGrade}
             color={gradeColor}
-            delay={500}
+            delay={575}
             glowFilterId="statistics-summary-grade-dial-glow"
           />
         </div>

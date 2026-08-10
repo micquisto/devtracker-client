@@ -176,6 +176,60 @@
   margin-bottom: 20px;
 }
 
+.statistics-hours-range {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.statistics-hours-range__circle {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  border: 3px solid #00c8ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 20, 40, 0.6);
+}
+
+.statistics-hours-range__values {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.statistics-hours-range__value {
+  font-family: "DM Mono", monospace;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.statistics-hours-range__value--min,
+.statistics-hours-range__value--max {
+  font-size: 11px;
+  opacity: 0.82;
+}
+
+.statistics-hours-range__value--avg {
+  font-size: 20px;
+  font-weight: 900;
+  opacity: 1;
+}
+
+.statistics-hours-range__label {
+  font-size: 10px;
+  font-family: "DM Sans", sans-serif;
+  color: rgba(160, 200, 240, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
 .statistics-member-ranking {
   width: 100%;
 }

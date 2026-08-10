@@ -443,13 +443,11 @@ function buildNextSprintPayload(
   currentSprint: CurrentSprintRow,
   draft: NextSprintDraft,
 ): SprintMutationRow {
+  // sprint_year / sprint_quarter / sprint_month are generated columns — do not insert them.
   return {
     project_id: currentSprint.project_id,
     name: buildSprintName(draft),
     sprint_number: draft.sprintNumber,
-    sprint_year: draft.year,
-    sprint_quarter: draft.quarter,
-    sprint_month: draft.month,
     start_date: draft.startDate,
     end_date: draft.endDate,
     month: draft.month,
@@ -501,29 +499,36 @@ export default function SprintPage() {
     null;
   const selectedSprintStatus = selectedSprintRow?.status ?? null;
   const currentSprintStatus = normalizeSprintStatus(currentSprint?.status ?? null);
+  const selectedSprintStatusNormalized = normalizeSprintStatus(selectedSprintStatus);
+  const canRecoverOpenNewSprint =
+    !currentSprint &&
+    Boolean(selectedSprintRow) &&
+    (selectedSprintStatusNormalized === "completed" ||
+      selectedSprintStatusNormalized === "done");
+  const openNewSprintSource = currentSprint ?? (canRecoverOpenNewSprint ? selectedSprintRow : null);
   const selectedSprintStatusStyle =
     SPRINT_STATUS_STYLE[getSprintStatusStyleKey(selectedSprintStatus)];
   const sprintTitle =
     `${selectedSprintRow?.name ?? currentSprint?.name ?? "Current Sprint"} Kanban`;
   const nextSprintQuarterOptions =
-    currentSprint && nextSprintDraft
-      ? getNextSprintQuarterOptions(currentSprint, nextSprintDraft.year)
+    openNewSprintSource && nextSprintDraft
+      ? getNextSprintQuarterOptions(openNewSprintSource, nextSprintDraft.year)
       : [1, 2, 3, 4];
   const nextSprintNumberOptions =
-    currentSprint && nextSprintDraft
+    openNewSprintSource && nextSprintDraft
       ? getNextSprintNumberOptions(
-          currentSprint,
+          openNewSprintSource,
           nextSprintDraft.year,
           nextSprintDraft.quarter,
         )
       : [1, 2, 3, 4, 5, 6, 7];
   const nextSprintMonthOptions = nextSprintDraft
     ? getNextSprintMonthOptions(nextSprintDraft.year)
-    : getNextSprintMonthOptions(new Date().getFullYear());
+    : MONTH_OPTIONS;
   const nextSprintDraftName = nextSprintDraft
     ? buildSprintName(nextSprintDraft)
-    : currentSprint
-      ? buildNextSprintName(currentSprint)
+    : openNewSprintSource
+      ? buildNextSprintName(openNewSprintSource)
       : "Next Sprint";
   const hasRestrictedSprintActions = isRestrictedSprintActionRole(
     currentMember?.role ?? null,
@@ -833,6 +838,32 @@ export default function SprintPage() {
     return currentSprint;
   }
 
+  function getSelectedSprintForOpenNew(): CurrentSprintRow | null {
+    if (currentSprint && selectedSprint === currentSprint.id) {
+      return currentSprint;
+    }
+
+    // Recovery path: a previous Open New Sprint demoted the sprint, then failed
+    // before creating the replacement, leaving no current sprint.
+    const selectedSprintRow =
+      sprints.find((sprint) => sprint.id === selectedSprint) ?? null;
+    const selectedStatus = normalizeSprintStatus(selectedSprintRow?.status ?? null);
+    const hasCurrentSprint = sprints.some(isCurrentSprint);
+
+    if (
+      selectedSprintRow &&
+      !hasCurrentSprint &&
+      (selectedStatus === "completed" || selectedStatus === "done")
+    ) {
+      return selectedSprintRow;
+    }
+
+    setSprintActionError(
+      "Please select the current completed sprint before opening a new sprint.",
+    );
+    return null;
+  }
+
   async function startSprint(): Promise<void> {
     const sprintToProcess = getSelectedCurrentSprintForProcessing();
     if (!sprintToProcess) return;
@@ -981,7 +1012,7 @@ export default function SprintPage() {
   }
 
   async function openNewSprint(): Promise<void> {
-    const sprintToProcess = getSelectedCurrentSprintForProcessing();
+    const sprintToProcess = getSelectedSprintForOpenNew();
     if (!sprintToProcess) return;
 
     const draft = nextSprintDraft ?? buildDefaultNextSprintDraft(sprintToProcess);
@@ -1003,15 +1034,9 @@ export default function SprintPage() {
 
     try {
       await finalizePendingPlannedAdhocTasksOnOpenNewSprint(sprintToProcess.id);
-      await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
-        "sprints",
-        { is_current: 0, status: "done" },
-        {
-          select:
-            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
-          eq: { id: sprintToProcess.id, is_current: sprintToProcess.is_current },
-        },
-      );
+
+      // Create the new current sprint before demoting the old one so a failed
+      // insert does not leave the app without a current sprint.
       const [newSprint] = await insertSupabaseRows<CurrentSprintRow, SprintMutationRow>(
         "sprints",
         buildNextSprintPayload(sprintToProcess, draft),
@@ -1022,8 +1047,20 @@ export default function SprintPage() {
         throw new Error("Unable to create the new sprint.");
       }
 
+      await updateSupabaseRows<CurrentSprintRow, SprintMutationRow>(
+        "sprints",
+        { is_current: 0, status: "done" },
+        {
+          select:
+            "id,project_id,name,sprint_number,sprint_year,start_date,end_date,sprint_quarter,sprint_month,month,total_planned_points,total_completed_points,status,is_current,grading_set_id,criteria_set_id",
+          eq: { id: sprintToProcess.id },
+        },
+      );
+
       // Open New Sprint intentionally does not run Trello sync or Sync Data.
       await buildSprintRequirementsFromCurrentRequirements(newSprint.id);
+      setNextSprintDraft(null);
+      setSelectedSprint(newSprint.id);
       refreshSprintPageElements();
     } catch (error) {
       setSprintActionError(getErrorMessage(error, "Unable to open a new sprint."));
@@ -1038,20 +1075,24 @@ export default function SprintPage() {
   }
 
   function updateNextSprintYear(value: string): void {
-    if (!currentSprint) return;
+    if (!openNewSprintSource) return;
 
     const parsedYear = Number(value);
     if (!Number.isFinite(parsedYear)) return;
 
-    const currentDraft = nextSprintDraft ?? buildDefaultNextSprintDraft(currentSprint);
-    const minimumYear = buildDefaultNextSprintDraft(currentSprint).year;
+    const currentDraft =
+      nextSprintDraft ?? buildDefaultNextSprintDraft(openNewSprintSource);
+    const minimumYear = buildDefaultNextSprintDraft(openNewSprintSource).year;
     const nextYear = Math.max(Math.round(parsedYear), minimumYear);
-    const quarterOptions = getNextSprintQuarterOptions(currentSprint, nextYear);
+    const quarterOptions = getNextSprintQuarterOptions(
+      openNewSprintSource,
+      nextYear,
+    );
     const nextQuarter = quarterOptions.includes(currentDraft.quarter)
       ? currentDraft.quarter
       : quarterOptions[0];
     const sprintOptions = getNextSprintNumberOptions(
-      currentSprint,
+      openNewSprintSource,
       nextYear,
       nextQuarter,
     );
@@ -1071,11 +1112,11 @@ export default function SprintPage() {
   }
 
   function updateNextSprintQuarter(value: string): void {
-    if (!currentSprint || !nextSprintDraft) return;
+    if (!openNewSprintSource || !nextSprintDraft) return;
 
     const nextQuarter = Number(value);
     const sprintOptions = getNextSprintNumberOptions(
-      currentSprint,
+      openNewSprintSource,
       nextSprintDraft.year,
       nextQuarter,
     );
@@ -1195,7 +1236,8 @@ export default function SprintPage() {
   };
 
   const sprintActions =
-    selectedSprint === currentSprint?.id && currentSprint ? (
+    (selectedSprint === currentSprint?.id && currentSprint) ||
+    canRecoverOpenNewSprint ? (
       <div
         className="sprint-selector-actions"
         ref={sprintActionsRef}
@@ -1309,56 +1351,60 @@ export default function SprintPage() {
             </button>
           </>
         ) : null}
-        {currentSprintStatus === "completed" ? (
+        {currentSprintStatus === "completed" || canRecoverOpenNewSprint ? (
           <>
-            <button
-              type="button"
-              disabled={sprintActionsBusy}
-              onClick={() => {
-                requestSprintConfirmation({
-                  title: "Reopen Sprint",
-                  message:
-                    "This will set the sprint back to active and sync Trello cards, including Ad hoc cards.",
-                  confirmLabel: "Reopen",
-                  accent: "#00e5a0",
-                  onConfirm: () => void reopenSprint(),
-                });
-              }}
-              style={sprintActionButtonStyle("#00e5a0")}
-            >
-              {sprintActionButtonContent(
-                "reopen-sync",
-                "Reopen",
-                "Reopening & syncing...",
-                "#00e5a0",
-              )}
-            </button>
-            <button
-              type="button"
-              disabled={sprintActionsBusy}
-              onClick={() => {
-                const draft = buildDefaultNextSprintDraft(currentSprint);
-                setNextSprintDraft(draft);
-                requestSprintConfirmation({
-                  title: "Open New Sprint",
-                  message:
-                    "This will mark the current sprint as done and create a new current sprint in planning status. No Trello sync or Sync Data process will run.",
-                  confirmLabel: "Open New Sprint",
-                  accent: "#00c8ff",
-                  sprintDetail: buildSprintName(draft),
-                  showNextSprintForm: true,
-                  onConfirm: () => void openNewSprint(),
-                });
-              }}
-              style={sprintActionButtonStyle("#00c8ff")}
-            >
-              {sprintActionButtonContent(
-                "open-new",
-                "Open New Sprint",
-                "Opening...",
-                "#00c8ff",
-              )}
-            </button>
+            {currentSprintStatus === "completed" ? (
+              <button
+                type="button"
+                disabled={sprintActionsBusy}
+                onClick={() => {
+                  requestSprintConfirmation({
+                    title: "Reopen Sprint",
+                    message:
+                      "This will set the sprint back to active and sync Trello cards, including Ad hoc cards.",
+                    confirmLabel: "Reopen",
+                    accent: "#00e5a0",
+                    onConfirm: () => void reopenSprint(),
+                  });
+                }}
+                style={sprintActionButtonStyle("#00e5a0")}
+              >
+                {sprintActionButtonContent(
+                  "reopen-sync",
+                  "Reopen",
+                  "Reopening & syncing...",
+                  "#00e5a0",
+                )}
+              </button>
+            ) : null}
+            {openNewSprintSource ? (
+              <button
+                type="button"
+                disabled={sprintActionsBusy}
+                onClick={() => {
+                  const draft = buildDefaultNextSprintDraft(openNewSprintSource);
+                  setNextSprintDraft(draft);
+                  requestSprintConfirmation({
+                    title: "Open New Sprint",
+                    message:
+                      "This will mark the current sprint as done and create a new current sprint in planning status. No Trello sync or Sync Data process will run.",
+                    confirmLabel: "Open New Sprint",
+                    accent: "#00c8ff",
+                    sprintDetail: buildSprintName(draft),
+                    showNextSprintForm: true,
+                    onConfirm: () => void openNewSprint(),
+                  });
+                }}
+                style={sprintActionButtonStyle("#00c8ff")}
+              >
+                {sprintActionButtonContent(
+                  "open-new",
+                  "Open New Sprint",
+                  "Opening...",
+                  "#00c8ff",
+                )}
+              </button>
+            ) : null}
           </>
         ) : null}
       </div>

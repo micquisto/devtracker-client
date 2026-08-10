@@ -1805,19 +1805,32 @@ function assertCurrentSprintForTaskSync(
   }
 }
 
-const OPEN_NEW_SPRINT_ALLOWED_STATUSES = new Set(["active", "completed"]);
+const OPEN_NEW_SPRINT_ALLOWED_STATUSES = new Set([
+  "active",
+  "completed",
+  "done",
+]);
 
 function assertOpenNewSprintTarget(sprint: SprintRow): void {
-  if (!isCurrentSprintFlag(sprint.is_current)) {
-    throw new Error(
-      "Open New Sprint can only modify tasks for the current sprint.",
-    );
-  }
-
   const sprintStatus = normalizeSprintStatus(sprint.status);
+
   if (!OPEN_NEW_SPRINT_ALLOWED_STATUSES.has(sprintStatus)) {
     throw new Error(
       `Open New Sprint can only modify tasks for an active or completed sprint. "${sprint.name}" has status "${sprint.status}".`,
+    );
+  }
+
+  // Allow already-demoted completed/done sprints so a failed Open New Sprint
+  // (demote succeeded, insert failed) can be retried safely.
+  const isCloseableWithoutCurrent =
+    sprintStatus === "completed" || sprintStatus === "done";
+
+  if (
+    !isCurrentSprintFlag(sprint.is_current) &&
+    !isCloseableWithoutCurrent
+  ) {
+    throw new Error(
+      "Open New Sprint can only modify tasks for the current sprint.",
     );
   }
 }
