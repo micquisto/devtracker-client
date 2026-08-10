@@ -14,6 +14,7 @@ import {
   persistAccountabilitiesSortOrder,
   withUpdatedSortOrder,
 } from "@/components/accountabilities/AccountabilitiesSortableList";
+import { AccountabilitiesAiSummary } from "@/components/accountabilities/AccountabilitiesAiSummary";
 import { StyledSelect } from "@/components/shared/Elements";
 import { Title } from "@/components/shared/page";
 import { getSupabaseRows, insertSupabaseRows, updateSupabaseRows, deleteSupabaseRows } from "@/lib/supabase";
@@ -27,6 +28,7 @@ import {
   isScoreboardIncludedMember,
   sortMembersByLastName,
 } from "@/lib/utils/scrum/scoreboardMembers.utils";
+import type { AccountabilitiesSummarySnapshot } from "@/lib/utils/scrum/accountabilitiesSummary.utils";
 import {
   getAvailableSprintYearMonths,
   getAvailableSprintYears,
@@ -3289,6 +3291,96 @@ export default function AccountabilitiesPage({
     sortedProfessionalismItems,
   ]);
 
+  const aiSummarySnapshot = useMemo((): AccountabilitiesSummarySnapshot | null => {
+    if (!selectedPeriod) {
+      return null;
+    }
+
+    return {
+      periodLabel: selectedPeriodLabel,
+      overallScore: {
+        current: radarLoading ? null : currentOverallScore,
+        previous:
+          radarLoading || previousSprintIds.length === 0
+            ? null
+            : previousOverallScore,
+        changeDirection: overallScoreChange.direction,
+        changeDelta: overallScoreChange.delta,
+      },
+      teamGrade: String(displayedTeamGrade),
+      outputTotals: {
+        storyPoints: String(displayedTotalStoryPoints),
+        tasks: String(displayedTotalTasks),
+        hours: String(displayedTotalHours),
+      },
+      skillRadar: displayedSkillRadarValues,
+      metrics: SKILL_METRIC_ROWS.map((metric) => {
+        const previousValue =
+          !radarLoading && previousSprintIds.length > 0
+            ? previousTeamSkillRadarValues[metric.key]
+            : null;
+        const currentValue =
+          !radarLoading && activeSprintIds.length > 0
+            ? teamSkillRadarValues[metric.key]
+            : null;
+        const change = getMetricChange(previousValue, currentValue);
+
+        return {
+          key: metric.key,
+          label: metric.label,
+          current: currentValue,
+          previous: previousValue,
+          changeDirection: change.direction,
+          changeDelta: change.delta,
+          comments: (commentsByMetric[metric.key] ?? []).map(
+            (comment) => comment.comment_text,
+          ),
+        };
+      }),
+      projects: ongoingProjects.map((project) => ({
+        name: project.name,
+        comments: (commentsByProjectId[project.id] ?? []).map(
+          (comment) => comment.comment_text,
+        ),
+      })),
+      challenges: challenges.map((item) => item.comment_text),
+      plans: plansNextSteps.map((item) => item.comment_text),
+      teamGoals: teamGoals.map((item) => item.comment_text),
+      notableHighlights: notableHighlights.map((item) => item.comment_text),
+      ranking: teamStackRankingEntries.map((entry) => ({
+        rank: entry.rank,
+        name: entry.name,
+        grade: entry.grade,
+        scorePoints: entry.scorePoints,
+      })),
+    };
+  }, [
+    activeSprintIds.length,
+    challenges,
+    commentsByMetric,
+    commentsByProjectId,
+    currentOverallScore,
+    displayedSkillRadarValues,
+    displayedTeamGrade,
+    displayedTotalHours,
+    displayedTotalStoryPoints,
+    displayedTotalTasks,
+    notableHighlights,
+    ongoingProjects,
+    overallScoreChange.delta,
+    overallScoreChange.direction,
+    plansNextSteps,
+    previousOverallScore,
+    previousSprintIds.length,
+    previousTeamSkillRadarValues,
+    radarLoading,
+    selectedPeriod,
+    selectedPeriodLabel,
+    teamGoals,
+    teamSkillRadarValues,
+    teamStackRankingEntries,
+  ]);
+
   return (
     <div className="accountabilities-page" ref={pageRef}>
       {showPublicViewButton || showDownloadButton ? (
@@ -5447,6 +5539,11 @@ export default function AccountabilitiesPage({
           )}
         </div>
       </section>
+
+      <AccountabilitiesAiSummary
+        snapshot={aiSummarySnapshot}
+        disabled={!selectedPeriod || radarLoading}
+      />
     </div>
   );
 }

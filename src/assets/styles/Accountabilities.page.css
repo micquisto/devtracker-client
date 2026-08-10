@@ -1038,6 +1038,48 @@
   width: 100%;
 }
 
+.accountabilities-ai-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  text-align: left;
+}
+
+.accountabilities-ai-summary__warning {
+  border-radius: 10px;
+  border: 1px solid rgba(245, 200, 66, 0.35);
+  background: rgba(245, 200, 66, 0.1);
+  color: rgba(255, 236, 170, 0.95);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.accountabilities-ai-summary__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.accountabilities-ai-summary__source {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(160, 210, 255, 0.75);
+}
+
+.accountabilities-ai-summary__text {
+  color: rgba(220, 235, 255, 0.94);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 700px) {
   .accountabilities-ongoing-project-rows,
   .accountabilities-challenge-rows {
