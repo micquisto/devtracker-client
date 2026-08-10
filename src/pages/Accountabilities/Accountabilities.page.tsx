@@ -60,14 +60,13 @@ const GRADE_PASSING_THRESHOLD = 75;
 const PROFESSIONALISM_PIP_COUNT = 5;
 
 const MEMBER_RANKING_COLORS = [
-  "#00e5a0",
-  "#5eead4",
-  "#38bdf8",
-  "#60a5fa",
-  "#a78bfa",
-  "#c2783a",
-  "#b87333",
-  "#ef4444",
+  "#ffe566", // gold (lighter highlight for rank 1)
+  "#00e5a0", // green
+  "#00c8ff", // blue
+  "#c2783a", // dull orange
+  "#a78bfa", // purple
+  "#b87333", // brown
+  "#ef4444", // red
 ] as const;
 
 const MEMBER_RANKING_COLUMNS = [
