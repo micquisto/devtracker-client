@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SprintFilter,
   SPRINT_STATUS_STYLE,
@@ -8,6 +8,7 @@ import {
 } from "@/components/scrum";
 import SprintKanbanBoard from "@/components/scrum/sprint/SprintKanbanBoard";
 import { StyledSelect, ThemedDatePicker } from "@/components/shared/Elements";
+import { PageAiSummary } from "@/components/shared/PageAiSummary";
 import { Title } from "@/components/shared/page";
 import {
   getSupabaseSession,
@@ -26,9 +27,16 @@ import {
   isScoreboardIncludedMember,
   resetPlannedAdhocTasksToPendingOnReopenSprint,
 } from "@/lib/utils";
+import {
+  buildLocalSprintSummary,
+  buildSprintSummaryPrompt,
+  getSprintSummarySnapshotKey,
+  type SprintSummarySnapshot,
+} from "@/lib/utils/scrum/sprintSummary.utils";
 import { useSprintSync } from "@/contexts";
 import { Text } from "@/lib/theme";
 import "@/assets/styles/Sprint.page.css";
+import "@/assets/styles/AiSummary.css";
 
 const TASK_COUNT_LIST_NAMES = [
   "Current Sprint",
@@ -491,6 +499,9 @@ export default function SprintPage() {
   const [nextSprintDraft, setNextSprintDraft] = useState<NextSprintDraft | null>(
     null,
   );
+  const [sprintAiSummarySnapshot, setSprintAiSummarySnapshot] =
+    useState<SprintSummarySnapshot | null>(null);
+  const [sprintAiSummaryLoading, setSprintAiSummaryLoading] = useState(false);
   const sprintFilterOptions = buildSprintFilterOptions(sprints);
   const selectedSprintRow =
     sprints.find((sprint) => sprint.id === selectedSprint) ??
@@ -551,6 +562,140 @@ export default function SprintPage() {
   const isSprintApprovalReady =
     sprintApprovalSummary.requiredCount === 0 ||
     sprintApprovalSummary.approvedCount >= sprintApprovalSummary.requiredCount;
+
+  const sprintAiMemberFilterLabel = useMemo(() => {
+    if (!effectiveSelectedMemberId) {
+      return "all members";
+    }
+
+    const selectedMember = memberFilterOptions.find(
+      (member) => member.id === effectiveSelectedMemberId,
+    );
+
+    return selectedMember
+      ? getMemberFilterName(selectedMember)
+      : "selected member";
+  }, [effectiveSelectedMemberId, memberFilterOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSprintAiSummarySnapshot() {
+      const sprint = selectedSprintRow;
+      if (!sprint?.id) {
+        if (!cancelled) {
+          setSprintAiSummarySnapshot(null);
+          setSprintAiSummaryLoading(false);
+        }
+        return;
+      }
+
+      setSprintAiSummaryLoading(true);
+
+      try {
+        type MemberSprintScoreSummaryRow = {
+          member_id: string | null;
+          planned_story_points: number | null;
+          completed_story_points: number | null;
+          completed_tasks_count: number | null;
+        };
+
+        const scoreEq: Record<string, string> = { sprint_id: sprint.id };
+        if (effectiveSelectedMemberId) {
+          scoreEq.member_id = effectiveSelectedMemberId;
+        }
+
+        const scoreRows = await getSupabaseRows<MemberSprintScoreSummaryRow>(
+          "members_sprint_scores",
+          {
+            select:
+              "member_id,planned_story_points,completed_story_points,completed_tasks_count",
+            eq: scoreEq,
+          },
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        const memberNameById = new Map(
+          memberFilterOptions
+            .filter((member): member is SprintMemberFilterRow & { id: string } =>
+              Boolean(member.id),
+            )
+            .map((member) => [member.id, getMemberFilterName(member)]),
+        );
+
+        const memberScores = scoreRows
+          .filter((row) => {
+            if (!row.member_id) {
+              return false;
+            }
+            if (effectiveSelectedMemberId) {
+              return row.member_id === effectiveSelectedMemberId;
+            }
+            const member = memberFilterOptions.find(
+              (option) => option.id === row.member_id,
+            );
+            return member ? isScoreboardIncludedMember(member) : true;
+          })
+          .map((row) => ({
+            name: memberNameById.get(row.member_id!) ?? "Unnamed member",
+            plannedStoryPoints: row.planned_story_points,
+            completedStoryPoints: row.completed_story_points,
+            completedTasks: row.completed_tasks_count,
+            averageScore: null as number | null,
+          }))
+          .sort((left, right) =>
+            left.name.localeCompare(right.name, undefined, {
+              sensitivity: "base",
+            }),
+          );
+
+        setSprintAiSummarySnapshot({
+          sprintName: sprint.name ?? null,
+          sprintStatus: sprint.status ?? null,
+          periodLabel: formatSprintPeriod(sprint),
+          memberFilterLabel: sprintAiMemberFilterLabel,
+          taskCount,
+          plannedPoints: sprint.total_planned_points ?? null,
+          completedPoints: sprint.total_completed_points ?? null,
+          memberScores,
+        });
+      } catch {
+        if (!cancelled) {
+          setSprintAiSummarySnapshot({
+            sprintName: sprint.name ?? null,
+            sprintStatus: sprint.status ?? null,
+            periodLabel: formatSprintPeriod(sprint),
+            memberFilterLabel: sprintAiMemberFilterLabel,
+            taskCount,
+            plannedPoints: sprint.total_planned_points ?? null,
+            completedPoints: sprint.total_completed_points ?? null,
+            memberScores: [],
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setSprintAiSummaryLoading(false);
+        }
+      }
+    }
+
+    void loadSprintAiSummarySnapshot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    effectiveSelectedMemberId,
+    memberFilterOptions,
+    refreshKey,
+    selectedSprintRow,
+    sprintAiMemberFilterLabel,
+    syncVersion,
+    taskCount,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1809,6 +1954,17 @@ export default function SprintPage() {
         sprintName={selectedSprintRow?.name}
         selectedMemberId={effectiveSelectedMemberId}
         useDialCompletionChart={shouldUseDialForScoreboard}
+      />
+
+      <PageAiSummary
+        title="AI Sprint Summary:"
+        snapshot={sprintAiSummarySnapshot}
+        disabled={!selectedSprintRow?.id || sprintAiSummaryLoading}
+        emptyMessage="Select a sprint to generate an AI summary of board load and delivery."
+        loadingMessage="Preparing sprint summary…"
+        buildLocalSummary={buildLocalSprintSummary}
+        buildPrompt={buildSprintSummaryPrompt}
+        getSnapshotKey={getSprintSummarySnapshotKey}
       />
     </div>
   );

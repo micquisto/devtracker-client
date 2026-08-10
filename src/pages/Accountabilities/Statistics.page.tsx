@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { DropArrow, StyledSelect } from "@/components/shared/Elements";
+import { PageAiSummary } from "@/components/shared/PageAiSummary";
 import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
 import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart, SkillRadarPanel, TeamContributionDoughnut, getTeamContributionMemberColor, GradeDial, PERFORMANCE_GRADE_COLORS, type TeamContributionSegment } from "@/components/dashboard";
 import { getSupabaseRows, getSupabaseSession } from "@/lib/supabase";
@@ -28,6 +29,12 @@ import {
   type PerformanceScoreGrade,
 } from "@/lib/utils/scrum/evaluateMemberPerformance.utils";
 import {
+  buildLocalMetricsSummary,
+  buildMetricsSummaryPrompt,
+  getMetricsSummarySnapshotKey,
+  type MetricsSummarySnapshot,
+} from "@/lib/utils/scrum/metricsSummary.utils";
+import {
   buildSkillRadarValues,
   DEFAULT_SKILL_CHART_SCALE,
   EMPTY_SKILL_RADAR_VALUES,
@@ -41,6 +48,7 @@ import {
   type SkillRadarValues,
 } from "@/lib/utils/scrum/statisticsRadar.utils";
 import "@/assets/styles/Statistics.page.css";
+import "@/assets/styles/AiSummary.css";
 
 const RADAR_LABELS = [
   "Productivity",
@@ -3277,6 +3285,55 @@ export default function StatisticsPage({
     });
   }, [selectableSprints, showFilters, showMode]);
 
+  const metricsAiSummarySnapshot = useMemo((): MetricsSummarySnapshot | null => {
+    if (!periodPerformanceTitle) {
+      return null;
+    }
+
+    return {
+      periodLabel: periodPerformanceTitle,
+      dateRangeLabel: periodPerformanceDateRangeLabel,
+      subjectLabel: summarySubjectLabel,
+      showMode,
+      scorePoints: String(displayedScorePoints),
+      storyPoints: String(displayedStoryPoints),
+      grade: String(displayedGrade),
+      skillRadar: displayedSkillRadarValues,
+      contribution: teamContributionSegments.map((segment) => ({
+        name: segment.name,
+        storyPoints: segment.storyPoints,
+        contribution: segment.contribution,
+      })),
+      ranking: memberRankingSections.map((section) => ({
+        sectionLabel: section.label,
+        entries: section.entries.map((entry) => ({
+          rank: entry.rank,
+          name: entry.name,
+          grade: entry.grade,
+          scorePoints: entry.scorePoints,
+        })),
+      })),
+      performanceStats: performanceStats.map((stat) => ({
+        label: stat.label,
+        value: stat.value,
+        max: stat.max,
+        unit: stat.unit,
+      })),
+    };
+  }, [
+    displayedGrade,
+    displayedScorePoints,
+    displayedSkillRadarValues,
+    displayedStoryPoints,
+    memberRankingSections,
+    performanceStats,
+    periodPerformanceDateRangeLabel,
+    periodPerformanceTitle,
+    showMode,
+    summarySubjectLabel,
+    teamContributionSegments,
+  ]);
+
   return (
     <div className="statistics-page" ref={pageRef} style={{ padding: "24px 0" }}>
       {publicLinkCopied ? (
@@ -4132,6 +4189,16 @@ export default function StatisticsPage({
         )}
       </div>
 
+      <PageAiSummary
+        title="AI Metrics Summary:"
+        snapshot={metricsAiSummarySnapshot}
+        disabled={filtersLoading || scorePointsLoading || !periodPerformanceTitle}
+        emptyMessage="Select Metrics filters to generate an AI summary of this view."
+        loadingMessage="Preparing metrics summary…"
+        buildLocalSummary={buildLocalMetricsSummary}
+        buildPrompt={buildMetricsSummaryPrompt}
+        getSnapshotKey={getMetricsSummarySnapshotKey}
+      />
     </div>
   );
 }

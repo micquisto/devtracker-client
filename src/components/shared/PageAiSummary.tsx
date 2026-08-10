@@ -1,0 +1,185 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import "@/assets/styles/AiSummary.css";
+
+export type PageAiSummaryResult = {
+  summary: string;
+  source: "ai" | "local";
+};
+
+type PageAiSummaryProps<TSnapshot> = {
+  title: string;
+  snapshot: TSnapshot | null;
+  disabled?: boolean;
+  emptyMessage?: string;
+  loadingMessage?: string;
+  buildLocalSummary: (snapshot: TSnapshot) => string;
+  buildPrompt: (snapshot: TSnapshot) => string;
+  getSnapshotKey: (snapshot: TSnapshot) => string;
+};
+
+export function PageAiSummary<TSnapshot>({
+  title,
+  snapshot,
+  disabled = false,
+  emptyMessage = "Select filters to generate an AI summary.",
+  loadingMessage = "Preparing summary…",
+  buildLocalSummary,
+  buildPrompt,
+  getSnapshotKey,
+}: PageAiSummaryProps<TSnapshot>) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [source, setSource] = useState<PageAiSummaryResult["source"] | null>(
+    null,
+  );
+  const [warning, setWarning] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const requestIdRef = useRef(0);
+
+  const snapshotKey = useMemo(
+    () => (snapshot ? getSnapshotKey(snapshot) : null),
+    [getSnapshotKey, snapshot],
+  );
+
+  async function generateSummary(
+    nextSnapshot: TSnapshot,
+    options?: { manual?: boolean },
+  ) {
+    const requestId = ++requestIdRef.current;
+    setIsGenerating(true);
+    setError(null);
+    setWarning(null);
+
+    const localSummary = buildLocalSummary(nextSnapshot);
+    const prompt = buildPrompt(nextSnapshot);
+
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke<{
+        summary?: string;
+        source?: "ai" | "local";
+        warning?: string;
+        error?: string;
+      }>("summarize-accountabilities", {
+        body: {
+          snapshot: nextSnapshot,
+          prompt,
+          fallbackSummary: localSummary,
+        },
+      });
+
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      if (invokeError) {
+        setSummary(localSummary);
+        setSource("local");
+        setWarning(
+          "AI service unavailable. Showing an on-device summary instead.",
+        );
+        return;
+      }
+
+      if (data?.error && !data.summary) {
+        throw new Error(data.error);
+      }
+
+      const nextSummary = data?.summary?.trim() || localSummary;
+      setSummary(nextSummary);
+      setSource(data?.source ?? (data?.summary ? "ai" : "local"));
+      setWarning(data?.warning ?? null);
+    } catch (generateError) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      setSummary(localSummary);
+      setSource("local");
+      if (options?.manual) {
+        setError(
+          generateError instanceof Error
+            ? generateError.message
+            : "Unable to generate AI summary.",
+        );
+      }
+      setWarning("Fell back to a local summary built from the page data.");
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setIsGenerating(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (disabled || !snapshot || !snapshotKey) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void generateSummary(snapshot);
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      requestIdRef.current += 1;
+    };
+  }, [disabled, snapshot, snapshotKey]);
+
+  return (
+    <section
+      className="page-ai-summary-section"
+      aria-labelledby="page-ai-summary-title"
+    >
+      <div className="page-ai-summary-section__header">
+        <h3 id="page-ai-summary-title" className="page-ai-summary-section__title">
+          {title}
+        </h3>
+        <button
+          type="button"
+          className="page-ai-summary-section__button"
+          disabled={disabled || !snapshot || isGenerating}
+          onClick={() => {
+            if (!snapshot) {
+              return;
+            }
+            void generateSummary(snapshot, { manual: true });
+          }}
+        >
+          {isGenerating ? "Generating…" : "Refresh summary"}
+        </button>
+      </div>
+
+      <div className="scard page-ai-summary">
+        {disabled || !snapshot ? (
+          <div className="page-ai-summary__status">{emptyMessage}</div>
+        ) : null}
+
+        {error ? (
+          <div className="page-ai-summary__status page-ai-summary__status--error">
+            {error}
+          </div>
+        ) : null}
+
+        {warning ? (
+          <div className="page-ai-summary__warning">{warning}</div>
+        ) : null}
+
+        {summary ? (
+          <div className="page-ai-summary__body">
+            {source ? (
+              <div className="page-ai-summary__source">
+                {source === "ai" ? "Generated by AI agent" : "Local data summary"}
+              </div>
+            ) : null}
+            <div className="page-ai-summary__text">{summary}</div>
+          </div>
+        ) : !disabled && snapshot ? (
+          <div className="page-ai-summary__status">
+            {isGenerating ? "Generating AI summary…" : loadingMessage}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}

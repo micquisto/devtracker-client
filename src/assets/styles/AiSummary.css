@@ -1,0 +1,110 @@
+.page-ai-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.page-ai-summary-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-ai-summary-section__title {
+  margin: 0;
+  font-size: 16px;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  color: rgba(220, 235, 255, 0.95);
+}
+
+.page-ai-summary-section__button {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.22), rgba(0, 229, 160, 0.14)),
+    rgba(6, 13, 31, 0.88);
+  border: 1px solid rgba(0, 200, 255, 0.45);
+  border-radius: 999px;
+  color: rgba(190, 235, 255, 0.96);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  height: 34px;
+  padding: 0 14px;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.page-ai-summary-section__button:hover:not(:disabled) {
+  border-color: rgba(0, 229, 160, 0.55);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  transform: translateY(-1px);
+}
+
+.page-ai-summary-section__button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
+.page-ai-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  text-align: left;
+}
+
+.page-ai-summary__status {
+  color: rgba(180, 210, 240, 0.82);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.page-ai-summary__status--error {
+  color: rgba(255, 170, 170, 0.95);
+}
+
+.page-ai-summary__warning {
+  border-radius: 10px;
+  border: 1px solid rgba(245, 200, 66, 0.35);
+  background: rgba(245, 200, 66, 0.1);
+  color: rgba(255, 236, 170, 0.95);
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.page-ai-summary__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.page-ai-summary__source {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(160, 210, 255, 0.75);
+}
+
+.page-ai-summary__text {
+  color: rgba(220, 235, 255, 0.94);
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
