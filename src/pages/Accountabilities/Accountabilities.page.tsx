@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import {
   SkillRadarPanel,
   TeamContributionDoughnut,
@@ -16,6 +18,7 @@ import { StyledSelect } from "@/components/shared/Elements";
 import { Title } from "@/components/shared/page";
 import { getSupabaseRows, insertSupabaseRows, updateSupabaseRows, deleteSupabaseRows } from "@/lib/supabase";
 import { Palette } from "@/lib/theme";
+import { sanitizeHtml2CanvasClone } from "@/lib/utils/html2canvas.utils";
 import {
   resolvePerformanceScoreGrade,
   type PerformanceScoreGrade,
@@ -832,15 +835,20 @@ export default function AccountabilitiesPage({
   showFilters = true,
   showPublicViewButton = true,
   showCommentActions = true,
+  showDownloadButton = false,
   initialYear = "",
   initialMonth = "",
 }: {
   showFilters?: boolean;
   showPublicViewButton?: boolean;
   showCommentActions?: boolean;
+  showDownloadButton?: boolean;
   initialYear?: string;
   initialMonth?: string;
 } = {}) {
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [sprints, setSprints] = useState<AccountabilitiesSprintRow[]>([]);
   const [members, setMembers] = useState<AccountabilitiesMemberRow[]>([]);
   const [filtersLoading, setFiltersLoading] = useState(true);
@@ -3030,6 +3038,144 @@ export default function AccountabilitiesPage({
     return `${monthLabel} ${yearNumber}`;
   }, [monthOptions, selectedMonth, selectedYear]);
 
+  async function downloadAccountabilitiesPdf() {
+    const target = pageRef.current;
+    if (!target || isDownloadingPdf) {
+      return;
+    }
+
+    setIsDownloadingPdf(true);
+    setDownloadError(null);
+
+    try {
+      const sourceWidth = Math.max(target.scrollWidth, target.clientWidth, 1);
+      const sourceHeight = Math.max(target.scrollHeight, target.clientHeight, 1);
+      const maxDimension = 8192;
+      const maxArea = 16_777_216;
+      let scale = Math.min(window.devicePixelRatio || 1, 1.5);
+      while (
+        scale > 0.35 &&
+        (sourceWidth * scale > maxDimension ||
+          sourceHeight * scale > maxDimension ||
+          sourceWidth * scale * sourceHeight * scale > maxArea)
+      ) {
+        scale *= 0.85;
+      }
+
+      const canvas = await html2canvas(target, {
+        backgroundColor: "#060d1f",
+        ignoreElements: (element) =>
+          element.classList.contains("accountabilities-header-action") ||
+          element.classList.contains("accountabilities-page-toolbar") ||
+          element.classList.contains("accountabilities-download-error"),
+        scale,
+        useCORS: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: sourceWidth,
+        windowHeight: sourceHeight,
+        onclone: (clonedDocument, clonedElement) => {
+          sanitizeHtml2CanvasClone(target, clonedDocument, clonedElement);
+
+          if (clonedElement instanceof HTMLElement) {
+            clonedElement.style.height = "auto";
+            clonedElement.style.maxHeight = "none";
+            clonedElement.style.overflow = "visible";
+          }
+
+          clonedDocument
+            .querySelectorAll<HTMLElement>(
+              ".statistics-member-ranking__header",
+            )
+            .forEach((element) => {
+              element.style.position = "static";
+              element.style.top = "auto";
+              element.style.zIndex = "auto";
+            });
+        },
+      });
+
+      if (canvas.width < 2 || canvas.height < 2) {
+        throw new Error(
+          "Unable to capture the accountabilities page for download.",
+        );
+      }
+
+      const imageData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2;
+      const renderedHeight = (canvas.height * contentWidth) / canvas.width;
+
+      let heightLeft = renderedHeight;
+      let offsetY = margin;
+
+      pdf.addImage(
+        imageData,
+        "JPEG",
+        margin,
+        offsetY,
+        contentWidth,
+        renderedHeight,
+        undefined,
+        "FAST",
+      );
+      heightLeft -= contentHeight;
+
+      while (heightLeft > 1) {
+        offsetY = margin - (renderedHeight - heightLeft);
+        pdf.addPage();
+        pdf.addImage(
+          imageData,
+          "JPEG",
+          margin,
+          offsetY,
+          contentWidth,
+          renderedHeight,
+          undefined,
+          "FAST",
+        );
+        heightLeft -= contentHeight;
+      }
+
+      const periodStamp = selectedPeriodLabel
+        ? selectedPeriodLabel.replace(/\s+/g, "-").toLowerCase()
+        : "period";
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      pdf.save(`accountabilities-${periodStamp}-${dateStamp}.pdf`);
+    } catch (error) {
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to download accountabilities PDF.",
+      );
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!downloadError) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDownloadError(null);
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [downloadError]);
+
   const teamStackRankingEntries = useMemo((): TeamStackRankingEntry[] => {
     if (activeSprintIds.length === 0 || memberOptions.length === 0) {
       return [];
@@ -3145,39 +3291,92 @@ export default function AccountabilitiesPage({
   ]);
 
   return (
-    <div className="accountabilities-page">
-      {showPublicViewButton ? (
+    <div className="accountabilities-page" ref={pageRef}>
+      {showPublicViewButton || showDownloadButton ? (
         <div className="accountabilities-page-toolbar">
-          <button
-            aria-label="Open public accountabilities page"
-            className="accountabilities-header-action accountabilities-open-public"
-            onClick={openPublicAccountabilitiesPage}
-            title="Open public accountabilities page"
-            type="button"
-          >
-            <svg
-              aria-hidden="true"
-              fill="none"
-              height="18"
-              viewBox="0 0 24 24"
-              width="18"
+          {showPublicViewButton ? (
+            <button
+              aria-label="Open public accountabilities page"
+              className="accountabilities-header-action accountabilities-open-public"
+              onClick={openPublicAccountabilitiesPage}
+              title="Open public accountabilities page"
+              type="button"
             >
-              <path
-                d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-              />
-              <path
-                d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-              />
-            </svg>
-          </button>
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="18"
+                viewBox="0 0 24 24"
+                width="18"
+              >
+                <path
+                  d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+              </svg>
+            </button>
+          ) : null}
+          {showDownloadButton ? (
+            <button
+              aria-label="Download accountabilities as PDF"
+              className="accountabilities-header-action accountabilities-download"
+              disabled={isDownloadingPdf || radarLoading}
+              onClick={() => {
+                void downloadAccountabilitiesPdf();
+              }}
+              title="Download accountabilities as PDF"
+              type="button"
+            >
+              {isDownloadingPdf ? (
+                <span
+                  className="accountabilities-action-loader"
+                  aria-hidden="true"
+                />
+              ) : (
+                <svg
+                  aria-hidden="true"
+                  fill="none"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  width="18"
+                >
+                  <path
+                    d="M12 3v11m0 0 4-4m-4 4-4-4"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                </svg>
+              )}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {downloadError ? (
+        <div
+          className="accountabilities-section__status accountabilities-section__status--error accountabilities-download-error"
+          role="alert"
+        >
+          {downloadError}
         </div>
       ) : null}
 

@@ -17,6 +17,7 @@ export default function PublicAccountabilitiesPage() {
         showCommentActions={false}
         showFilters={false}
         showPublicViewButton={false}
+        showDownloadButton
         initialYear={params.get("year") ?? ""}
         initialMonth={params.get("month") ?? ""}
       />
