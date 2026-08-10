@@ -1909,7 +1909,7 @@ export default function StatisticsPage({
       .filter(
         (
           range,
-        ): range is { min: number; avg: number | null; max: number } =>
+        ): range is { min: number; avg: number; max: number } =>
           range !== null && range.avg !== null,
       );
 

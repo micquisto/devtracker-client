@@ -35,7 +35,7 @@ export function SprintGroupedSelectOptions<T extends SprintListingLike>({
           className="sprint-quarter-group"
         >
           {group.sprints.map((sprint) => (
-            <option key={sprint.id} value={sprint.id}>
+            <option key={sprint.id ?? group.key} value={sprint.id ?? ""}>
               {getLabel(sprint)}
             </option>
           ))}
@@ -72,7 +72,7 @@ export default function SprintGroupedSelect<T extends SprintListingLike>({
           groups.map((group) => (
             <optgroup key={group.key} label={group.label}>
               {group.sprints.map((sprint) => (
-                <option key={sprint.id} value={sprint.id}>
+                <option key={sprint.id ?? group.key} value={sprint.id ?? ""}>
                   {getLabel(sprint)}
                 </option>
               ))}

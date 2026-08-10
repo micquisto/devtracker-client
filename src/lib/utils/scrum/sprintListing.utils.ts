@@ -1,11 +1,11 @@
 import { Palette } from "@/lib/theme";
 
 export type SprintListingLike = {
-  id: string;
+  id: string | null;
   name?: string | null;
   sprint_number?: number | null;
-  sprint_year?: number | null;
-  sprint_quarter?: number | null;
+  sprint_year?: number | string | null;
+  sprint_quarter?: number | string | null;
   start_date?: string | null;
   end_date?: string | null;
   is_current?: number | boolean | null;
@@ -130,8 +130,8 @@ const SPRINT_MONTH_SHORT_LABELS = [
 
 export function getSprintListingMonth(sprint: SprintListingLike): number | null {
   const sprintWithMonth = sprint as SprintListingLike & {
-    sprint_month?: number | null;
-    month?: number | null;
+    sprint_month?: number | string | null;
+    month?: number | string | null;
   };
 
   const explicitMonth = sprintWithMonth.sprint_month ?? sprintWithMonth.month;
