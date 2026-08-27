@@ -1080,9 +1080,122 @@
   white-space: pre-wrap;
 }
 
+.accountabilities-mvp {
+  width: 100%;
+  padding: 18px 20px;
+}
+
+.accountabilities-mvp__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 20px 28px;
+  align-items: center;
+  width: 100%;
+}
+
+.accountabilities-mvp__identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.accountabilities-mvp__name-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.accountabilities-mvp__eyebrow {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 229, 102, 0.82);
+}
+
+.accountabilities-mvp__name {
+  font-family: "DM Sans", sans-serif;
+  font-size: clamp(22px, 3.2vw, 32px);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  text-shadow: 0 0 18px rgba(255, 229, 102, 0.28);
+  word-break: break-word;
+}
+
+.accountabilities-mvp__grade {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.accountabilities-mvp__criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.accountabilities-mvp__criteria-title {
+  margin: 0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(180, 215, 255, 0.85);
+}
+
+.accountabilities-mvp__criteria-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.accountabilities-mvp__criteria-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mvp-criteria-color) 55%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--mvp-criteria-color) 22%, transparent),
+      color-mix(in srgb, var(--mvp-criteria-color) 8%, transparent)
+    ),
+    rgba(6, 13, 31, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 0 16px color-mix(in srgb, var(--mvp-criteria-color) 28%, transparent);
+  color: color-mix(in srgb, var(--mvp-criteria-color) 88%, white);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 900px) {
+  .accountabilities-mvp__content {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 700px) {
   .accountabilities-ongoing-project-rows,
   .accountabilities-challenge-rows {
     grid-template-columns: 1fr;
+  }
+
+  .accountabilities-mvp__identity {
+    flex-wrap: wrap;
   }
 }

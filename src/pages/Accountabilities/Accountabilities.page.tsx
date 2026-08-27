@@ -167,6 +167,47 @@ function formatScorePoints(value: number | null): string {
   });
 }
 
+type MvpTopCriterion = {
+  key: keyof SkillRadarValues;
+  label: string;
+  color: string;
+};
+
+function getMvpHighlightedTopCriteria(
+  rates: SkillRadarValues,
+  passingThreshold: number,
+): MvpTopCriterion[] {
+  const scored = MEMBER_RANKING_RATE_METRICS.map((metric) => {
+    const rateValue = rates[metric.key];
+    const safeValue = Number.isFinite(rateValue)
+      ? Math.max(0, Math.min(100, rateValue))
+      : 0;
+
+    return {
+      key: metric.key,
+      label: metric.label,
+      value: safeValue,
+      color: getSkillValueGradeColor(safeValue, passingThreshold),
+    };
+  }).filter((metric) => metric.value > 0);
+
+  const perfect = scored.filter((metric) => metric.value >= 100);
+  const selected =
+    perfect.length > 0
+      ? perfect
+      : [...scored]
+          .sort((left, right) => right.value - left.value)
+          .filter((metric) => metric.value >= GRADE_PASSING_THRESHOLD)
+          .slice(0, 4);
+
+  const fallback =
+    selected.length > 0
+      ? selected
+      : [...scored].sort((left, right) => right.value - left.value).slice(0, 3);
+
+  return fallback.map(({ key, label, color }) => ({ key, label, color }));
+}
+
 type AccountabilitiesSprintRow = {
   id: string | null;
   sprint_year: number | string | null;
@@ -3291,6 +3332,21 @@ export default function AccountabilitiesPage({
     sortedProfessionalismItems,
   ]);
 
+  const mvpMember = useMemo((): TeamStackRankingEntry | null => {
+    return teamStackRankingEntries[0] ?? null;
+  }, [teamStackRankingEntries]);
+
+  const mvpTopCriteria = useMemo((): MvpTopCriterion[] => {
+    if (!mvpMember) {
+      return [];
+    }
+
+    return getMvpHighlightedTopCriteria(
+      mvpMember.rates,
+      skillChartScale.minValue,
+    );
+  }, [mvpMember, skillChartScale.minValue]);
+
   const aiSummarySnapshot = useMemo((): AccountabilitiesSummarySnapshot | null => {
     if (!selectedPeriod) {
       return null;
@@ -5217,6 +5273,93 @@ export default function AccountabilitiesPage({
                 );
               }}
             />
+          )}
+        </div>
+      </section>
+
+      <section
+        className="accountabilities-section"
+        aria-labelledby="accountabilities-mvp-member-title"
+      >
+        <div className="accountabilities-section__header">
+          <h3
+            id="accountabilities-mvp-member-title"
+            className="accountabilities-section__title"
+          >
+            Top Performer of the Month
+            {selectedPeriodLabel ? ` — ${selectedPeriodLabel}` : ""}:
+          </h3>
+        </div>
+
+        <div className="scard accountabilities-mvp">
+          {radarLoading ? (
+            <div className="accountabilities-section__status">
+              Loading top performer…
+            </div>
+          ) : !selectedPeriod ? (
+            <div className="accountabilities-section__status">
+              Select a year and month to view the top performer.
+            </div>
+          ) : !mvpMember ? (
+            <div className="accountabilities-section__status">
+              No member scores for the selected period.
+            </div>
+          ) : (
+            <div className="accountabilities-mvp__content">
+              <div className="accountabilities-mvp__identity">
+                <div className="accountabilities-mvp__name-block">
+                  <span className="accountabilities-mvp__eyebrow">
+                    Top Performer
+                  </span>
+                  <span
+                    className="accountabilities-mvp__name"
+                    style={{ color: getMemberRankingColor(1) }}
+                  >
+                    {mvpMember.name}
+                  </span>
+                </div>
+                <div className="accountabilities-mvp__grade">
+                  <GradeDial
+                    grade={mvpMember.grade ?? "—"}
+                    color={
+                      mvpMember.grade
+                        ? PERFORMANCE_GRADE_COLORS[mvpMember.grade]
+                        : "rgba(120,170,215,0.45)"
+                    }
+                    delay={120}
+                    size="compact"
+                    glowFilterId="accountabilities-mvp-grade-dial-glow"
+                  />
+                </div>
+              </div>
+
+              <div className="accountabilities-mvp__criteria">
+                <h4 className="accountabilities-mvp__criteria-title">
+                  Top Criteria
+                </h4>
+                {mvpTopCriteria.length === 0 ? (
+                  <div className="accountabilities-section__status">
+                    No highlighted criteria for this member.
+                  </div>
+                ) : (
+                  <ul className="accountabilities-mvp__criteria-list">
+                    {mvpTopCriteria.map((criterion) => (
+                      <li
+                        key={criterion.key}
+                        className="accountabilities-mvp__criteria-item"
+                        style={
+                          {
+                            "--mvp-criteria-color": criterion.color,
+                          } as CSSProperties
+                        }
+                      >
+                        {criterion.label}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </section>
