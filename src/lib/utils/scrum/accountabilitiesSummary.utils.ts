@@ -77,6 +77,28 @@ function bulletList(items: string[], emptyLabel: string): string {
   return items.map((item) => `- ${item}`).join("\n");
 }
 
+function ongoingProjectsBulletList(
+  projects: AccountabilitiesSummaryProject[],
+  emptyLabel: string,
+): string {
+  if (projects.length === 0) {
+    return emptyLabel;
+  }
+
+  return projects
+    .map((project) => {
+      if (project.comments.length === 0) {
+        return `- ${project.name}: No updates recorded.`;
+      }
+
+      const updates = project.comments
+        .map((comment) => `  - ${comment}`)
+        .join("\n");
+      return `- ${project.name}:\n${updates}`;
+    })
+    .join("\n");
+}
+
 export function buildLocalAccountabilitiesSummary(
   snapshot: AccountabilitiesSummarySnapshot,
 ): string {
@@ -127,15 +149,8 @@ export function buildLocalAccountabilitiesSummary(
     metricHighlights.length > 0
       ? `Strongest skill signals this period: ${metricHighlights.join("; ")}. Across metrics there are ${commentCount} accountability notes capturing context behind the numbers.`
       : `Skill metric values are limited for this period, so the summary leans on qualitative notes and ranking instead.`,
-    snapshot.projects.length > 0
-      ? `Ongoing projects (${snapshot.projects.length}): ${snapshot.projects
-          .map((project) => {
-            const updateCount = project.comments.length;
-            return `${project.name}${updateCount > 0 ? ` — ${updateCount} update${updateCount === 1 ? "" : "s"}` : ""}`;
-          })
-          .join("; ")}.`
-      : `No ongoing project updates were recorded for this period.`,
     [
+      `Ongoing Projects:\n${ongoingProjectsBulletList(snapshot.projects, "- None recorded.")}`,
       `Challenges:\n${bulletList(snapshot.challenges, "- None recorded.")}`,
       `Plans and next steps:\n${bulletList(snapshot.plans, "- None recorded.")}`,
       `Team goals:\n${bulletList(snapshot.teamGoals, "- None recorded.")}`,
@@ -155,9 +170,10 @@ export function buildAccountabilitiesSummaryPrompt(
   return [
     "You are an engineering manager writing a concise executive accountability summary.",
     "Write 3-5 short paragraphs in plain language for leadership.",
-    "Cover performance trend, skill strengths/risks, project status, challenges/plans/goals/highlights, and ranking implications.",
+    "Cover performance trend, skill strengths/risks, ongoing project status and updates, challenges/plans/goals/highlights, and ranking implications.",
+    "Include a clearly labeled Ongoing Projects section summarizing each project name and its recorded updates from the projects array.",
     "Do not invent facts. If a section is empty, say so briefly.",
-    "Avoid markdown headings and bullet symbols unless listing challenges/plans/goals/highlights.",
+    "Avoid markdown headings and bullet symbols unless listing ongoing projects, challenges, plans, goals, or highlights.",
     "",
     "DATA:",
     JSON.stringify(snapshot, null, 2),
