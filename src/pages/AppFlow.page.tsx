@@ -105,8 +105,8 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Load Supabase Lookups",
     summary: "Load members and project types used for mapping.",
     details: [
-      "Build assignee lookup from members.",
-      "Build project type lookup from project_type.",
+      "Build assignee lookup from members, including Developer field labels mapped to trello_username.",
+      "Build project type lookup from project_type (matched via Trello Type field).",
       "Build a set of Supabase member Trello usernames for card eligibility.",
     ],
     output: "Mapping helpers for Trello-to-Supabase conversion.",
@@ -131,7 +131,7 @@ const FLOW_STEPS: FlowStep[] = [
     title: "Map Cards To Tasks",
     summary: "Convert Trello cards into task rows.",
     details: [
-      "Map Trello IDs, title, description, list name, URL, assignee, priority, severity, project type, and story points.",
+      "Map Trello IDs, title, description, list name, URL, Developer (member assignment), priority, severity, Type (project type), and story points.",
       "Set sp_type to planned, adhoc, done, or blocked.",
       "For Planning list cards use sp_type planned during planning sync, and sp_type done when the sprint is active.",
       "Blocked cards become sp_type blocked and is_completed pending.",
@@ -240,7 +240,7 @@ const TABLE_IMPACTS = [
   {
     table: "members",
     writes:
-      "Read-only during sync. Used to resolve assignees and card eligibility.",
+      "Read-only during sync. Used to resolve Developer → member assignment and card eligibility.",
   },
   {
     table: "project_type",

@@ -37,17 +37,29 @@ import { ENCODE_STORY_POINTS_PROJECT_ID } from "../scrum/storyPointsTable.utils"
 
 const TRELLO_CUSTOM_FIELD_NAMES = [
   "Date Completed",
-  "Assignee",
+  "Developer",
   "Severity",
   "Priority",
   "Type",
   "Status",
   "Date Added",
-  "Project Type",
   "Project",
   "Completion Rate",
   "Reject Count",
 ];
+
+/**
+ * Trello Developer custom-field labels mapped to the former Assignee values
+ * (member trello_username). Used when resolving card → member assignment.
+ */
+const DEVELOPER_FIELD_TO_TRELLO_USERNAME: Record<string, string> = {
+  "michael q": "janmichaelquisto1",
+  "joshua b": "joshuabalansa",
+  "joshua p": "jpangs",
+  "louie g": "louiefranzgualingco",
+  "doer r": "doerrosales1",
+  "thomas z": "thomasandrewzaragoza1",
+};
 
 const ORIGINAL_TRELLO_BOARD_IDS = ["5oj0clmi"];
 const ORIGINAL_TRELLO_LIST_NAMES = [
@@ -548,6 +560,14 @@ function isUuid(value: string): boolean {
 
 function buildAssigneeLookup(members: MemberAssigneeRow[]): Map<string, string> {
   const lookup = new Map<string, string>();
+  const developerLabelByUsername = new Map(
+    Object.entries(DEVELOPER_FIELD_TO_TRELLO_USERNAME).map(
+      ([developerLabel, trelloUsername]) => [
+        normalizeAssigneeValue(trelloUsername),
+        developerLabel,
+      ],
+    ),
+  );
 
   for (const member of members) {
     if (!member.id || !isUuid(member.id)) continue;
@@ -563,6 +583,15 @@ function buildAssigneeLookup(members: MemberAssigneeRow[]): Map<string, string> 
 
     for (const key of keys) {
       lookup.set(normalizeAssigneeValue(key), member.id);
+    }
+
+    const developerLabel = member.trello_username
+      ? developerLabelByUsername.get(
+          normalizeAssigneeValue(member.trello_username),
+        )
+      : undefined;
+    if (developerLabel) {
+      lookup.set(developerLabel, member.id);
     }
   }
 
@@ -582,10 +611,24 @@ function resolveAssignedTo(
   card: TrelloSprintCard,
   assigneeLookup: Map<string, string>,
 ): string | null {
-  const assignee = getCustomFieldValue(card, "Assignee");
-  if (!assignee) return null;
+  const developer = getCustomFieldValue(card, "Developer");
+  if (!developer) return null;
 
-  return assigneeLookup.get(normalizeAssigneeValue(assignee)) ?? null;
+  const normalizedDeveloper = normalizeAssigneeValue(developer);
+  const directMatch = assigneeLookup.get(normalizedDeveloper);
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const trelloUsername =
+    DEVELOPER_FIELD_TO_TRELLO_USERNAME[normalizedDeveloper];
+  if (!trelloUsername) {
+    return null;
+  }
+
+  return (
+    assigneeLookup.get(normalizeAssigneeValue(trelloUsername)) ?? null
+  );
 }
 
 function getTaskType(card: TrelloSprintCard): TaskRow["task_type"] {
@@ -751,7 +794,9 @@ function resolveProjectType(
   card: TrelloSprintCard,
   projectTypeLookup: Map<string, string>,
 ): string {
-  const projectType = getCustomFieldValue(card, "Project Type");
+  // Moving forward: map tasks from the Trello "Type" custom field
+  // (previously "Project Type") onto Supabase project_type rows.
+  const projectType = getCustomFieldValue(card, "Type");
   const projectTypeId = projectType
     ? projectTypeLookup.get(normalizeLabel(projectType))
     : undefined;
