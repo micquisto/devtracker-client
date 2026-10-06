@@ -7,7 +7,8 @@ export type CriteriaType =
   | "quality"
   | "collaboration"
   | "professionalism"
-  | "velocity";
+  | "velocity"
+  | "manual";
 
 export type PerformanceScoreGrade = "S" | "A" | "B" | "C" | "D" | "E" | "F";
 
@@ -25,7 +26,6 @@ type EvaluateSprintRow = {
   id: string;
   name: string | null;
   sprint_year: number | null;
-  grading_set_id: string | null;
   criteria_set_id: string | null;
   start_date: string | null;
 };
@@ -48,15 +48,30 @@ type CriteriaRow = {
   sort_number: number | null;
 };
 
-type CriteriaSetLinkRow = {
-  set_id: string;
-  criteria_id: string;
+type CriteriaSetGradingSetRow = {
+  criteria_set_id: string;
+  grading_set_id: string;
 };
 
-type PassingScoreRow = {
-  grading_set_id: string;
+type GradingSetRow = {
+  id: string;
+  name: string;
   level: RequirementLevel;
-  value: number;
+  passing_score: number | null;
+};
+
+type GradingSetCriteriaRow = {
+  grading_set_id: string;
+  criteria_id: string;
+  percentage: number | null;
+};
+
+type ResolvedGradingSet = {
+  id: string;
+  name: string;
+  level: RequirementLevel;
+  passingScore: number;
+  criteria: CriteriaRow[];
 };
 
 type MemberSprintScoreRow = {
@@ -83,6 +98,13 @@ type ProfessionalismScoreRow = {
 type ProfessionalismItemRow = {
   id: string;
   value: number | null;
+};
+
+type ManualCriteriaScoreRow = {
+  member_id: string;
+  sprint_id: string;
+  criteria_id: string;
+  score: number | null;
 };
 
 type MemberSprintCriteriaScoreInsert = {
@@ -150,7 +172,9 @@ export type ProfessionalismCalculation = {
   professionalismRate: number;
 };
 
-const CRITERIA_TYPES: CriteriaType[] = [
+type CalculatedCriteriaType = Exclude<CriteriaType, "manual">;
+
+const CALCULATED_CRITERIA_TYPES: CalculatedCriteriaType[] = [
   "productivity",
   "efficiency",
   "quality",
@@ -158,6 +182,8 @@ const CRITERIA_TYPES: CriteriaType[] = [
   "professionalism",
   "velocity",
 ];
+
+const CRITERIA_TYPES: CriteriaType[] = [...CALCULATED_CRITERIA_TYPES, "manual"];
 
 const GRADE_BANDS_ASCENDING: PerformanceScoreGrade[] = [
   "F",
@@ -484,96 +510,49 @@ function buildWeightRate(rate: number, weight: number | null | undefined): numbe
   return roundScore((clamp(toFiniteNumber(rate), 0, 100) / 100) * toFiniteNumber(weight, 0));
 }
 
-function pickCriteriaForMemberLevel(
+function pickCriteriaByType(
   criteriaRows: CriteriaRow[],
-  level: Exclude<RequirementLevel, "all">,
   type: CriteriaType,
 ): CriteriaRow | null {
-  const matches = criteriaRows.filter(
-    (row) =>
-      normalizeCriteriaType(row.type) === type &&
-      (row.level === level || row.level === "all"),
+  return (
+    criteriaRows
+      .filter((row) => normalizeCriteriaType(row.type) === type)
+      .sort(
+        (left, right) =>
+          toFiniteNumber(left.sort_number, Number.MAX_SAFE_INTEGER) -
+          toFiniteNumber(right.sort_number, Number.MAX_SAFE_INTEGER),
+      )[0] ?? null
   );
+}
 
-  if (matches.length === 0) return null;
-
-  const exact = matches.find((row) => row.level === level);
-  return exact ?? matches[0] ?? null;
+function pickGradingSetForMemberLevel(
+  gradingSets: ResolvedGradingSet[],
+  level: Exclude<RequirementLevel, "all">,
+): ResolvedGradingSet | null {
+  return (
+    gradingSets.find((set) => set.level === level) ??
+    gradingSets.find((set) => set.level === "all") ??
+    null
+  );
 }
 
 async function loadYearSprints(year: number): Promise<EvaluateSprintRow[]> {
   return getSupabaseRows<EvaluateSprintRow>("sprints", {
-    select: "id,name,sprint_year,grading_set_id,criteria_set_id,start_date",
+    select: "id,name,sprint_year,criteria_set_id,start_date",
     eq: { sprint_year: year },
     order: { column: "start_date", ascending: true },
   });
 }
 
-function resolveSprintEvaluationSets(
-  sprint: EvaluateSprintRow,
-  yearSprints: EvaluateSprintRow[],
-): { grading_set_id: string; criteria_set_id: string } | null {
-  if (sprint.grading_set_id && sprint.criteria_set_id) {
-    return {
-      grading_set_id: sprint.grading_set_id,
-      criteria_set_id: sprint.criteria_set_id,
-    };
-  }
+const DEFAULT_CRITERIA_SET_CODE = "default";
 
-  const sprintStart = sprint.start_date
-    ? new Date(sprint.start_date).getTime()
-    : Number.POSITIVE_INFINITY;
-
-  const candidates = yearSprints
-    .filter((row) => Boolean(row.grading_set_id && row.criteria_set_id))
-    .sort((left, right) => {
-      const leftStart = left.start_date
-        ? new Date(left.start_date).getTime()
-        : 0;
-      const rightStart = right.start_date
-        ? new Date(right.start_date).getTime()
-        : 0;
-      return rightStart - leftStart;
-    });
-
-  const priorOrSame = candidates.find((row) => {
-    if (!row.start_date) {
-      return false;
-    }
-
-    return new Date(row.start_date).getTime() <= sprintStart;
+async function loadDefaultCriteriaSetId(): Promise<string | null> {
+  const [defaultSet] = await getSupabaseRows<{ id: string }>("critera_set", {
+    select: "id",
+    eq: { set_code: DEFAULT_CRITERIA_SET_CODE },
+    limit: 1,
   });
-
-  const fallback = priorOrSame ?? candidates[0] ?? null;
-  if (!fallback?.grading_set_id || !fallback.criteria_set_id) {
-    return null;
-  }
-
-  return {
-    grading_set_id: fallback.grading_set_id,
-    criteria_set_id: fallback.criteria_set_id,
-  };
-}
-
-async function healSprintEvaluationSets(
-  sprintId: string,
-  sets: { grading_set_id: string; criteria_set_id: string },
-): Promise<void> {
-  const { error } = await supabase
-    .from("sprints")
-    .update({
-      grading_set_id: sets.grading_set_id,
-      criteria_set_id: sets.criteria_set_id,
-    })
-    .eq("id", sprintId);
-
-  if (error) {
-    // Non-fatal: evaluation can still proceed with the resolved sets in-memory.
-    console.warn(
-      `Unable to backfill grading/criteria sets for sprint ${sprintId}:`,
-      error.message,
-    );
-  }
+  return defaultSet?.id ?? null;
 }
 
 async function deleteCriteriaScoresForSprints(sprintIds: string[]): Promise<void> {
@@ -656,7 +635,9 @@ function evaluateMemberForSprint(input: {
   sprint: EvaluateSprintRow;
   member: EvaluateMemberRow;
   memberScore: MemberSprintScoreRow;
-  criteriaByType: Map<CriteriaType, CriteriaRow>;
+  criteriaByType: Map<CalculatedCriteriaType, CriteriaRow>;
+  manualCriteria: CriteriaRow[];
+  manualScoresByKey: Map<string, number>;
   passingThreshold: number;
   professionalismItemsById: Map<string, ProfessionalismItemRow>;
   professionalismScores: ProfessionalismScoreRow[];
@@ -718,76 +699,72 @@ function evaluateMemberForSprint(input: {
     itemScores: memberProfessionalismScores.map((row) => toFiniteNumber(row.score)),
   });
 
-  // If the member has no professionalism score rows yet but criteria exists,
-  // expected total falls back to 0 and rate stays neutral (100) so weight is not punished.
   const criteriaRows: MemberSprintCriteriaScoreInsert[] = [];
+  let scoredWeightTotal = 0;
 
-  if (productivityCriteria) {
+  const addCriteriaRow = (
+    criteria: CriteriaRow,
+    score: number,
+    overallScore: number,
+    rate: number,
+  ) => {
+    scoredWeightTotal += Math.max(toFiniteNumber(criteria.weight, 0), 0);
     criteriaRows.push({
       member_id: input.member.id,
       sprint_id: input.sprint.id,
-      criteria_id: productivityCriteria.id,
-      score: productivity.productivityScore,
-      overall_score: productivity.assignedStoryPoints,
-      rate: productivity.productivityRate,
-      weight_rate: buildWeightRate(
-        productivity.productivityRate,
-        productivityCriteria.weight,
-      ),
+      criteria_id: criteria.id,
+      score,
+      overall_score: overallScore,
+      rate,
+      weight_rate: buildWeightRate(rate, criteria.weight),
     });
+  };
+
+  if (productivityCriteria) {
+    addCriteriaRow(
+      productivityCriteria,
+      productivity.productivityScore,
+      productivity.assignedStoryPoints,
+      productivity.productivityRate,
+    );
   }
 
   if (efficiencyCriteria) {
-    criteriaRows.push({
-      member_id: input.member.id,
-      sprint_id: input.sprint.id,
-      criteria_id: efficiencyCriteria.id,
-      score: efficiency.efficiencyRate,
-      overall_score: efficiency.rawEfficiencyRate,
-      rate: efficiency.efficiencyRate,
-      weight_rate: buildWeightRate(efficiency.efficiencyRate, efficiencyCriteria.weight),
-    });
+    addCriteriaRow(
+      efficiencyCriteria,
+      efficiency.efficiencyRate,
+      efficiency.rawEfficiencyRate,
+      efficiency.efficiencyRate,
+    );
   }
 
   if (qualityCriteria) {
-    criteriaRows.push({
-      member_id: input.member.id,
-      sprint_id: input.sprint.id,
-      criteria_id: qualityCriteria.id,
-      score: quality.qualityScore,
-      overall_score: quality.qualityExpectedTotal,
-      rate: quality.qualityRate,
-      weight_rate: buildWeightRate(quality.qualityRate, qualityCriteria.weight),
-    });
+    addCriteriaRow(
+      qualityCriteria,
+      quality.qualityScore,
+      quality.qualityExpectedTotal,
+      quality.qualityRate,
+    );
   }
 
   if (collaborationCriteria) {
-    criteriaRows.push({
-      member_id: input.member.id,
-      sprint_id: input.sprint.id,
-      criteria_id: collaborationCriteria.id,
-      score: collaborationScore,
-      overall_score: collaborationScore,
-      rate: collaborationScore,
-      weight_rate: buildWeightRate(collaborationScore, collaborationCriteria.weight),
-    });
+    addCriteriaRow(
+      collaborationCriteria,
+      collaborationScore,
+      collaborationScore,
+      collaborationScore,
+    );
   }
 
-  // Only score professionalism when checklist rows exist for this member/sprint.
-  // Missing checklist data should not invent a perfect or zero-weight penalty.
+  // Criteria without data for this member/sprint are left out, and the
+  // average is rescaled to the weight that was actually scored.
   if (professionalismCriteria && memberProfessionalismScores.length > 0) {
-    criteriaRows.push({
-      member_id: input.member.id,
-      sprint_id: input.sprint.id,
-      criteria_id: professionalismCriteria.id,
-      score: professionalism.professionalismScore,
-      overall_score: professionalism.professionalismExpectedTotal,
-      rate: professionalism.professionalismRate,
-      weight_rate: buildWeightRate(
-        professionalism.professionalismRate,
-        professionalismCriteria.weight,
-      ),
-    });
+    addCriteriaRow(
+      professionalismCriteria,
+      professionalism.professionalismScore,
+      professionalism.professionalismExpectedTotal,
+      professionalism.professionalismRate,
+    );
   }
 
   const hoursAccumulated = Math.max(toFiniteNumber(input.memberScore.accumulated_hours), 0);
@@ -798,19 +775,27 @@ function evaluateMemberForSprint(input: {
       assignedStoryPoints: productivity.assignedStoryPoints,
     });
 
-    criteriaRows.push({
-      member_id: input.member.id,
-      sprint_id: input.sprint.id,
-      criteria_id: velocityCriteria.id,
-      score: velocity.velocityRate,
-      overall_score: productivity.completedStoryPoints,
-      rate: velocity.velocityRate,
-      weight_rate: buildWeightRate(velocity.velocityRate, velocityCriteria.weight),
-    });
+    addCriteriaRow(
+      velocityCriteria,
+      velocity.velocityRate,
+      productivity.completedStoryPoints,
+      velocity.velocityRate,
+    );
   }
 
+  for (const manualCriteria of input.manualCriteria) {
+    const manualScore = input.manualScoresByKey.get(
+      `${input.member.id}:${input.sprint.id}:${manualCriteria.id}`,
+    );
+    if (manualScore === undefined) continue;
+
+    const manualRate = roundScore(clamp(manualScore, 0, 100));
+    addCriteriaRow(manualCriteria, manualRate, 100, manualRate);
+  }
+
+  const weightedScoreTotal = criteriaRows.reduce((sum, row) => sum + row.weight_rate, 0);
   const averageScore = roundScore(
-    criteriaRows.reduce((sum, row) => sum + row.weight_rate, 0),
+    scoredWeightTotal > 0 ? (weightedScoreTotal / scoredWeightTotal) * 100 : 0,
   );
   const negativeAccumulatedRate =
     efficiency.productivityExcessNegativeRate > efficiency.timeExcessNegativeRate
@@ -861,74 +846,63 @@ export async function evaluateMemberPerformanceForYear(
   await deleteCriteriaScoresForSprints(sprintIds);
   await deletePerformanceScoresForSprints(sprintIds);
 
-  // Resolve missing grading/criteria sets from prior sprints in the same year,
-  // then include those resolved IDs when loading evaluation source data.
-  const resolvedSetsBySprintId = new Map<
-    string,
-    { grading_set_id: string; criteria_set_id: string }
-  >();
+  // Sprints without an explicit criteria set use the Default set.
+  const defaultCriteriaSetId = await loadDefaultCriteriaSetId();
+  const criteriaSetIdBySprintId = new Map<string, string>();
   for (const sprint of sprints) {
-    const resolved = resolveSprintEvaluationSets(sprint, sprints);
-    if (!resolved) {
-      continue;
-    }
-
-    resolvedSetsBySprintId.set(sprint.id, resolved);
-
-    if (
-      sprint.grading_set_id !== resolved.grading_set_id ||
-      sprint.criteria_set_id !== resolved.criteria_set_id
-    ) {
-      await healSprintEvaluationSets(sprint.id, resolved);
-      sprint.grading_set_id = resolved.grading_set_id;
-      sprint.criteria_set_id = resolved.criteria_set_id;
+    const criteriaSetId = sprint.criteria_set_id ?? defaultCriteriaSetId;
+    if (criteriaSetId) {
+      criteriaSetIdBySprintId.set(sprint.id, criteriaSetId);
     }
   }
 
+  const criteriaSetIds = Array.from(new Set(criteriaSetIdBySprintId.values()));
+
+  const criteriaSetGradingLinks =
+    criteriaSetIds.length > 0
+      ? await supabase
+          .from("criteria_set_grading_set")
+          .select("criteria_set_id,grading_set_id")
+          .in("criteria_set_id", criteriaSetIds)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return (data ?? []) as CriteriaSetGradingSetRow[];
+          })
+      : [];
   const gradingSetIds = Array.from(
-    new Set(
-      Array.from(resolvedSetsBySprintId.values()).map(
-        (sets) => sets.grading_set_id,
-      ),
-    ),
-  );
-  const criteriaSetIds = Array.from(
-    new Set(
-      Array.from(resolvedSetsBySprintId.values()).map(
-        (sets) => sets.criteria_set_id,
-      ),
-    ),
+    new Set(criteriaSetGradingLinks.map((link) => link.grading_set_id)),
   );
 
   const [
-    passingScores,
-    criteriaSetLinks,
+    gradingSets,
+    gradingSetCriteria,
     allCriteria,
     memberScores,
     members,
     professionalismScores,
     professionalismItems,
+    manualCriteriaScores,
   ] = await Promise.all([
     gradingSetIds.length > 0
       ? supabase
-          .from("passing_scores")
-          .select("grading_set_id,level,value")
+          .from("grading_set")
+          .select("id,name,level,passing_score")
+          .in("id", gradingSetIds)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return (data ?? []) as GradingSetRow[];
+          })
+      : Promise.resolve([] as GradingSetRow[]),
+    gradingSetIds.length > 0
+      ? supabase
+          .from("grading_set_criteria")
+          .select("grading_set_id,criteria_id,percentage")
           .in("grading_set_id", gradingSetIds)
           .then(({ data, error }) => {
             if (error) throw error;
-            return (data ?? []) as PassingScoreRow[];
+            return (data ?? []) as GradingSetCriteriaRow[];
           })
-      : Promise.resolve([] as PassingScoreRow[]),
-    criteriaSetIds.length > 0
-      ? supabase
-          .from("criteria_set_criteria")
-          .select("set_id,criteria_id")
-          .in("set_id", criteriaSetIds)
-          .then(({ data, error }) => {
-            if (error) throw error;
-            return (data ?? []) as CriteriaSetLinkRow[];
-          })
-      : Promise.resolve([] as CriteriaSetLinkRow[]),
+      : Promise.resolve([] as GradingSetCriteriaRow[]),
     getSupabaseRows<CriteriaRow>("criteria", {
       select: "id,level,name,code,min,max,value,weight,type,sort_number",
     }),
@@ -956,25 +930,60 @@ export async function evaluateMemberPerformanceForYear(
     getSupabaseRows<ProfessionalismItemRow>("professionalism_items", {
       select: "id,value",
     }),
+    supabase
+      .from("member_sprint_manual_criteria_scores")
+      .select("member_id,sprint_id,criteria_id,score")
+      .in("sprint_id", sprintIds)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return (data ?? []) as ManualCriteriaScoreRow[];
+      }),
   ]);
+
+  const manualScoresByKey = new Map<string, number>();
+  for (const row of manualCriteriaScores) {
+    if (row.score === null || !Number.isFinite(Number(row.score))) continue;
+    manualScoresByKey.set(
+      `${row.member_id}:${row.sprint_id}:${row.criteria_id}`,
+      Number(row.score),
+    );
+  }
 
   const criteriaById = new Map(allCriteria.map((row) => [row.id, row]));
   const membersById = new Map(members.map((row) => [row.id, row]));
   const professionalismItemsById = new Map(
     professionalismItems.map((row) => [row.id, row]),
   );
-  const passingByGradingSet = new Map<string, Map<string, number>>();
-  for (const row of passingScores) {
-    const byLevel = passingByGradingSet.get(row.grading_set_id) ?? new Map();
-    byLevel.set(row.level, toFiniteNumber(row.value, 75));
-    passingByGradingSet.set(row.grading_set_id, byLevel);
+
+  // Each grading set carries its own criteria, with the grading set's
+  // percentage replacing the criteria's default weight.
+  const resolvedGradingSetsById = new Map<string, ResolvedGradingSet>();
+  for (const gradingSet of gradingSets) {
+    resolvedGradingSetsById.set(gradingSet.id, {
+      id: gradingSet.id,
+      name: gradingSet.name,
+      level: gradingSet.level,
+      passingScore: toFiniteNumber(gradingSet.passing_score, 75),
+      criteria: [],
+    });
+  }
+  for (const link of gradingSetCriteria) {
+    const gradingSet = resolvedGradingSetsById.get(link.grading_set_id);
+    const criteria = criteriaById.get(link.criteria_id);
+    if (!gradingSet || !criteria) continue;
+    gradingSet.criteria.push({
+      ...criteria,
+      weight: toFiniteNumber(link.percentage, 0),
+    });
   }
 
-  const criteriaIdsBySetId = new Map<string, string[]>();
-  for (const link of criteriaSetLinks) {
-    const list = criteriaIdsBySetId.get(link.set_id) ?? [];
-    list.push(link.criteria_id);
-    criteriaIdsBySetId.set(link.set_id, list);
+  const gradingSetsByCriteriaSetId = new Map<string, ResolvedGradingSet[]>();
+  for (const link of criteriaSetGradingLinks) {
+    const gradingSet = resolvedGradingSetsById.get(link.grading_set_id);
+    if (!gradingSet) continue;
+    const list = gradingSetsByCriteriaSetId.get(link.criteria_set_id) ?? [];
+    list.push(gradingSet);
+    gradingSetsByCriteriaSetId.set(link.criteria_set_id, list);
   }
 
   const memberScoresBySprint = new Map<string, MemberSprintScoreRow[]>();
@@ -991,25 +1000,20 @@ export async function evaluateMemberPerformanceForYear(
   let membersProcessed = 0;
 
   for (const sprint of sprints) {
-    const resolvedSets = resolvedSetsBySprintId.get(sprint.id);
-    if (!resolvedSets) {
+    const criteriaSetId = criteriaSetIdBySprintId.get(sprint.id);
+    if (!criteriaSetId) {
       skippedSprints.push({
         sprintId: sprint.id,
-        reason: `Sprint "${sprint.name ?? sprint.id}" has no grading_set_id/criteria_set_id, and no prior sprint in ${year} could be used as a fallback.`,
+        reason: `Sprint "${sprint.name ?? sprint.id}" has no criteria set, and the Default criteria set (code "${DEFAULT_CRITERIA_SET_CODE}") was not found.`,
       });
       continue;
     }
 
-    const linkedCriteriaIds =
-      criteriaIdsBySetId.get(resolvedSets.criteria_set_id) ?? [];
-    const sprintCriteria = linkedCriteriaIds
-      .map((criteriaId) => criteriaById.get(criteriaId))
-      .filter((row): row is CriteriaRow => Boolean(row));
-
-    if (sprintCriteria.length === 0) {
+    const sprintGradingSets = gradingSetsByCriteriaSetId.get(criteriaSetId) ?? [];
+    if (sprintGradingSets.length === 0) {
       skippedSprints.push({
         sprintId: sprint.id,
-        reason: `Sprint "${sprint.name ?? sprint.id}" criteria set has no linked criteria.`,
+        reason: `Sprint "${sprint.name ?? sprint.id}" criteria set has no assigned grading sets.`,
       });
       continue;
     }
@@ -1022,9 +1026,6 @@ export async function evaluateMemberPerformanceForYear(
       });
       continue;
     }
-
-    const passingByLevel =
-      passingByGradingSet.get(resolvedSets.grading_set_id) ?? new Map();
 
     for (const memberScore of sprintMemberScores) {
       const member = membersById.get(memberScore.member_id);
@@ -1047,27 +1048,37 @@ export async function evaluateMemberPerformanceForYear(
         continue;
       }
 
-      const criteriaByType = new Map<CriteriaType, CriteriaRow>();
-      for (const type of CRITERIA_TYPES) {
-        const criteria = pickCriteriaForMemberLevel(sprintCriteria, memberLevel, type);
-        if (criteria) {
-          criteriaByType.set(type, criteria);
-        }
-      }
-
-      if (criteriaByType.size === 0) {
+      const gradingSet = pickGradingSetForMemberLevel(sprintGradingSets, memberLevel);
+      if (!gradingSet) {
         skippedMembers.push({
           sprintId: sprint.id,
           memberId: member.id,
-          reason: `No criteria matched member level "${memberLevel}" for this sprint.`,
+          reason: `No grading set for level "${memberLevel}" (or "all") in this sprint's criteria set.`,
         });
         continue;
       }
 
-      const passingThreshold =
-        passingByLevel.get(memberLevel) ??
-        passingByLevel.get("all") ??
-        75;
+      const criteriaByType = new Map<CalculatedCriteriaType, CriteriaRow>();
+      for (const type of CALCULATED_CRITERIA_TYPES) {
+        const criteria = pickCriteriaByType(gradingSet.criteria, type);
+        if (criteria) {
+          criteriaByType.set(type, criteria);
+        }
+      }
+      const manualCriteria = gradingSet.criteria.filter(
+        (row) => normalizeCriteriaType(row.type) === "manual",
+      );
+
+      if (criteriaByType.size === 0 && manualCriteria.length === 0) {
+        skippedMembers.push({
+          sprintId: sprint.id,
+          memberId: member.id,
+          reason: `Grading set "${gradingSet.name}" has no criteria.`,
+        });
+        continue;
+      }
+
+      const passingThreshold = gradingSet.passingScore;
 
       try {
         const evaluated = evaluateMemberForSprint({
@@ -1075,6 +1086,8 @@ export async function evaluateMemberPerformanceForYear(
           member,
           memberScore,
           criteriaByType,
+          manualCriteria,
+          manualScoresByKey,
           passingThreshold,
           professionalismItemsById,
           professionalismScores,

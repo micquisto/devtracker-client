@@ -7,6 +7,8 @@ import {
   getTeamContributionMemberColor,
   GradeDial,
   PERFORMANCE_GRADE_COLORS,
+  PerformanceScoresBySprintLineChart,
+  type PerformanceScoresBySprintPoint,
   type TeamContributionSegment,
 } from "@/components/dashboard";
 import {
@@ -889,6 +891,7 @@ export default function AccountabilitiesPage({
   initialMonth?: string;
 } = {}) {
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const teamStackRankingRef = useRef<HTMLElement | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [sprints, setSprints] = useState<AccountabilitiesSprintRow[]>([]);
@@ -1147,9 +1150,26 @@ export default function AccountabilitiesPage({
       .map((sprint) => sprint.id as string);
   }, [previousPeriod, selectableSprints]);
 
+  const yearSprintIds = useMemo(() => {
+    const year = Number(selectedYear);
+    if (!selectedYear || !Number.isFinite(year)) {
+      return [] as string[];
+    }
+
+    return selectableSprints
+      .filter((sprint) => {
+        if (!sprint.id) {
+          return false;
+        }
+
+        return getSprintListingYear(sprint) === year;
+      })
+      .map((sprint) => sprint.id as string);
+  }, [selectableSprints, selectedYear]);
+
   const scoreFetchSprintIds = useMemo(
-    () => [...new Set([...activeSprintIds, ...previousSprintIds])],
-    [activeSprintIds, previousSprintIds],
+    () => [...new Set([...activeSprintIds, ...previousSprintIds, ...yearSprintIds])],
+    [activeSprintIds, previousSprintIds, yearSprintIds],
   );
 
   const sortedProfessionalismItems = useMemo(
@@ -1381,6 +1401,119 @@ export default function AccountabilitiesPage({
       radarLoading,
     ],
   );
+
+  const yearMonthlyMetricsTrendEntries = useMemo((): PerformanceScoresBySprintPoint[] => {
+    const year = Number(selectedYear);
+    const endMonth = Number(selectedMonth);
+    if (
+      !selectedYear ||
+      !selectedMonth ||
+      !Number.isFinite(year) ||
+      !Number.isFinite(endMonth) ||
+      endMonth < 1 ||
+      endMonth > 12 ||
+      yearSprintIds.length === 0
+    ) {
+      return [];
+    }
+
+    const monthsInYear = [
+      ...new Set(
+        selectableSprints
+          .filter((sprint) => {
+            if (!sprint.id || !yearSprintIds.includes(sprint.id)) {
+              return false;
+            }
+
+            return getSprintListingYear(sprint) === year;
+          })
+          .map((sprint) => getSprintListingMonth(sprint))
+          .filter(
+            (month): month is number =>
+              month !== null && month >= 1 && month <= endMonth,
+          ),
+      ),
+    ].sort((monthA, monthB) => monthA - monthB);
+
+    if (!monthsInYear.includes(endMonth)) {
+      monthsInYear.push(endMonth);
+    }
+
+    return monthsInYear.map((month) => {
+      const monthSprintIds = selectableSprints
+        .filter((sprint) => {
+          if (!sprint.id) {
+            return false;
+          }
+
+          return (
+            getSprintListingYear(sprint) === year &&
+            getSprintListingMonth(sprint) === month
+          );
+        })
+        .map((sprint) => sprint.id as string);
+
+      const skillValues = buildTeamSkillRadarForSprints({
+        sprintIds: monthSprintIds,
+        memberIds: scoreboardMemberIdList,
+        memberIdSet: scoreboardMemberIds,
+        performanceScores,
+        criteriaScores,
+        professionalismScores,
+        professionalismItems: sortedProfessionalismItems,
+      });
+
+      const monthPerformanceRows = performanceScores.filter(
+        (row) =>
+          monthSprintIds.includes(row.sprint_id) &&
+          scoreboardMemberIds.has(row.member_id),
+      );
+      const monthMemberScoreRows = memberSprintScores.filter(
+        (row) =>
+          monthSprintIds.includes(row.sprint_id) &&
+          scoreboardMemberIds.has(row.member_id),
+      );
+      const overallScore = getTeamPerformanceFieldAverage(
+        monthPerformanceRows,
+        scoreboardMemberIdList,
+        "average_score",
+      );
+      const hoursAccumulated = getTeamSprintScoreFieldTotal(
+        monthMemberScoreRows,
+        scoreboardMemberIdList,
+        "accumulated_hours",
+      );
+
+      return {
+        id: `${year}-${month}`,
+        label: getSprintMonthShortLabel(month),
+        sublabel: String(year),
+        productivity: skillValues.productivity,
+        efficiency: skillValues.efficiency,
+        quality: skillValues.quality,
+        collaboration: skillValues.collaboration,
+        velocity: skillValues.velocity,
+        professionalism: skillValues.professionalism,
+        overallScore: overallScore ?? 0,
+        hoursAccumulated:
+          hoursAccumulated === null
+            ? 0
+            : Math.round(hoursAccumulated * 10) / 10,
+      };
+    });
+  }, [
+    criteriaScores,
+    memberSprintScores,
+    performanceScores,
+    professionalismScores,
+    scoreboardMemberIdList,
+    scoreboardMemberIds,
+    selectableSprints,
+    selectedMonth,
+    selectedYear,
+    sortedProfessionalismItems,
+    yearSprintIds,
+  ]);
 
   const totalHoursValue = useMemo(() => {
     if (activeSprintIds.length === 0) {
@@ -3089,12 +3222,71 @@ export default function AccountabilitiesPage({
     setIsDownloadingPdf(true);
     setDownloadError(null);
 
-    try {
-      const sourceWidth = Math.max(target.scrollWidth, target.clientWidth, 1);
-      const sourceHeight = Math.max(target.scrollHeight, target.clientHeight, 1);
+    const prepareCloneForCapture = (
+      sourceRoot: HTMLElement,
+      clonedDocument: Document,
+      clonedElement: HTMLElement,
+    ) => {
+      sanitizeHtml2CanvasClone(sourceRoot, clonedDocument, clonedElement);
+
+      clonedElement.style.height = "auto";
+      clonedElement.style.maxHeight = "none";
+      clonedElement.style.overflow = "visible";
+
+      clonedDocument
+        .querySelectorAll<HTMLElement>(
+          ".statistics-member-ranking__header, .statistics-member-ranking__table, .statistics-member-ranking, .accountabilities-team-stack-ranking, .accountabilities-section, .scard",
+        )
+        .forEach((element) => {
+          element.style.position = "static";
+          element.style.top = "auto";
+          element.style.zIndex = "auto";
+          element.style.height = "auto";
+          element.style.maxHeight = "none";
+          element.style.overflow = "visible";
+        });
+
+      clonedDocument
+        .querySelectorAll<HTMLElement>(
+          ".statistics-member-ranking__breakdown-fill, .statistics-member-ranking__pip--filled",
+        )
+        .forEach((element) => {
+          const inlineBackground =
+            element.style.backgroundColor || element.style.background;
+          if (inlineBackground) {
+            element.style.setProperty(
+              "background-color",
+              inlineBackground,
+              "important",
+            );
+            element.style.setProperty("background-image", "none", "important");
+          }
+        });
+
+      clonedDocument
+        .querySelectorAll<HTMLElement>(".statistics-member-ranking__card")
+        .forEach((card) => {
+          const accent =
+            card.style.getPropertyValue("--ranking-accent").trim() ||
+            "#00c8ff";
+          card
+            .querySelectorAll<HTMLElement>(".statistics-member-ranking__box")
+            .forEach((box) => {
+              box.style.setProperty("border-color", accent, "important");
+            });
+        });
+    };
+
+    const captureElement = async (element: HTMLElement) => {
+      const sourceWidth = Math.max(element.scrollWidth, element.clientWidth, 1);
+      const sourceHeight = Math.max(
+        element.scrollHeight,
+        element.clientHeight,
+        1,
+      );
       const maxDimension = 8192;
       const maxArea = 16_777_216;
-      let scale = Math.min(window.devicePixelRatio || 1, 1.5);
+      let scale = Math.min(window.devicePixelRatio || 1, 2);
       while (
         scale > 0.35 &&
         (sourceWidth * scale > maxDimension ||
@@ -3104,12 +3296,12 @@ export default function AccountabilitiesPage({
         scale *= 0.85;
       }
 
-      const canvas = await html2canvas(target, {
+      return html2canvas(element, {
         backgroundColor: "#060d1f",
-        ignoreElements: (element) =>
-          element.classList.contains("accountabilities-header-action") ||
-          element.classList.contains("accountabilities-page-toolbar") ||
-          element.classList.contains("accountabilities-download-error"),
+        ignoreElements: (candidate) =>
+          candidate.classList.contains("accountabilities-header-action") ||
+          candidate.classList.contains("accountabilities-page-toolbar") ||
+          candidate.classList.contains("accountabilities-download-error"),
         scale,
         useCORS: true,
         logging: false,
@@ -3118,75 +3310,191 @@ export default function AccountabilitiesPage({
         windowWidth: sourceWidth,
         windowHeight: sourceHeight,
         onclone: (clonedDocument, clonedElement) => {
-          sanitizeHtml2CanvasClone(target, clonedDocument, clonedElement);
-
           if (clonedElement instanceof HTMLElement) {
-            clonedElement.style.height = "auto";
-            clonedElement.style.maxHeight = "none";
-            clonedElement.style.overflow = "visible";
+            prepareCloneForCapture(element, clonedDocument, clonedElement);
           }
-
-          clonedDocument
-            .querySelectorAll<HTMLElement>(
-              ".statistics-member-ranking__header",
-            )
-            .forEach((element) => {
-              element.style.position = "static";
-              element.style.top = "auto";
-              element.style.zIndex = "auto";
-            });
         },
       });
+    };
 
-      if (canvas.width < 2 || canvas.height < 2) {
+    const a4Width = 210;
+    const a4Height = 297;
+    const margin = 8;
+    const sectionGap = 4;
+    const contentWidth = a4Width - margin * 2;
+    const contentHeight = a4Height - margin * 2;
+
+    type CapturedSection = {
+      imageData: string;
+      renderedHeight: number;
+      keepWithNext: boolean;
+    };
+
+    const flushPackedPage = (
+      pdf: jsPDF,
+      packed: CapturedSection[],
+    ) => {
+      if (packed.length === 0) {
+        return;
+      }
+
+      pdf.addPage([a4Width, a4Height], "p");
+      let offsetY = margin;
+      for (const section of packed) {
+        pdf.addImage(
+          section.imageData,
+          "JPEG",
+          margin,
+          offsetY,
+          contentWidth,
+          section.renderedHeight,
+          undefined,
+          "FAST",
+        );
+        offsetY += section.renderedHeight + sectionGap;
+      }
+      packed.length = 0;
+    };
+
+    const appendSectionsOnPage = (
+      pdf: jsPDF,
+      sections: CapturedSection[],
+      pageHeight: number,
+    ) => {
+      if (sections.length === 0) {
+        return;
+      }
+
+      pdf.addPage([a4Width, pageHeight], "p");
+      let offsetY = margin;
+      for (const section of sections) {
+        pdf.addImage(
+          section.imageData,
+          "JPEG",
+          margin,
+          offsetY,
+          contentWidth,
+          section.renderedHeight,
+          undefined,
+          "FAST",
+        );
+        offsetY += section.renderedHeight + sectionGap;
+      }
+    };
+
+    const getGroupHeight = (sections: CapturedSection[]) => {
+      if (sections.length === 0) {
+        return 0;
+      }
+      return (
+        sections.reduce((sum, section) => sum + section.renderedHeight, 0) +
+        sectionGap * Math.max(0, sections.length - 1)
+      );
+    };
+
+    try {
+      const sectionElements = Array.from(target.children).filter(
+        (child): child is HTMLElement => {
+          if (!(child instanceof HTMLElement)) {
+            return false;
+          }
+          if (
+            child.classList.contains("accountabilities-page-toolbar") ||
+            child.classList.contains("accountabilities-download-error")
+          ) {
+            return false;
+          }
+          return (
+            child.offsetHeight > 0 &&
+            child.offsetWidth > 0 &&
+            child.getClientRects().length > 0
+          );
+        },
+      );
+
+      if (sectionElements.length === 0) {
         throw new Error(
           "Unable to capture the accountabilities page for download.",
         );
       }
 
-      const imageData = canvas.toDataURL("image/jpeg", 0.92);
+      const capturedSections: CapturedSection[] = [];
+      for (const section of sectionElements) {
+        const canvas = await captureElement(section);
+        if (canvas.width < 2 || canvas.height < 2) {
+          continue;
+        }
+        capturedSections.push({
+          imageData: canvas.toDataURL("image/jpeg", 0.95),
+          renderedHeight: (canvas.height * contentWidth) / canvas.width,
+          // Keep page title (and filters above it) with the following section.
+          keepWithNext:
+            section.classList.contains("page-title") ||
+            section.classList.contains("accountabilities-filters"),
+        });
+      }
+
+      if (capturedSections.length === 0) {
+        throw new Error(
+          "Unable to capture the accountabilities page for download.",
+        );
+      }
+
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
         format: "a4",
       });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 8;
-      const contentWidth = pageWidth - margin * 2;
-      const contentHeight = pageHeight - margin * 2;
-      const renderedHeight = (canvas.height * contentWidth) / canvas.width;
+      pdf.deletePage(1);
 
-      let heightLeft = renderedHeight;
-      let offsetY = margin;
+      const packedPage: CapturedSection[] = [];
+      let usedHeight = 0;
 
-      pdf.addImage(
-        imageData,
-        "JPEG",
-        margin,
-        offsetY,
-        contentWidth,
-        renderedHeight,
-        undefined,
-        "FAST",
-      );
-      heightLeft -= contentHeight;
+      for (let index = 0; index < capturedSections.length; ) {
+        const group: CapturedSection[] = [capturedSections[index]];
+        let cursor = index;
 
-      while (heightLeft > 1) {
-        offsetY = margin - (renderedHeight - heightLeft);
-        pdf.addPage();
-        pdf.addImage(
-          imageData,
-          "JPEG",
-          margin,
-          offsetY,
-          contentWidth,
-          renderedHeight,
-          undefined,
-          "FAST",
-        );
-        heightLeft -= contentHeight;
+        while (
+          group[group.length - 1]?.keepWithNext &&
+          cursor + 1 < capturedSections.length
+        ) {
+          cursor += 1;
+          group.push(capturedSections[cursor]);
+          if (!capturedSections[cursor].keepWithNext) {
+            break;
+          }
+        }
+
+        const groupHeight = getGroupHeight(group);
+        const isOversized = groupHeight > contentHeight;
+
+        if (isOversized) {
+          flushPackedPage(pdf, packedPage);
+          usedHeight = 0;
+          appendSectionsOnPage(
+            pdf,
+            group,
+            Math.max(groupHeight + margin * 2, a4Height),
+          );
+          index = cursor + 1;
+          continue;
+        }
+
+        const neededHeight =
+          usedHeight === 0 ? groupHeight : groupHeight + sectionGap;
+
+        if (usedHeight > 0 && usedHeight + neededHeight > contentHeight) {
+          flushPackedPage(pdf, packedPage);
+          usedHeight = 0;
+        }
+
+        packedPage.push(...group);
+        usedHeight +=
+          usedHeight === 0 ? groupHeight : groupHeight + sectionGap;
+        index = cursor + 1;
       }
+
+      flushPackedPage(pdf, packedPage);
 
       const periodStamp = selectedPeriodLabel
         ? selectedPeriodLabel.replace(/\s+/g, "-").toLowerCase()
@@ -4063,6 +4371,45 @@ export default function AccountabilitiesPage({
               )}
             </div>
           </div>
+        </div>
+      </section>
+
+      <section
+        className="accountabilities-section"
+        aria-labelledby="accountabilities-year-metrics-trend-title"
+      >
+        <div className="accountabilities-section__header">
+          <h3
+            id="accountabilities-year-metrics-trend-title"
+            className="accountabilities-section__title"
+          >
+            Year Metrics Trend
+            {selectedYear ? ` — ${selectedYear}` : ""}:
+          </h3>
+        </div>
+
+        <div
+          id="accountabilities-year-metrics-trend-panel"
+          className="scard accountabilities-year-metrics-trend"
+        >
+          {!selectedYear ? (
+            <div className="accountabilities-section__status">
+              Select a year to view monthly metric trends.
+            </div>
+          ) : radarLoading ? (
+            <div className="accountabilities-section__status">
+              Loading year metrics trend…
+            </div>
+          ) : (
+            <PerformanceScoresBySprintLineChart
+              entries={yearMonthlyMetricsTrendEntries}
+              includeOverallScore
+              includeHoursAccumulated
+              glowFilterId="accountabilities-year-metrics-trend-glow"
+              emptyPreviousLabel="No previous month"
+              emptyEntriesLabel="No monthly score data for the selected year."
+            />
+          )}
         </div>
       </section>
 
@@ -5365,7 +5712,8 @@ export default function AccountabilitiesPage({
       </section>
 
       <section
-        className="accountabilities-section"
+        ref={teamStackRankingRef}
+        className="accountabilities-section accountabilities-team-stack-ranking"
         aria-labelledby="accountabilities-team-stack-ranking-title"
       >
         <div className="accountabilities-section__header">
@@ -5426,9 +5774,13 @@ export default function AccountabilitiesPage({
                         entry.rank,
                         teamStackRankingEntries.length,
                       );
-                    const nameColor = `color-mix(in srgb, rgba(230, 240, 255, 0.98) ${Math.round(
-                      highlightIntensity * 100,
-                    )}%, rgba(140, 170, 200, 0.55))`;
+                    const nameColor = `rgba(${Math.round(
+                      140 + (230 - 140) * highlightIntensity,
+                    )}, ${Math.round(
+                      170 + (240 - 170) * highlightIntensity,
+                    )}, ${Math.round(
+                      200 + (255 - 200) * highlightIntensity,
+                    )}, ${0.55 + (0.98 - 0.55) * highlightIntensity})`;
 
                     const cells = [
                       {

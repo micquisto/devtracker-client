@@ -817,6 +817,10 @@ export default function SprintKanbanBoard({
 
           return task.boardColumn === column.id;
         });
+        const columnStoryPoints = columnTasks.reduce(
+          (sum, task) => sum + (Number.isFinite(task.points) ? task.points : 0),
+          0,
+        );
 
         return (
           <section
@@ -869,9 +873,10 @@ export default function SprintKanbanBoard({
                   fontFamily: "'DM Mono', monospace",
                   fontSize: 10,
                   fontWeight: 900,
+                  whiteSpace: "nowrap",
                 }}
               >
-                {columnTasks.length}
+                {columnTasks.length} : {columnStoryPoints}SP
               </span>
             </div>
 

@@ -1138,8 +1138,10 @@
 .accountabilities-mvp__criteria {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 12px;
   min-width: 0;
+  text-align: center;
 }
 
 .accountabilities-mvp__criteria-title {
@@ -1149,11 +1151,13 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   color: rgba(180, 215, 255, 0.85);
+  text-align: center;
 }
 
 .accountabilities-mvp__criteria-list {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin: 0;
   padding: 0;
@@ -1181,6 +1185,11 @@
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+.accountabilities-year-metrics-trend {
+  width: 100%;
+  padding: 16px 18px 12px;
 }
 
 @media (max-width: 900px) {

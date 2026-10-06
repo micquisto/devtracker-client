@@ -659,6 +659,227 @@ export async function saveStoryPointsEncodeProfessionalismData(
   }
 }
 
+export type ManualCriteriaColumn = {
+  id: string;
+  name: string;
+  code: string;
+};
+
+export type StoryPointsEncodeManualCriteriaDraftRow = {
+  memberId: string;
+  name: string;
+  roleLabel: string;
+  levelLabel: string;
+  applicable: boolean[];
+  scoreInputs: string[];
+};
+
+export type StoryPointsEncodeManualCriteriaData = {
+  criteriaColumns: ManualCriteriaColumn[];
+  rows: StoryPointsEncodeManualCriteriaDraftRow[];
+};
+
+export type StoryPointsEncodeManualCriteriaUpdateRow = {
+  memberId: string;
+  criteriaId: string;
+  score: number;
+};
+
+const DEFAULT_CRITERIA_SET_CODE = "default";
+
+type ManualGradingSetDbRow = { id: string; level: string | null };
+type ManualGradingSetCriteriaDbRow = { grading_set_id: string; criteria_id: string };
+type ManualCriteriaDbRow = {
+  id: string;
+  name: string | null;
+  code: string | null;
+  type: string | null;
+  sort_number: number | null;
+};
+
+/**
+ * Loads the manual criteria used by the sprint's criteria set (or the Default
+ * set) and each member's entered scores. A cell is applicable when the
+ * criterion belongs to the grading set matching the member's level.
+ */
+export async function loadStoryPointsEncodeManualCriteriaData(
+  sprintId: string,
+  members: MemberTableRow[],
+): Promise<StoryPointsEncodeManualCriteriaData> {
+  const [sprint] = await getSupabaseRows<{ criteria_set_id: string | null }>("sprints", {
+    select: "criteria_set_id",
+    eq: { id: sprintId },
+    limit: 1,
+  });
+
+  let criteriaSetId = sprint?.criteria_set_id ?? null;
+  if (!criteriaSetId) {
+    const [defaultSet] = await getSupabaseRows<{ id: string }>("critera_set", {
+      select: "id",
+      eq: { set_code: DEFAULT_CRITERIA_SET_CODE },
+      limit: 1,
+    });
+    criteriaSetId = defaultSet?.id ?? null;
+  }
+
+  const includedMembers = sortMembersByLastName(
+    members.filter((member) => isScoreboardIncludedMember(member)),
+  );
+  if (!criteriaSetId) {
+    return { criteriaColumns: [], rows: [] };
+  }
+
+  const setLinks = await getSupabaseRows<{ grading_set_id: string }>(
+    "criteria_set_grading_set",
+    { select: "grading_set_id", eq: { criteria_set_id: criteriaSetId } },
+  );
+  const gradingSetIds = setLinks.map((link) => link.grading_set_id);
+  if (gradingSetIds.length === 0) {
+    return { criteriaColumns: [], rows: [] };
+  }
+
+  const [gradingSets, gradingSetCriteria, memberLevels, scores] = await Promise.all([
+    supabase
+      .from("grading_set")
+      .select("id,level")
+      .in("id", gradingSetIds)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return (data ?? []) as ManualGradingSetDbRow[];
+      }),
+    supabase
+      .from("grading_set_criteria")
+      .select("grading_set_id,criteria_id")
+      .in("grading_set_id", gradingSetIds)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return (data ?? []) as ManualGradingSetCriteriaDbRow[];
+      }),
+    getSupabaseRows<{ id: string; level: string | null }>("members", {
+      select: "id,level",
+    }),
+    getSupabaseRows<{ member_id: string; criteria_id: string; score: number | null }>(
+      "member_sprint_manual_criteria_scores",
+      { select: "member_id,criteria_id,score", eq: { sprint_id: sprintId } },
+    ),
+  ]);
+
+  const linkedCriteriaIds = Array.from(
+    new Set(gradingSetCriteria.map((link) => link.criteria_id)),
+  );
+  const manualCriteria =
+    linkedCriteriaIds.length > 0
+      ? await supabase
+          .from("criteria")
+          .select("id,name,code,type,sort_number")
+          .in("id", linkedCriteriaIds)
+          .eq("type", "manual")
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return (data ?? []) as ManualCriteriaDbRow[];
+          })
+      : [];
+
+  if (manualCriteria.length === 0) {
+    return { criteriaColumns: [], rows: [] };
+  }
+
+  const criteriaColumns = [...manualCriteria]
+    .sort(
+      (left, right) =>
+        (left.sort_number ?? Number.MAX_SAFE_INTEGER) -
+          (right.sort_number ?? Number.MAX_SAFE_INTEGER) ||
+        (left.name ?? "").localeCompare(right.name ?? ""),
+    )
+    .map((criteria) => ({
+      id: criteria.id,
+      name: criteria.name?.trim() || criteria.code?.trim() || "Criteria",
+      code: criteria.code?.trim() || "",
+    }));
+
+  const criteriaIdsByGradingSetId = new Map<string, Set<string>>();
+  for (const link of gradingSetCriteria) {
+    const ids = criteriaIdsByGradingSetId.get(link.grading_set_id) ?? new Set<string>();
+    ids.add(link.criteria_id);
+    criteriaIdsByGradingSetId.set(link.grading_set_id, ids);
+  }
+
+  const levelByMemberId = new Map(
+    memberLevels.map((row) => [row.id, row.level?.trim().toLowerCase() || null]),
+  );
+  const scoreByKey = new Map(
+    scores
+      .filter((row) => row.score !== null && Number.isFinite(Number(row.score)))
+      .map((row) => [`${row.member_id}:${row.criteria_id}`, Number(row.score)]),
+  );
+
+  const rows = includedMembers.map((member) => {
+    const level = levelByMemberId.get(member.id) ?? null;
+    const gradingSet = level
+      ? (gradingSets.find((set) => set.level === level) ??
+        gradingSets.find((set) => set.level === "all"))
+      : undefined;
+    const applicableIds = gradingSet
+      ? (criteriaIdsByGradingSetId.get(gradingSet.id) ?? new Set<string>())
+      : new Set<string>();
+
+    return {
+      memberId: member.id,
+      name: getMemberDisplayName(member),
+      roleLabel: formatStoryPointsMemberRoleLabel(member.role),
+      levelLabel: level ?? "No level",
+      applicable: criteriaColumns.map((column) => applicableIds.has(column.id)),
+      scoreInputs: criteriaColumns.map((column) => {
+        const score = scoreByKey.get(`${member.id}:${column.id}`);
+        return score === undefined ? "" : formatStoryPointsEncodeInputValue(score);
+      }),
+    };
+  });
+
+  return { criteriaColumns, rows };
+}
+
+/**
+ * Replaces the sprint's scores for the given manual criteria only, so scores
+ * for criteria outside the current criteria set are kept.
+ */
+export async function saveStoryPointsEncodeManualCriteriaData(
+  sprintId: string,
+  criteriaIds: string[],
+  rows: StoryPointsEncodeManualCriteriaUpdateRow[],
+): Promise<void> {
+  if (criteriaIds.length === 0) {
+    return;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("member_sprint_manual_criteria_scores")
+    .delete()
+    .eq("sprint_id", sprintId)
+    .in("criteria_id", criteriaIds);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.from("member_sprint_manual_criteria_scores").insert(
+    rows.map((row) => ({
+      sprint_id: sprintId,
+      member_id: row.memberId,
+      criteria_id: row.criteriaId,
+      score: Math.min(Math.max(row.score, 0), 100),
+    })),
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
 type SprintEncodeScoreRow = {
   planned_story_points: number | null;
   adhoc_story_points: number | null;

@@ -720,6 +720,81 @@
   border-top: 1px solid rgba(100, 180, 255, 0.05);
 }
 
+.grading-total-pill {
+  border-radius: 999px;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 8px;
+}
+
+.grading-total-pill.is-valid,
+.acl-tree-toolbar .grading-total-pill.is-valid {
+  background: rgba(0, 230, 150, 0.1);
+  border: 1px solid rgba(0, 230, 150, 0.35);
+  color: #6effc4;
+}
+
+.grading-total-pill.is-invalid,
+.acl-tree-toolbar .grading-total-pill.is-invalid {
+  background: rgba(255, 120, 120, 0.1);
+  border: 1px solid rgba(255, 120, 120, 0.4);
+  color: #ff9d9d;
+}
+
+.grading-blocked-note {
+  color: rgba(255, 190, 120, 0.8);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.grading-default-note {
+  color: rgba(0, 230, 150, 0.75);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.requirements-data-field span.grading-default-note {
+  font-family: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.grading-percentage-field {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.grading-percentage-field input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(100, 180, 255, 0.2);
+  border-radius: 8px;
+  color: rgba(230, 245, 255, 0.95);
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 8px;
+  text-align: right;
+  width: 64px;
+}
+
+.grading-percentage-field input:focus {
+  border-color: rgba(0, 200, 255, 0.6);
+  outline: none;
+}
+
+.grading-percentage-field input:disabled {
+  opacity: 0.35;
+}
+
+.grading-percentage-field span {
+  color: rgba(160, 210, 255, 0.7);
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .requirements-data-pagination {
   align-items: center;
   display: flex;

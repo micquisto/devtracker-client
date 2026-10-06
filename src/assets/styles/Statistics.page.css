@@ -726,11 +726,61 @@
   font-family: "DM Sans", sans-serif;
 }
 
+.statistics-stat-bar__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.statistics-stat-bar__change {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 46px;
+  justify-content: flex-end;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.statistics-stat-bar__change-arrow {
+  font-size: 9px;
+  line-height: 1;
+}
+
+.statistics-stat-bar__change--up {
+  color: #00e5a0;
+}
+
+.statistics-stat-bar__change--down {
+  color: #ef4444;
+}
+
+.statistics-stat-bar__change--flat {
+  color: rgba(180, 215, 255, 0.85);
+}
+
+.statistics-stat-bar__change--none {
+  color: rgba(120, 170, 215, 0.55);
+}
+
 .statistics-stat-bar__value {
   font-size: 12px;
   font-family: "DM Mono", monospace;
   font-weight: 700;
   flex-shrink: 0;
+}
+
+.statistics-performance-compare-hint {
+  margin-left: 8px;
+  font-size: 10px;
+  font-family: "DM Mono", monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(140, 180, 220, 0.65);
 }
 
 .statistics-stat-bar__max {
@@ -1207,6 +1257,14 @@
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 20px;
+}
+
+.statistics-metrics-trend {
+  width: 100%;
+  margin-top: 16px;
+  margin-bottom: 16px;
+  padding: 16px 18px 12px;
+  box-sizing: border-box;
 }
 
 @media (max-width: 700px) {

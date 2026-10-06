@@ -4,7 +4,7 @@ import { jsPDF } from "jspdf";
 import { DropArrow, StyledSelect } from "@/components/shared/Elements";
 import { PageAiSummary } from "@/components/shared/PageAiSummary";
 import SprintGroupedSelect from "@/components/scrum/sprint/SprintGroupedSelect";
-import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart, SkillRadarPanel, TeamContributionDoughnut, getTeamContributionMemberColor, GradeDial, PERFORMANCE_GRADE_COLORS, type TeamContributionSegment } from "@/components/dashboard";
+import { StoryPointsHoursLineChart, PerformanceScoresBySprintLineChart, SkillRadarPanel, TeamContributionDoughnut, getTeamContributionMemberColor, GradeDial, PERFORMANCE_GRADE_COLORS, type PerformanceScoresBySprintPoint, type TeamContributionSegment } from "@/components/dashboard";
 import { getSupabaseRows, getSupabaseSession } from "@/lib/supabase";
 import { Palette, chartLabelStyle } from "@/lib/theme";
 import { sanitizeHtml2CanvasClone } from "@/lib/utils/html2canvas.utils";
@@ -21,6 +21,7 @@ import {
   getSprintListingQuarter,
   getSprintListingSortTimestamp,
   getSprintListingYear,
+  getSprintMonthShortLabel,
 } from "@/lib/utils/scrum/sprintListing.utils";
 import {
   evaluateMemberPerformanceForYear,
@@ -109,6 +110,9 @@ type StatBar = {
   max: number;
   unit: string;
   highlighted?: boolean;
+  changeDirection?: "up" | "down" | "flat" | "none";
+  changeDelta?: number | null;
+  changeLabel?: string | null;
 };
 
 type StatisticsShowMode = "year" | "quarter" | "month" | "sprint";
@@ -272,6 +276,39 @@ function formatStatisticsSprintLabel(sprint: StatisticsSprintRow): string {
   return "Sprint";
 }
 
+function formatStatisticsSprintTrendLabelLines(
+  sprint: StatisticsSprintRow,
+): string[] {
+  const year = getSprintListingYear(sprint);
+  const quarter = getSprintListingQuarter(sprint);
+  const sprintNumber = Number(sprint.sprint_number);
+
+  const lines: string[] = [];
+  if (Number.isFinite(year) && year > 0) {
+    lines.push(String(year));
+  }
+  if (Number.isFinite(quarter) && quarter > 0) {
+    lines.push(`Q${quarter}`);
+  }
+  if (Number.isFinite(sprintNumber) && sprintNumber > 0) {
+    lines.push(`S${sprintNumber}`);
+  } else {
+    const name = sprint.name?.trim();
+    if (name) {
+      // Prefer short tokens so dense sprint axes stay readable.
+      const compact = name
+        .replace(/\bsprint\s*/iu, "S")
+        .replace(/\s+/gu, " ")
+        .trim();
+      lines.push(compact.length > 8 ? compact.slice(0, 7) : compact);
+    } else {
+      lines.push("S");
+    }
+  }
+
+  return lines;
+}
+
 function formatStatisticsSprintStartDateLabel(
   startDate: string | null | undefined,
 ): string | null {
@@ -288,6 +325,21 @@ function formatStatisticsSprintStartDateLabel(
     month: "short",
     day: "numeric",
   });
+}
+
+function formatStatisticsSprintTrendDateLabel(
+  startDate: string | null | undefined,
+): string | null {
+  if (!startDate) {
+    return null;
+  }
+
+  const parsed = new Date(startDate);
+  if (!Number.isFinite(parsed.getTime())) {
+    return null;
+  }
+
+  return `${parsed.getMonth() + 1}/${parsed.getDate()}`;
 }
 
 function formatStatisticsSprintFullDateLabel(
@@ -520,6 +572,156 @@ function getStatisticsActiveSprintIds(
       return false;
     })
     .map((sprint) => sprint.id);
+}
+
+function getStatisticsPreviousPeriodSprintIds(
+  showMode: StatisticsShowMode,
+  sprints: StatisticsSprintRow[],
+  filters: {
+    selectedYear: string;
+    selectedQuarter: string;
+    selectedMonth: string;
+    selectedSprintId: string;
+  },
+): string[] {
+  if (showMode === "year") {
+    const year = Number(filters.selectedYear);
+    if (!filters.selectedYear || !Number.isFinite(year) || year <= 1) {
+      return [];
+    }
+
+    return getStatisticsActiveSprintIds("year", sprints, {
+      ...filters,
+      selectedYear: String(year - 1),
+    });
+  }
+
+  if (showMode === "quarter") {
+    const parsedQuarter = parseSelectedQuarterValue(filters.selectedQuarter);
+    if (!parsedQuarter) {
+      return [];
+    }
+
+    const previousQuarter =
+      parsedQuarter.quarter === 1
+        ? { year: parsedQuarter.year - 1, quarter: 4 }
+        : { year: parsedQuarter.year, quarter: parsedQuarter.quarter - 1 };
+
+    return getStatisticsActiveSprintIds("quarter", sprints, {
+      ...filters,
+      selectedQuarter: `${previousQuarter.year}-Q${previousQuarter.quarter}`,
+    });
+  }
+
+  if (showMode === "month") {
+    const parsedMonth = parseSelectedMonthValue(filters.selectedMonth);
+    if (!parsedMonth) {
+      return [];
+    }
+
+    const previousMonth =
+      parsedMonth.month === 1
+        ? { year: parsedMonth.year - 1, month: 12 }
+        : { year: parsedMonth.year, month: parsedMonth.month - 1 };
+
+    return getStatisticsActiveSprintIds("month", sprints, {
+      ...filters,
+      selectedMonth: `${previousMonth.year}-${previousMonth.month}`,
+    });
+  }
+
+  if (!filters.selectedSprintId) {
+    return [];
+  }
+
+  const orderedSprints = [...sprints].sort(
+    (sprintA, sprintB) =>
+      getSprintListingSortTimestamp(sprintA) -
+      getSprintListingSortTimestamp(sprintB),
+  );
+  const selectedIndex = orderedSprints.findIndex(
+    (sprint) => sprint.id === filters.selectedSprintId,
+  );
+
+  if (selectedIndex <= 0) {
+    return [];
+  }
+
+  return [orderedSprints[selectedIndex - 1].id];
+}
+
+function getStatisticsPreviousPeriodLabel(
+  showMode: StatisticsShowMode,
+): string {
+  if (showMode === "year") {
+    return "vs previous year";
+  }
+  if (showMode === "quarter") {
+    return "vs previous quarter";
+  }
+  if (showMode === "month") {
+    return "vs previous month";
+  }
+  return "vs previous sprint";
+}
+
+function getQuarterEndMonth(quarter: number): number {
+  return Math.min(Math.max(quarter, 1), 4) * 3;
+}
+
+function getStatisticsMetricsTrendLabel(
+  showMode: StatisticsShowMode,
+): string {
+  if (showMode === "year") {
+    return "Year Metrics Trend";
+  }
+  if (showMode === "quarter") {
+    return "Quarter Metrics Trend";
+  }
+  if (showMode === "month") {
+    return "Month Metrics Trend";
+  }
+  return "Sprint Metrics Trend";
+}
+
+function getMetricChange(
+  previousValue: number | null,
+  currentValue: number | null,
+): {
+  direction: "up" | "down" | "flat" | "none";
+  delta: number | null;
+} {
+  if (
+    previousValue === null ||
+    currentValue === null ||
+    !Number.isFinite(previousValue) ||
+    !Number.isFinite(currentValue)
+  ) {
+    return { direction: "none", delta: null };
+  }
+
+  const delta = Math.round((currentValue - previousValue) * 100) / 100;
+  if (delta > 0) {
+    return { direction: "up", delta };
+  }
+  if (delta < 0) {
+    return { direction: "down", delta };
+  }
+  return { direction: "flat", delta: 0 };
+}
+
+function formatStatChangeDelta(delta: number | null): string {
+  if (delta === null || !Number.isFinite(delta)) {
+    return "—";
+  }
+
+  const abs = Math.abs(delta);
+  const formatted =
+    abs >= 10
+      ? String(Math.round(delta))
+      : (Math.round(delta * 10) / 10).toFixed(abs % 1 === 0 ? 0 : 1);
+
+  return `${delta > 0 ? "+" : ""}${formatted}`;
 }
 
 function getMemberPerformanceFieldAverage(
@@ -1008,6 +1210,9 @@ function StatBar2({
   unit,
   index,
   highlighted = false,
+  changeDirection = "none",
+  changeDelta = null,
+  changeLabel = null,
 }: StatBar & { index: number }) {
   const [w, setW] = useState(0);
   const pct = Math.round((value / max) * 100);
@@ -1018,6 +1223,14 @@ function StatBar2({
   }, [pct, index]);
 
   const color = pct >= 85 ? "#00e5a0" : pct >= 65 ? "#00c8ff" : pct >= 45 ? "#f5c842" : "#ff6b6b";
+  const changeArrow =
+    changeDirection === "up"
+      ? "▲"
+      : changeDirection === "down"
+        ? "▼"
+        : changeDirection === "flat"
+          ? "●"
+          : "—";
 
   return (
     <div
@@ -1025,12 +1238,30 @@ function StatBar2({
     >
       <div className="statistics-stat-bar__header">
         <span className="statistics-stat-bar__label">{label}</span>
-        <span className="statistics-stat-bar__value" style={{ color }}>
-          {value}
-          {unit}
-          <span className="statistics-stat-bar__max">
-            /{max}
+        <span className="statistics-stat-bar__meta">
+          <span
+            className={`statistics-stat-bar__change statistics-stat-bar__change--${changeDirection}`}
+            title={changeLabel ?? undefined}
+            aria-label={
+              changeLabel
+                ? `${changeLabel}: ${formatStatChangeDelta(changeDelta)}`
+                : undefined
+            }
+          >
+            <span className="statistics-stat-bar__change-arrow" aria-hidden="true">
+              {changeArrow}
+            </span>
+            <span className="statistics-stat-bar__change-delta">
+              {formatStatChangeDelta(changeDelta)}
+            </span>
+          </span>
+          <span className="statistics-stat-bar__value" style={{ color }}>
+            {value}
             {unit}
+            <span className="statistics-stat-bar__max">
+              /{max}
+              {unit}
+            </span>
           </span>
         </span>
       </div>
@@ -1354,6 +1585,122 @@ export default function StatisticsPage({
       selectedYear,
       showMode,
     ],
+  );
+
+  const previousSprintIds = useMemo(
+    () =>
+      getStatisticsPreviousPeriodSprintIds(showMode, selectableSprints, {
+        selectedYear,
+        selectedQuarter,
+        selectedMonth,
+        selectedSprintId,
+      }),
+    [
+      selectableSprints,
+      selectedMonth,
+      selectedQuarter,
+      selectedSprintId,
+      selectedYear,
+      showMode,
+    ],
+  );
+
+  const metricsTrendSprintIds = useMemo(() => {
+    if (showMode === "year") {
+      const year = Number(selectedYear);
+      if (!selectedYear || !Number.isFinite(year)) {
+        return [] as string[];
+      }
+
+      return selectableSprints
+        .filter((sprint) => getSprintListingYear(sprint) === year)
+        .map((sprint) => sprint.id);
+    }
+
+    if (showMode === "month") {
+      const parsedMonth = parseSelectedMonthValue(selectedMonth);
+      if (!parsedMonth) {
+        return [] as string[];
+      }
+
+      return selectableSprints
+        .filter((sprint) => {
+          const month = getSprintListingMonth(sprint);
+          return (
+            getSprintListingYear(sprint) === parsedMonth.year &&
+            month !== null &&
+            month <= parsedMonth.month
+          );
+        })
+        .map((sprint) => sprint.id);
+    }
+
+    if (showMode === "quarter") {
+      const parsedQuarter = parseSelectedQuarterValue(selectedQuarter);
+      if (!parsedQuarter) {
+        return [] as string[];
+      }
+
+      const endMonth = getQuarterEndMonth(parsedQuarter.quarter);
+      return selectableSprints
+        .filter((sprint) => {
+          const month = getSprintListingMonth(sprint);
+          return (
+            getSprintListingYear(sprint) === parsedQuarter.year &&
+            month !== null &&
+            month <= endMonth
+          );
+        })
+        .map((sprint) => sprint.id);
+    }
+
+    if (!selectedSprintId) {
+      return [] as string[];
+    }
+
+    const selectedSprint = selectableSprints.find(
+      (sprint) => sprint.id === selectedSprintId,
+    );
+    if (!selectedSprint) {
+      return [] as string[];
+    }
+
+    const selectedTimestamp = getSprintListingSortTimestamp(selectedSprint);
+    const selectedYearValue = getSprintListingYear(selectedSprint);
+
+    return selectableSprints
+      .filter((sprint) => {
+        if (getSprintListingYear(sprint) !== selectedYearValue) {
+          return false;
+        }
+
+        return getSprintListingSortTimestamp(sprint) <= selectedTimestamp;
+      })
+      .map((sprint) => sprint.id);
+  }, [
+    selectableSprints,
+    selectedMonth,
+    selectedQuarter,
+    selectedSprintId,
+    selectedYear,
+    showMode,
+  ]);
+
+  const scoreFetchSprintIds = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...activeSprintIds,
+          ...previousSprintIds,
+          ...metricsTrendSprintIds,
+        ]),
+      ],
+    [activeSprintIds, metricsTrendSprintIds, previousSprintIds],
+  );
+
+  const previousPeriodComparisonLabel = useMemo(
+    () => getStatisticsPreviousPeriodLabel(showMode),
+    [showMode],
   );
 
   const periodPerformanceDateRangeLabel = useMemo(() => {
@@ -2462,15 +2809,429 @@ export default function StatisticsPage({
     sortedProfessionalismItems,
   ]);
 
+  const metricsComparisonTrendMeta = useMemo(() => {
+    const title = getStatisticsMetricsTrendLabel(showMode);
+    if (showMode === "year") {
+      return {
+        title: selectedYear ? `${title} — ${selectedYear}` : title,
+        emptyPreviousLabel: "No previous month",
+        emptyEntriesLabel: "No monthly score data for the selected year.",
+      };
+    }
+
+    if (showMode === "month") {
+      const option = monthOptions.find((entry) => entry.value === selectedMonth);
+      return {
+        title: option ? `${title} — ${option.label}` : title,
+        emptyPreviousLabel: "No previous month",
+        emptyEntriesLabel: "No monthly score data for the selected period.",
+      };
+    }
+
+    if (showMode === "quarter") {
+      const option = quarterOptions.find(
+        (entry) => entry.value === selectedQuarter,
+      );
+      return {
+        title: option ? `${title} — ${option.label}` : title,
+        emptyPreviousLabel: "No previous month",
+        emptyEntriesLabel: "No monthly score data for the selected quarter.",
+      };
+    }
+
+    const sprint = selectableSprints.find(
+      (entry) => entry.id === selectedSprintId,
+    );
+    return {
+      title: sprint
+        ? `${title} — ${formatStatisticsSprintLabel(sprint)}`
+        : title,
+      emptyPreviousLabel: "No previous sprint",
+      emptyEntriesLabel: "No sprint score data for the selected period.",
+    };
+  }, [
+    monthOptions,
+    quarterOptions,
+    selectableSprints,
+    selectedMonth,
+    selectedQuarter,
+    selectedSprintId,
+    selectedYear,
+    showMode,
+  ]);
+
+  const metricsComparisonTrendEntries = useMemo((): PerformanceScoresBySprintPoint[] => {
+    if (metricsTrendSprintIds.length === 0) {
+      return [];
+    }
+
+    const selectedMemberId =
+      selectedOfValue === TEAM_FILTER_VALUE ? null : selectedOfValue;
+
+    const buildPointForSprintIds = (input: {
+      id: string;
+      label: string;
+      labelLines?: string[];
+      sublabel?: string | null;
+      sprintIds: string[];
+    }): PerformanceScoresBySprintPoint => {
+      const sprintIdSet = new Set(input.sprintIds);
+      const criteriaRows = sprintCriteriaScores.filter(
+        (row) =>
+          sprintIdSet.has(row.sprint_id) &&
+          scoreboardMemberIds.has(row.member_id),
+      );
+      const performanceRows = sprintPerformanceScores.filter(
+        (row) =>
+          sprintIdSet.has(row.sprint_id) &&
+          scoreboardMemberIds.has(row.member_id),
+      );
+      const professionalismRows = professionalismScores.filter(
+        (row) =>
+          sprintIdSet.has(row.sprint_id) &&
+          scoreboardMemberIds.has(row.member_id),
+      );
+      const memberScoreRows = sprintMemberScores.filter(
+        (row) =>
+          sprintIdSet.has(row.sprint_id) &&
+          scoreboardMemberIds.has(row.member_id),
+      );
+
+      const skillValues = normalizeSkillRadarValues(
+        buildSkillRadarValues({
+          criteriaScoreRows: criteriaRows,
+          performanceRows,
+          memberIds: scoreboardMemberIdList,
+          selectedMemberId,
+          professionalismScoreRows: professionalismRows,
+          professionalismItems: sortedProfessionalismItems,
+        }),
+      );
+
+      const professionalismTotalMax = sortedProfessionalismItems.reduce(
+        (sum, item) => sum + Math.max(Number(item.value) || 0, 0),
+        0,
+      );
+      const professionalismTotalValue = sortedProfessionalismItems.reduce(
+        (sum, item) => {
+          const averageValue =
+            selectedOfValue === TEAM_FILTER_VALUE
+              ? getTeamProfessionalismItemAverage(
+                  professionalismRows,
+                  scoreboardMemberIdList,
+                  item.id,
+                )
+              : getMemberProfessionalismItemAverage(
+                  professionalismRows,
+                  selectedOfValue,
+                  item.id,
+                );
+
+          return (
+            sum +
+            (averageValue === null ? 0 : Math.round(averageValue * 10) / 10)
+          );
+        },
+        0,
+      );
+      const professionalismPercent =
+        professionalismTotalMax > 0
+          ? (Math.round(professionalismTotalValue * 10) /
+              10 /
+              professionalismTotalMax) *
+            100
+          : skillValues.professionalism;
+
+      const overallScore =
+        selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamPerformanceFieldAverage(
+              performanceRows,
+              scoreboardMemberIdList,
+              "average_score",
+            )
+          : getMemberPerformanceFieldAverage(
+              performanceRows,
+              selectedOfValue,
+              "average_score",
+            );
+
+      const hoursAccumulated =
+        selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamSprintScoreFieldTotal(
+              memberScoreRows,
+              scoreboardMemberIdList,
+              "accumulated_hours",
+            )
+          : getMemberSprintScoreFieldTotal(
+              memberScoreRows,
+              selectedOfValue,
+              "accumulated_hours",
+            );
+
+      return {
+        id: input.id,
+        label: input.label,
+        labelLines: input.labelLines,
+        sublabel: input.sublabel ?? null,
+        productivity: skillValues.productivity,
+        efficiency: skillValues.efficiency,
+        quality: skillValues.quality,
+        collaboration: skillValues.collaboration,
+        velocity: skillValues.velocity,
+        professionalism: professionalismPercent,
+        overallScore: overallScore ?? 0,
+        hoursAccumulated:
+          hoursAccumulated === null
+            ? 0
+            : Math.round(hoursAccumulated * 10) / 10,
+      };
+    };
+
+    if (showMode === "sprint") {
+      const trendSprints = selectableSprints
+        .filter((sprint) => metricsTrendSprintIds.includes(sprint.id))
+        .sort(
+          (sprintA, sprintB) =>
+            getSprintListingSortTimestamp(sprintA) -
+            getSprintListingSortTimestamp(sprintB),
+        );
+
+      return trendSprints.map((sprint) =>
+        buildPointForSprintIds({
+          id: sprint.id,
+          label: formatStatisticsSprintLabel(sprint),
+          labelLines: formatStatisticsSprintTrendLabelLines(sprint),
+          sublabel: formatStatisticsSprintTrendDateLabel(sprint.start_date),
+          sprintIds: [sprint.id],
+        }),
+      );
+    }
+
+    let year = 0;
+    let endMonth = 12;
+
+    if (showMode === "year") {
+      year = Number(selectedYear);
+      endMonth = 12;
+    } else if (showMode === "month") {
+      const parsedMonth = parseSelectedMonthValue(selectedMonth);
+      if (!parsedMonth) {
+        return [];
+      }
+      year = parsedMonth.year;
+      endMonth = parsedMonth.month;
+    } else {
+      const parsedQuarter = parseSelectedQuarterValue(selectedQuarter);
+      if (!parsedQuarter) {
+        return [];
+      }
+      year = parsedQuarter.year;
+      endMonth = getQuarterEndMonth(parsedQuarter.quarter);
+    }
+
+    if (!Number.isFinite(year) || year <= 0) {
+      return [];
+    }
+
+    const monthsInRange = [
+      ...new Set(
+        selectableSprints
+          .filter((sprint) => metricsTrendSprintIds.includes(sprint.id))
+          .map((sprint) => getSprintListingMonth(sprint))
+          .filter(
+            (month): month is number =>
+              month !== null && month >= 1 && month <= endMonth,
+          ),
+      ),
+    ].sort((monthA, monthB) => monthA - monthB);
+
+    if (
+      (showMode === "month" || showMode === "quarter") &&
+      !monthsInRange.includes(endMonth)
+    ) {
+      monthsInRange.push(endMonth);
+    }
+
+    return monthsInRange.map((month) => {
+      const monthSprintIds = selectableSprints
+        .filter((sprint) => {
+          if (!metricsTrendSprintIds.includes(sprint.id)) {
+            return false;
+          }
+
+          return (
+            getSprintListingYear(sprint) === year &&
+            getSprintListingMonth(sprint) === month
+          );
+        })
+        .map((sprint) => sprint.id);
+
+      return buildPointForSprintIds({
+        id: `${year}-${month}`,
+        label: getSprintMonthShortLabel(month),
+        sublabel: String(year),
+        sprintIds: monthSprintIds,
+      });
+    });
+  }, [
+    metricsTrendSprintIds,
+    professionalismScores,
+    scoreboardMemberIdList,
+    scoreboardMemberIds,
+    selectableSprints,
+    selectedMonth,
+    selectedOfValue,
+    selectedQuarter,
+    selectedYear,
+    showMode,
+    sortedProfessionalismItems,
+    sprintCriteriaScores,
+    sprintMemberScores,
+    sprintPerformanceScores,
+  ]);
+
   const performanceStats = useMemo((): StatBar[] => {
+    const previousMemberScoreRows = sprintMemberScores.filter(
+      (row) =>
+        previousSprintIds.includes(row.sprint_id) &&
+        scoreboardMemberIds.has(row.member_id),
+    );
+    const previousPerformanceRows = sprintPerformanceScores.filter(
+      (row) =>
+        previousSprintIds.includes(row.sprint_id) &&
+        scoreboardMemberIds.has(row.member_id),
+    );
+    const previousProfessionalismRows = professionalismScores.filter(
+      (row) =>
+        previousSprintIds.includes(row.sprint_id) &&
+        scoreboardMemberIds.has(row.member_id),
+    );
+
+    const hasPreviousPeriod = previousSprintIds.length > 0;
+    const changeLabel = hasPreviousPeriod
+      ? previousPeriodComparisonLabel
+      : null;
+
+    const withChange = (
+      stat: StatBar,
+      currentRaw: number | null,
+      previousRaw: number | null,
+    ): StatBar => {
+      const change = getMetricChange(previousRaw, currentRaw);
+      return {
+        ...stat,
+        changeDirection: change.direction,
+        changeDelta: change.delta,
+        changeLabel,
+      };
+    };
+
+    const previousCompletedTasksRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamSprintScoreFieldTotal(
+              previousMemberScoreRows,
+              scoreboardMemberIdList,
+              "completed_tasks_count",
+            )
+          : getMemberSprintScoreFieldTotal(
+              previousMemberScoreRows,
+              selectedOfValue,
+              "completed_tasks_count",
+            );
+    const previousAverageVelocityRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamSprintScoreFieldAverage(
+              previousMemberScoreRows,
+              scoreboardMemberIdList,
+              "completed_story_points",
+            )
+          : getMemberSprintScoreFieldAverage(
+              previousMemberScoreRows,
+              selectedOfValue,
+              "completed_story_points",
+            );
+    const previousVelocityByHourRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamPerformanceFieldAverage(
+              previousPerformanceRows,
+              scoreboardMemberIdList,
+              "velocity_by_hour",
+            )
+          : getMemberPerformanceFieldAverage(
+              previousPerformanceRows,
+              selectedOfValue,
+              "velocity_by_hour",
+            );
+    const previousBestStoryPointsRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getHighestCompletedStoryPoints(previousMemberScoreRows)
+          : getHighestCompletedStoryPoints(
+              previousMemberScoreRows,
+              selectedOfValue,
+            );
+    const previousAssignedStoryPointsRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamAssignedStoryPointsTotal(
+              previousPerformanceRows,
+              scoreboardMemberIdList,
+            )
+          : getMemberAssignedStoryPointsTotal(
+              previousPerformanceRows,
+              selectedOfValue,
+            );
+    const previousAccumulatedHoursRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamSprintScoreFieldTotal(
+              previousMemberScoreRows,
+              scoreboardMemberIdList,
+              "accumulated_hours",
+            )
+          : getMemberSprintScoreFieldTotal(
+              previousMemberScoreRows,
+              selectedOfValue,
+              "accumulated_hours",
+            );
+    const previousBonusPointsRaw =
+      !hasPreviousPeriod
+        ? null
+        : selectedOfValue === TEAM_FILTER_VALUE
+          ? getTeamExtraPointsTotal(
+              previousPerformanceRows,
+              scoreboardMemberIdList,
+            )
+          : getMemberExtraPointsTotal(
+              previousPerformanceRows,
+              selectedOfValue,
+            );
+
     const completedTasks =
       tasksCompletedValue === null ? null : Math.round(tasksCompletedValue);
+    const previousCompletedTasks =
+      previousCompletedTasksRaw === null
+        ? null
+        : Math.round(previousCompletedTasksRaw);
     const highestCompletedTasks =
       highestCompletedTasksAmongMembers === null
         ? null
         : Math.round(highestCompletedTasksAmongMembers);
     const averageVelocity =
       averageVelocityValue === null ? null : Math.round(averageVelocityValue);
+    const previousAverageVelocity =
+      previousAverageVelocityRaw === null
+        ? null
+        : Math.round(previousAverageVelocityRaw);
     const highestAverageVelocity =
       highestAverageVelocityAmongMembers === null
         ? null
@@ -2479,6 +3240,10 @@ export default function StatisticsPage({
       velocityByHourValue === null
         ? null
         : Math.round(velocityByHourValue * 100) / 100;
+    const previousVelocityByHour =
+      previousVelocityByHourRaw === null
+        ? null
+        : Math.round(previousVelocityByHourRaw * 100) / 100;
     const highestVelocityByHour =
       highestVelocityByHourAmongMembers === null
         ? null
@@ -2487,6 +3252,10 @@ export default function StatisticsPage({
       bestStoryPointsValue === null
         ? null
         : Math.ceil(bestStoryPointsValue);
+    const previousBestStoryPoints =
+      previousBestStoryPointsRaw === null
+        ? null
+        : Math.ceil(previousBestStoryPointsRaw);
     const highestBestStoryPoints =
       highestBestStoryPointsAmongMembers === null
         ? null
@@ -2495,6 +3264,10 @@ export default function StatisticsPage({
       assignedStoryPointsValue === null
         ? null
         : Math.round(assignedStoryPointsValue);
+    const previousAssignedStoryPoints =
+      previousAssignedStoryPointsRaw === null
+        ? null
+        : Math.round(previousAssignedStoryPointsRaw);
     const assignedStoryPointsMax =
       selectedOfValue === TEAM_FILTER_VALUE
         ? teamAssignedStoryPointsTotal === null
@@ -2505,6 +3278,8 @@ export default function StatisticsPage({
           : Math.round(teamAssignedStoryPointsAverage);
     const bonusPoints =
       bonusPointsValue === null ? null : Math.round(bonusPointsValue);
+    const previousBonusPoints =
+      previousBonusPointsRaw === null ? null : Math.round(previousBonusPointsRaw);
     const bonusPointsMax =
       selectedOfValue === TEAM_FILTER_VALUE
         ? teamBonusPointsTotal === null
@@ -2517,6 +3292,10 @@ export default function StatisticsPage({
       accumulatedHoursValue === null
         ? null
         : Math.round(accumulatedHoursValue * 10) / 10;
+    const previousAccumulatedHours =
+      previousAccumulatedHoursRaw === null
+        ? null
+        : Math.round(previousAccumulatedHoursRaw * 10) / 10;
     const highestAccumulatedHours =
       highestAccumulatedHoursAmongMembers === null
         ? null
@@ -2525,110 +3304,138 @@ export default function StatisticsPage({
     const baseStats = devData.stats.map((stat) => {
       if (stat.label === "Tasks Completed") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = completedTasks ?? 0;
         const max = Math.max(highestCompletedTasks ?? 0, value, 1);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          completedTasks,
+          previousCompletedTasks,
+        );
       }
 
       if (stat.label === "Average Velocity") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = averageVelocity ?? 0;
         const max = Math.max(highestAverageVelocity ?? 0, value, 1);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          averageVelocity,
+          previousAverageVelocity,
+        );
       }
 
       if (stat.label === "Velocity By Hour (Story Points per Hour)") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = velocityByHour ?? 0;
         const max = Math.max(highestVelocityByHour ?? 0, value, 0.01);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          velocityByHour,
+          previousVelocityByHour,
+        );
       }
 
       if (stat.label === "Best Story Points") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = bestStoryPoints ?? 0;
         const max = Math.max(highestBestStoryPoints ?? 0, value, 1);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          bestStoryPoints,
+          previousBestStoryPoints,
+        );
       }
 
       if (stat.label === "Assigned Story Points") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = assignedStoryPoints ?? 0;
         const max = Math.max(assignedStoryPointsMax ?? 0, value, 1);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          assignedStoryPoints,
+          previousAssignedStoryPoints,
+        );
       }
 
       if (stat.label === "Accumulated Hours") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = accumulatedHours ?? 0;
         const max = Math.max(highestAccumulatedHours ?? 0, value, 1);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          accumulatedHours,
+          previousAccumulatedHours,
+        );
       }
 
       if (stat.label === "Bonus Points") {
         if (scorePointsLoading) {
-          return { ...stat, value: 0, max: Math.max(stat.max, 1) };
+          return withChange(
+            { ...stat, value: 0, max: Math.max(stat.max, 1) },
+            null,
+            null,
+          );
         }
 
         const value = bonusPoints ?? 0;
         const max = Math.max(bonusPointsMax ?? 0, value, 1);
 
-        return {
-          ...stat,
-          value,
-          max,
-        };
+        return withChange(
+          { ...stat, value, max },
+          bonusPoints,
+          previousBonusPoints,
+        );
       }
 
-      return stat;
+      return withChange(stat, null, null);
     });
 
     const professionalismStats: StatBar[] = sortedProfessionalismItems.map(
@@ -2637,12 +3444,16 @@ export default function StatisticsPage({
         const itemMax = Math.max(Number(item.value) || 0, 1);
 
         if (scorePointsLoading || activeSprintIds.length === 0) {
-          return {
-            label,
-            value: 0,
-            max: itemMax,
-            unit: "",
-          };
+          return withChange(
+            {
+              label,
+              value: 0,
+              max: itemMax,
+              unit: "",
+            },
+            null,
+            null,
+          );
         }
 
         const averageValue =
@@ -2658,33 +3469,85 @@ export default function StatisticsPage({
                 item.id,
               );
 
+        const previousAverageValue = !hasPreviousPeriod
+          ? null
+          : selectedOfValue === TEAM_FILTER_VALUE
+            ? getTeamProfessionalismItemAverage(
+                previousProfessionalismRows,
+                scoreboardMemberIdList,
+                item.id,
+              )
+            : getMemberProfessionalismItemAverage(
+                previousProfessionalismRows,
+                selectedOfValue,
+                item.id,
+              );
+
         const value =
           averageValue === null
             ? 0
             : Math.round(averageValue * 10) / 10;
+        const previousValue =
+          previousAverageValue === null
+            ? null
+            : Math.round(previousAverageValue * 10) / 10;
 
-        return {
-          label,
-          value,
-          max: itemMax,
-          unit: "",
-        };
+        return withChange(
+          {
+            label,
+            value,
+            max: itemMax,
+            unit: "",
+          },
+          averageValue === null ? null : value,
+          previousValue,
+        );
       },
     );
 
     const professionalismTotalMax = professionalismTotalAverageMetric.max;
     const professionalismTotalValue = professionalismTotalAverageMetric.value;
 
-    const professionalismTotalAverage: StatBar = {
-      label: "Professionalism Total Average",
-      value:
-        scorePointsLoading || activeSprintIds.length === 0
-          ? 0
-          : professionalismTotalValue,
-      max: Math.max(professionalismTotalMax, 1),
-      unit: "",
-      highlighted: true,
-    };
+    const previousProfessionalismTotalValue = !hasPreviousPeriod
+      ? null
+      : sortedProfessionalismItems.reduce((sum, item) => {
+          const averageValue =
+            selectedOfValue === TEAM_FILTER_VALUE
+              ? getTeamProfessionalismItemAverage(
+                  previousProfessionalismRows,
+                  scoreboardMemberIdList,
+                  item.id,
+                )
+              : getMemberProfessionalismItemAverage(
+                  previousProfessionalismRows,
+                  selectedOfValue,
+                  item.id,
+                );
+
+          return (
+            sum +
+            (averageValue === null ? 0 : Math.round(averageValue * 10) / 10)
+          );
+        }, 0);
+
+    const professionalismTotalAverage: StatBar = withChange(
+      {
+        label: "Professionalism Total Average",
+        value:
+          scorePointsLoading || activeSprintIds.length === 0
+            ? 0
+            : professionalismTotalValue,
+        max: Math.max(professionalismTotalMax, 1),
+        unit: "",
+        highlighted: true,
+      },
+      scorePointsLoading || activeSprintIds.length === 0
+        ? null
+        : professionalismTotalValue,
+      previousProfessionalismTotalValue === null
+        ? null
+        : Math.round(previousProfessionalismTotalValue * 10) / 10,
+    );
 
     return [
       ...baseStats,
@@ -2705,13 +3568,19 @@ export default function StatisticsPage({
     highestBestStoryPointsAmongMembers,
     highestCompletedTasksAmongMembers,
     highestVelocityByHourAmongMembers,
+    previousPeriodComparisonLabel,
+    previousSprintIds,
+    professionalismScores,
     professionalismTotalAverageMetric.max,
     professionalismTotalAverageMetric.value,
     relevantProfessionalismScores,
     scorePointsLoading,
     scoreboardMemberIdList,
+    scoreboardMemberIds,
     selectedOfValue,
     sortedProfessionalismItems,
+    sprintMemberScores,
+    sprintPerformanceScores,
     tasksCompletedValue,
     teamAssignedStoryPointsAverage,
     teamAssignedStoryPointsTotal,
@@ -2743,51 +3612,51 @@ export default function StatisticsPage({
 
       try {
         const performanceQueryOptions =
-          activeSprintIds.length === 1
+          scoreFetchSprintIds.length === 1
             ? {
                 select:
                   "member_id,sprint_id,average_score,score_grade,total_story_points,assigned_story_points,extra_points,velocity_by_hour",
-                eq: { sprint_id: activeSprintIds[0] },
+                eq: { sprint_id: scoreFetchSprintIds[0] },
               }
             : {
                 select:
                   "member_id,sprint_id,average_score,score_grade,total_story_points,assigned_story_points,extra_points,velocity_by_hour",
-                in: { sprint_id: activeSprintIds },
+                in: { sprint_id: scoreFetchSprintIds },
               };
 
         const criteriaQueryOptions =
-          activeSprintIds.length === 1
+          scoreFetchSprintIds.length === 1
             ? {
                 select: "member_id,sprint_id,rate,criteria:criteria_id(type)",
-                eq: { sprint_id: activeSprintIds[0] },
+                eq: { sprint_id: scoreFetchSprintIds[0] },
               }
             : {
                 select: "member_id,sprint_id,rate,criteria:criteria_id(type)",
-                in: { sprint_id: activeSprintIds },
+                in: { sprint_id: scoreFetchSprintIds },
               };
 
         const memberSprintScoreQueryOptions =
-          activeSprintIds.length === 1
+          scoreFetchSprintIds.length === 1
             ? {
                 select:
                   "member_id,sprint_id,completed_story_points,completed_tasks_count,accumulated_hours",
-                eq: { sprint_id: activeSprintIds[0] },
+                eq: { sprint_id: scoreFetchSprintIds[0] },
               }
             : {
                 select:
                   "member_id,sprint_id,completed_story_points,completed_tasks_count,accumulated_hours",
-                in: { sprint_id: activeSprintIds },
+                in: { sprint_id: scoreFetchSprintIds },
               };
 
         const professionalismScoreQueryOptions =
-          activeSprintIds.length === 1
+          scoreFetchSprintIds.length === 1
             ? {
                 select: "member_id,sprint_id,item_id,score",
-                eq: { sprint_id: activeSprintIds[0] },
+                eq: { sprint_id: scoreFetchSprintIds[0] },
               }
             : {
                 select: "member_id,sprint_id,item_id,score",
-                in: { sprint_id: activeSprintIds },
+                in: { sprint_id: scoreFetchSprintIds },
               };
 
         const [
@@ -2839,7 +3708,7 @@ export default function StatisticsPage({
     return () => {
       cancelled = true;
     };
-  }, [activeSprintIds, evaluateResult]);
+  }, [activeSprintIds, evaluateResult, scoreFetchSprintIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3813,7 +4682,14 @@ export default function StatisticsPage({
 
       <div className="two-col">
         <div className="scard">
-          <div className="stitle">Performance Scores</div>
+          <div className="stitle">
+            Performance Scores
+            <span className="statistics-performance-compare-hint">
+              {previousSprintIds.length > 0
+                ? previousPeriodComparisonLabel
+                : "no prior period"}
+            </span>
+          </div>
           {performanceStats.map((s, i) => (
             <div key={s.label}>
               <StatBar2 {...s} index={i} />
@@ -3837,6 +4713,24 @@ export default function StatisticsPage({
           <div className="stitle">Performance Radar</div>
           <SkillRadarPanel values={displayedSkillRadarValues} scale={skillChartScale} />
         </div>
+      </div>
+
+      <div className="scard statistics-metrics-trend">
+        <div className="stitle">{metricsComparisonTrendMeta.title}</div>
+        {scorePointsLoading ? (
+          <div className="statistics-member-ranking__empty">
+            Loading metrics trend…
+          </div>
+        ) : (
+          <PerformanceScoresBySprintLineChart
+            entries={metricsComparisonTrendEntries}
+            includeOverallScore
+            includeHoursAccumulated
+            glowFilterId="statistics-metrics-comparison-trend-glow"
+            emptyPreviousLabel={metricsComparisonTrendMeta.emptyPreviousLabel}
+            emptyEntriesLabel={metricsComparisonTrendMeta.emptyEntriesLabel}
+          />
+        )}
       </div>
 
       <div className="statistics-skill-breakdown-row">

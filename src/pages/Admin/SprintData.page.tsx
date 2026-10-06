@@ -81,12 +81,6 @@ type CriteriaSetOption = {
   set_code: string;
 };
 
-type GradingSetOption = {
-  id: string;
-  name: string;
-  grading_code: string;
-};
-
 const MONTH_OPTIONS = [
   { value: 1, label: "Jan" },
   { value: 2, label: "Feb" },
@@ -112,6 +106,8 @@ const INITIAL_FORM: SprintDataFormState = {
   criteriaSetId: "",
   gradingSetId: "",
 };
+
+const DEFAULT_CRITERIA_SET_CODE = "default";
 
 const SPRINT_SELECT =
   "id,project_id,name,sprint_number,sprint_year,sprint_quarter,sprint_month,start_date,end_date,month,status,is_current,criteria_set_id,grading_set_id";
@@ -183,7 +179,7 @@ function buildDefaultForm(currentSprint: SprintContextRow | null): SprintDataFor
     startDate: formatDateOnly(startDate),
     endDate: formatDateOnly(endDate),
     month: String(startDate.getUTCMonth() + 1),
-    criteriaSetId: currentSprint.criteria_set_id ?? "",
+    criteriaSetId: "",
     gradingSetId: currentSprint.grading_set_id ?? "",
   };
 }
@@ -472,7 +468,25 @@ function sprintToEditForm(sprint: SprintContextRow): SprintDataEditFormState {
 export default function SprintDataPage() {
   const [sprints, setSprints] = useState<SprintContextRow[]>([]);
   const [criteriaSets, setCriteriaSets] = useState<CriteriaSetOption[]>([]);
-  const [gradingSets, setGradingSets] = useState<GradingSetOption[]>([]);
+  const defaultCriteriaSet =
+    criteriaSets.find((set) => set.set_code === DEFAULT_CRITERIA_SET_CODE) ?? null;
+  const selectableCriteriaSets = criteriaSets.filter(
+    (set) => set.id !== defaultCriteriaSet?.id,
+  );
+  const defaultCriteriaSetLabel = defaultCriteriaSet
+    ? `Default (${defaultCriteriaSet.set_name})`
+    : "Default";
+
+  function toCriteriaSetSelectValue(criteriaSetId: string): string {
+    return criteriaSetId === defaultCriteriaSet?.id ? "" : criteriaSetId;
+  }
+
+  function getCriteriaSetLabel(criteriaSetId: string | null | undefined): string {
+    if (!criteriaSetId || criteriaSetId === defaultCriteriaSet?.id) {
+      return defaultCriteriaSetLabel;
+    }
+    return criteriaSets.find((set) => set.id === criteriaSetId)?.set_name ?? "Unknown set";
+  }
   const [currentSprint, setCurrentSprint] = useState<SprintContextRow | null>(null);
   const [form, setForm] = useState<SprintDataFormState>(INITIAL_FORM);
   const [yearFilter, setYearFilter] = useState("all");
@@ -504,7 +518,7 @@ export default function SprintDataPage() {
       setError(null);
 
       try {
-        const [sprints, criteriaSetRows, gradingSetRows] = await Promise.all([
+        const [sprints, criteriaSetRows] = await Promise.all([
           getSupabaseRows<SprintContextRow>("sprints", {
             select: SPRINT_SELECT,
             order: { column: "start_date", ascending: false },
@@ -513,17 +527,12 @@ export default function SprintDataPage() {
             select: "id,set_name,set_code",
             order: { column: "set_code", ascending: true },
           }),
-          getSupabaseRows<GradingSetOption>("grading_set", {
-            select: "id,name,grading_code",
-            order: { column: "grading_code", ascending: true },
-          }),
         ]);
         const current = sprints.find(isCurrentSprint) ?? sprints[0] ?? null;
 
         if (!cancelled) {
           setSprints(sprints);
           setCriteriaSets(criteriaSetRows);
-          setGradingSets(gradingSetRows);
           setCurrentSprint(current);
           setForm(buildDefaultForm(current));
         }
@@ -1030,46 +1039,12 @@ export default function SprintDataPage() {
                 <select
                   disabled={loading || saving}
                   onChange={(event) => updateField("criteriaSetId", event.target.value)}
-                  value={form.criteriaSetId}
+                  value={toCriteriaSetSelectValue(form.criteriaSetId)}
                 >
-                  <option value="">None</option>
-                  {criteriaSets.map((set) => (
+                  <option value="">{defaultCriteriaSetLabel}</option>
+                  {selectableCriteriaSets.map((set) => (
                     <option key={set.id} value={set.id}>
                       {set.set_name} ({set.set_code})
-                    </option>
-                  ))}
-                </select>
-                <svg
-                  aria-hidden="true"
-                  className="requirements-data-select-arrow"
-                  width="12"
-                  height="12"
-                  viewBox="0 0 12 12"
-                  fill="none"
-                >
-                  <path
-                    d="M2.5 4.5 6 8l3.5-3.5"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.7"
-                  />
-                </svg>
-              </div>
-            </label>
-
-            <label className="requirements-data-field">
-              <span>Grading Set</span>
-              <div className="requirements-data-select-wrap">
-                <select
-                  disabled={loading || saving}
-                  onChange={(event) => updateField("gradingSetId", event.target.value)}
-                  value={form.gradingSetId}
-                >
-                  <option value="">None</option>
-                  {gradingSets.map((set) => (
-                    <option key={set.id} value={set.id}>
-                      {set.name} ({set.grading_code})
                     </option>
                   ))}
                 </select>
@@ -1226,6 +1201,7 @@ export default function SprintDataPage() {
                   <th>Month</th>
                   <th>Start Date</th>
                   <th>End Date</th>
+                  <th>Criteria Set</th>
                   <th>Status</th>
                   <th>Current</th>
                   <th>Actions</th>
@@ -1247,7 +1223,7 @@ export default function SprintDataPage() {
                     <Fragment key={sprint.id}>
                       {showQuarterHeader ? (
                         <tr className="sprint-data-quarter-header">
-                          <td colSpan={10}>
+                          <td colSpan={11}>
                             {getSprintQuarterGroupLabel(
                               getSprintListingYear(sprint),
                               quarter,
@@ -1267,6 +1243,9 @@ export default function SprintDataPage() {
                     </td>
                     <td data-label="Start Date">{formatSprintDate(sprint.start_date)}</td>
                     <td data-label="End Date">{formatSprintDate(sprint.end_date)}</td>
+                    <td data-label="Criteria Set">
+                      {getCriteriaSetLabel(sprint.criteria_set_id)}
+                    </td>
                     <td data-label="Status">
                       <span className="requirements-data-level requirements-data-level--middle">
                         {sprint.status ?? "planning"}
@@ -1578,34 +1557,12 @@ export default function SprintDataPage() {
                       onChange={(event) =>
                         updateEditField("criteriaSetId", event.target.value)
                       }
-                      value={editForm.criteriaSetId}
+                      value={toCriteriaSetSelectValue(editForm.criteriaSetId)}
                     >
-                      <option value="">None</option>
-                      {criteriaSets.map((set) => (
+                      <option value="">{defaultCriteriaSetLabel}</option>
+                      {selectableCriteriaSets.map((set) => (
                         <option key={set.id} value={set.id}>
                           {set.set_name} ({set.set_code})
-                        </option>
-                      ))}
-                    </select>
-                    <svg aria-hidden="true" className="requirements-data-select-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
-                    </svg>
-                  </div>
-                </label>
-
-                <label className="requirements-data-field">
-                  <span>Grading Set</span>
-                  <div className="requirements-data-select-wrap">
-                    <select
-                      onChange={(event) =>
-                        updateEditField("gradingSetId", event.target.value)
-                      }
-                      value={editForm.gradingSetId}
-                    >
-                      <option value="">None</option>
-                      {gradingSets.map((set) => (
-                        <option key={set.id} value={set.id}>
-                          {set.name} ({set.grading_code})
                         </option>
                       ))}
                     </select>

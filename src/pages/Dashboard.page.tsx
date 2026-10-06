@@ -46,6 +46,7 @@ const DASHBOARD_HIDDEN_TRELLO_LIST_NAMES = new Set([
 type DashboardTaskCountRow = {
   trello_list_name: string | null;
   sp_type: "planned" | "adhoc" | "done" | "blocked" | null;
+  story_points: number | null;
 };
 
 type DashboardSprintRow = {
@@ -77,6 +78,15 @@ function shouldCountOnDashboardKanban(listName: string | null): boolean {
   return !normalized || !DASHBOARD_HIDDEN_TRELLO_LIST_NAMES.has(normalized);
 }
 
+function sumDashboardStoryPoints(
+  tasks: Array<{ story_points?: number | null; points?: number | null }>,
+): number {
+  return tasks.reduce((sum, task) => {
+    const value = Number(task.story_points ?? task.points ?? 0);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
 /* ─── MAIN DASHBOARD PAGE ───────────────────── */
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
@@ -106,7 +116,7 @@ export default function DashboardPage() {
         }
 
         const tasks = await getSupabaseRows<DashboardTaskCountRow>("tasks", {
-          select: "trello_list_name,sp_type",
+          select: "trello_list_name,sp_type,story_points",
           eq: { sprint_id: currentSprint.id },
         });
 
@@ -137,18 +147,24 @@ export default function DashboardPage() {
       shouldCountOnDashboardKanban(task.trello_list_name),
     ) ?? null;
   const taskCountTotal = countedTaskRows?.length ?? SPRINT_BOARD_TASKS.length;
+  const taskStoryPointsTotal = countedTaskRows
+    ? sumDashboardStoryPoints(countedTaskRows)
+    : sumDashboardStoryPoints(SPRINT_BOARD_TASKS);
   const kanbanTaskCountColumns = [
     SPRINT_BOARD_COLUMNS[0],
     { id: "adhoc", label: "Adhoc", color: "#ff9f43" },
     ...SPRINT_BOARD_COLUMNS.slice(1),
   ];
   const sprintTaskCountCards = [
-    { id: "all", label: "Tasks Count", color: Palette.cyan, count: taskCountTotal },
-    ...kanbanTaskCountColumns.map((column) => ({
-      id: column.id,
-      label: column.id === "planned" ? "Pending" : column.label,
-      color: column.color,
-      count: countedTaskRows
+    {
+      id: "all",
+      label: "Tasks Count",
+      color: Palette.cyan,
+      count: taskCountTotal,
+      storyPoints: taskStoryPointsTotal,
+    },
+    ...kanbanTaskCountColumns.map((column) => {
+      const liveColumnTasks = countedTaskRows
         ? countedTaskRows.filter((task) => {
             const boardColumn = getDashboardBoardColumn(task.trello_list_name);
 
@@ -161,15 +177,25 @@ export default function DashboardPage() {
             }
 
             return boardColumn === column.id;
-          }).length
-        : SPRINT_BOARD_TASKS.filter((task) =>
-            column.id === "adhoc"
-              ? task.boardColumn === "planned" && task.isAdhoc
-              : column.id === "planned"
-                ? task.boardColumn === "planned" && !task.isAdhoc
-                : task.boardColumn === column.id,
-          ).length,
-    })),
+          })
+        : null;
+      const fallbackColumnTasks = SPRINT_BOARD_TASKS.filter((task) =>
+        column.id === "adhoc"
+          ? task.boardColumn === "planned" && task.isAdhoc
+          : column.id === "planned"
+            ? task.boardColumn === "planned" && !task.isAdhoc
+            : task.boardColumn === column.id,
+      );
+      const columnTasks = liveColumnTasks ?? fallbackColumnTasks;
+
+      return {
+        id: column.id,
+        label: column.id === "planned" ? "Pending" : column.label,
+        color: column.color,
+        count: columnTasks.length,
+        storyPoints: sumDashboardStoryPoints(columnTasks),
+      };
+    }),
   ];
 
   const activeLabel = getFilterLabel(filter);
@@ -326,13 +352,14 @@ export default function DashboardPage() {
                   style={{
                     color: item.color,
                     fontFamily: "'DM Mono',monospace",
-                    fontSize: 28,
+                    fontSize: 22,
                     fontWeight: 900,
-                    lineHeight: 1,
+                    lineHeight: 1.1,
                     textShadow: `0 0 12px ${item.color}44`,
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  {item.count}
+                  {item.count} : {item.storyPoints}SP
                 </div>
               </div>
             ))}

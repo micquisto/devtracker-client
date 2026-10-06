@@ -464,7 +464,7 @@ function buildNextSprintPayload(
     status: "planning",
     is_current: 1,
     grading_set_id: currentSprint.grading_set_id,
-    criteria_set_id: currentSprint.criteria_set_id,
+    criteria_set_id: null,
   };
 }
 

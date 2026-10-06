@@ -6,6 +6,7 @@ import {
   deleteSupabaseRows,
   getSupabaseRows,
   insertSupabaseRows,
+  updateSupabaseRows,
 } from "@/lib/supabase";
 import { Palette } from "@/lib/theme";
 import { type CriteriaType } from "@/lib/utils/scrum/evaluateMemberPerformance.utils";
@@ -54,21 +55,23 @@ type CriteriaInsertRow = {
   sort_number: number;
 };
 
-type CriteriaSetLinkRow = {
+type CriteriaSetGradingLinkRow = {
   id: string;
-  set_id: string;
-  criteria_id: string;
+  criteria_set_id: string;
+  grading_set_id: string;
 };
 
-type CriteriaSetLinkInsertRow = {
-  set_id: string;
-  criteria_id: string;
+type CriteriaSetGradingLinkInsertRow = {
+  criteria_set_id: string;
+  grading_set_id: string;
 };
 
 type GradingSetRow = {
   id: string;
   name: string;
   grading_code: string;
+  level: RequirementLevel;
+  passing_score: number | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -76,6 +79,21 @@ type GradingSetRow = {
 type GradingSetInsertRow = {
   name: string;
   grading_code: string;
+  level: RequirementLevel;
+  passing_score: number;
+};
+
+type GradingSetCriteriaRow = {
+  id: string;
+  grading_set_id: string;
+  criteria_id: string;
+  percentage: number | null;
+};
+
+type GradingSetCriteriaInsertRow = {
+  grading_set_id: string;
+  criteria_id: string;
+  percentage: number;
 };
 
 type CriteriaSetFormState = {
@@ -99,6 +117,8 @@ type CriteriaFormState = {
 type GradingSetFormState = {
   name: string;
   grading_code: string;
+  level: RequirementLevel;
+  passing_score: string;
 };
 
 const LEVEL_OPTIONS: RequirementLevel[] = [
@@ -117,7 +137,10 @@ const TYPE_OPTIONS: CriteriaType[] = [
   "collaboration",
   "professionalism",
   "velocity",
+  "manual",
 ];
+
+const UNASSIGNED_GRADING_SET_FILTER = "__unassigned__";
 
 const TABS: Array<{ id: PageTab; label: string }> = [
   { id: "criteria-sets", label: "Criteria Sets" },
@@ -146,7 +169,14 @@ const INITIAL_CRITERIA_FORM: CriteriaFormState = {
 const INITIAL_GRADING_FORM: GradingSetFormState = {
   name: "",
   grading_code: "",
+  level: "junior",
+  passing_score: "75",
 };
+
+const GRADING_SET_SELECT =
+  "id,name,grading_code,level,passing_score,created_at,updated_at";
+const PERCENTAGE_TOTAL_TARGET = 100;
+const DEFAULT_CRITERIA_SET_CODE = "default";
 
 function SelectArrow() {
   return (
@@ -200,18 +230,55 @@ function formatOptionalNumber(value: number | null | undefined): string {
   return value === null || value === undefined ? "-" : String(value);
 }
 
+function formatPercentage(value: number): string {
+  return `${Number(value.toFixed(2))}%`;
+}
+
+function clampPercentage(value: number | null | undefined): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.min(100, Math.max(0, numeric));
+}
+
+function isPercentageTotalValid(total: number): boolean {
+  return Math.abs(total - PERCENTAGE_TOTAL_TARGET) < 0.01;
+}
+
+function isCriteriaApplicableToLevel(
+  criteriaLevel: RequirementLevel,
+  gradingLevel: RequirementLevel,
+): boolean {
+  return (
+    gradingLevel === "all" ||
+    criteriaLevel === "all" ||
+    criteriaLevel === gradingLevel
+  );
+}
+
 export default function CriteriaGradingSetsPage() {
   const [activeTab, setActiveTab] = useState<PageTab>("criteria-sets");
   const [criteriaSets, setCriteriaSets] = useState<CriteriaSetRow[]>([]);
   const [criteria, setCriteria] = useState<CriteriaRow[]>([]);
   const [gradingSets, setGradingSets] = useState<GradingSetRow[]>([]);
-  const [setLinks, setSetLinks] = useState<CriteriaSetLinkRow[]>([]);
+  const [setGradingLinks, setSetGradingLinks] = useState<CriteriaSetGradingLinkRow[]>([]);
+  const [gradingCriteriaLinks, setGradingCriteriaLinks] = useState<
+    GradingSetCriteriaRow[]
+  >([]);
+  const [percentageDrafts, setPercentageDrafts] = useState<Record<string, string>>({});
   const [selectedSetId, setSelectedSetId] = useState("");
+  const [selectedGradingSetId, setSelectedGradingSetId] = useState("");
   const [setForm, setSetForm] = useState<CriteriaSetFormState>(INITIAL_SET_FORM);
   const [criteriaForm, setCriteriaForm] =
     useState<CriteriaFormState>(INITIAL_CRITERIA_FORM);
   const [gradingForm, setGradingForm] =
     useState<GradingSetFormState>(INITIAL_GRADING_FORM);
+  const [editingSetId, setEditingSetId] = useState<string | null>(null);
+  const [editingCriteriaId, setEditingCriteriaId] = useState<string | null>(null);
+  const [editingGradingSetId, setEditingGradingSetId] = useState<string | null>(null);
+  const [criteriaSearch, setCriteriaSearch] = useState("");
+  const [criteriaTypeFilter, setCriteriaTypeFilter] = useState<CriteriaType | "">("");
+  const [criteriaLevelFilter, setCriteriaLevelFilter] = useState<RequirementLevel | "">("");
+  const [criteriaGradingSetFilter, setCriteriaGradingSetFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [linkingId, setLinkingId] = useState<string | null>(null);
@@ -219,43 +286,116 @@ export default function CriteriaGradingSetsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const linkedCriteriaIds = new Set(
-    setLinks
-      .filter((link) => link.set_id === selectedSetId)
+  const selectedSet = criteriaSets.find((set) => set.id === selectedSetId) ?? null;
+  const selectedGradingSet =
+    gradingSets.find((set) => set.id === selectedGradingSetId) ?? null;
+
+  const linkedGradingSetIds = new Set(
+    setGradingLinks
+      .filter((link) => link.criteria_set_id === selectedSetId)
+      .map((link) => link.grading_set_id),
+  );
+  const linkedGradingLevels = new Map<RequirementLevel, GradingSetRow>();
+  for (const gradingSet of gradingSets) {
+    if (linkedGradingSetIds.has(gradingSet.id)) {
+      linkedGradingLevels.set(gradingSet.level, gradingSet);
+    }
+  }
+
+  const selectedGradingLinksByCriteriaId = new Map(
+    gradingCriteriaLinks
+      .filter((link) => link.grading_set_id === selectedGradingSetId)
+      .map((link) => [link.criteria_id, link]),
+  );
+  const selectedGradingCriteria = selectedGradingSet
+    ? criteria.filter(
+        (row) =>
+          selectedGradingLinksByCriteriaId.has(row.id) ||
+          isCriteriaApplicableToLevel(row.level, selectedGradingSet.level),
+      )
+    : [];
+
+  const normalizedCriteriaSearch = criteriaSearch.trim().toLowerCase();
+  const assignedCriteriaIds = new Set(gradingCriteriaLinks.map((link) => link.criteria_id));
+  const gradingSetFilterCriteriaIds = new Set(
+    gradingCriteriaLinks
+      .filter((link) => link.grading_set_id === criteriaGradingSetFilter)
       .map((link) => link.criteria_id),
   );
-  const selectedSet = criteriaSets.find((set) => set.id === selectedSetId) ?? null;
+  const filteredCriteria = criteria.filter(
+    (row) =>
+      (!criteriaTypeFilter || row.type === criteriaTypeFilter) &&
+      (!criteriaLevelFilter || row.level === criteriaLevelFilter) &&
+      (!criteriaGradingSetFilter ||
+        (criteriaGradingSetFilter === UNASSIGNED_GRADING_SET_FILTER
+          ? !assignedCriteriaIds.has(row.id)
+          : gradingSetFilterCriteriaIds.has(row.id))) &&
+      (!normalizedCriteriaSearch ||
+        row.name.toLowerCase().includes(normalizedCriteriaSearch) ||
+        row.code.toLowerCase().includes(normalizedCriteriaSearch)),
+  );
+  const hasCriteriaFilters = Boolean(
+    normalizedCriteriaSearch ||
+      criteriaTypeFilter ||
+      criteriaLevelFilter ||
+      criteriaGradingSetFilter,
+  );
+
+  function getGradingSetTotal(gradingSetId: string): number {
+    return gradingCriteriaLinks
+      .filter((link) => link.grading_set_id === gradingSetId)
+      .reduce((sum, link) => sum + clampPercentage(link.percentage), 0);
+  }
+
+  function getGradingSetCriteriaCount(gradingSetId: string): number {
+    return gradingCriteriaLinks.filter((link) => link.grading_set_id === gradingSetId)
+      .length;
+  }
+
+  const selectedGradingTotal = selectedGradingSetId
+    ? getGradingSetTotal(selectedGradingSetId)
+    : 0;
 
   async function loadAll(): Promise<void> {
     setLoading(true);
     setError(null);
 
     try {
-      const [sets, criteriaRows, gradingRows, links] = await Promise.all([
-        getSupabaseRows<CriteriaSetRow>("critera_set", {
-          select: "id,set_name,set_code,version,created_at,updated_at",
-          order: { column: "set_code", ascending: true },
-        }),
-        getSupabaseRows<CriteriaRow>("criteria", {
-          select: "id,name,code,level,type,min,max,value,weight,sort_number",
-          order: { column: "sort_number", ascending: true },
-        }),
-        getSupabaseRows<GradingSetRow>("grading_set", {
-          select: "id,name,grading_code,created_at,updated_at",
-          order: { column: "grading_code", ascending: true },
-        }),
-        getSupabaseRows<CriteriaSetLinkRow>("criteria_set_criteria", {
-          select: "id,set_id,criteria_id",
-        }),
-      ]);
+      const [sets, criteriaRows, gradingRows, setLinks, criteriaLinks] =
+        await Promise.all([
+          getSupabaseRows<CriteriaSetRow>("critera_set", {
+            select: "id,set_name,set_code,version,created_at,updated_at",
+            order: { column: "set_code", ascending: true },
+          }),
+          getSupabaseRows<CriteriaRow>("criteria", {
+            select: "id,name,code,level,type,min,max,value,weight,sort_number",
+            order: { column: "sort_number", ascending: true },
+          }),
+          getSupabaseRows<GradingSetRow>("grading_set", {
+            select: GRADING_SET_SELECT,
+            order: { column: "grading_code", ascending: true },
+          }),
+          getSupabaseRows<CriteriaSetGradingLinkRow>("criteria_set_grading_set", {
+            select: "id,criteria_set_id,grading_set_id",
+          }),
+          getSupabaseRows<GradingSetCriteriaRow>("grading_set_criteria", {
+            select: "id,grading_set_id,criteria_id,percentage",
+          }),
+        ]);
 
       setCriteriaSets(sets);
       setCriteria(criteriaRows);
       setGradingSets(gradingRows);
-      setSetLinks(links);
+      setSetGradingLinks(setLinks);
+      setGradingCriteriaLinks(criteriaLinks);
+      setPercentageDrafts({});
       setSelectedSetId((current) => {
         if (current && sets.some((set) => set.id === current)) return current;
         return sets[0]?.id ?? "";
+      });
+      setSelectedGradingSetId((current) => {
+        if (current && gradingRows.some((set) => set.id === current)) return current;
+        return gradingRows[0]?.id ?? "";
       });
     } catch (loadError) {
       setError(
@@ -277,7 +417,65 @@ export default function CriteriaGradingSetsPage() {
     setSuccess(null);
   }
 
-  async function handleCreateSet(event: FormEvent<HTMLFormElement>): Promise<void> {
+  function scrollToForm(formId: string): void {
+    document.getElementById(formId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function startEditSet(set: CriteriaSetRow): void {
+    clearMessages();
+    setEditingSetId(set.id);
+    setSetForm({ set_name: set.set_name, set_code: set.set_code, version: set.version });
+    scrollToForm("criteria-set-form");
+  }
+
+  function cancelEditSet(): void {
+    setEditingSetId(null);
+    setSetForm(INITIAL_SET_FORM);
+  }
+
+  function startEditCriteria(row: CriteriaRow): void {
+    clearMessages();
+    setEditingCriteriaId(row.id);
+    setCriteriaForm({
+      name: row.name,
+      code: row.code,
+      level: row.level,
+      type: row.type ?? "productivity",
+      min: row.min === null ? "" : String(row.min),
+      max: row.max === null ? "" : String(row.max),
+      value: row.value === null ? "" : String(row.value),
+      weight: row.weight === null ? "" : String(row.weight),
+      sort_number: row.sort_number === null ? "" : String(row.sort_number),
+    });
+    scrollToForm("criteria-form");
+  }
+
+  function cancelEditCriteria(): void {
+    setEditingCriteriaId(null);
+    setCriteriaForm(INITIAL_CRITERIA_FORM);
+  }
+
+  function startEditGradingSet(set: GradingSetRow): void {
+    clearMessages();
+    setEditingGradingSetId(set.id);
+    setGradingForm({
+      name: set.name,
+      grading_code: set.grading_code,
+      level: set.level,
+      passing_score: set.passing_score === null ? "" : String(set.passing_score),
+    });
+    scrollToForm("grading-set-form");
+  }
+
+  function cancelEditGradingSet(): void {
+    setEditingGradingSetId(null);
+    setGradingForm(INITIAL_GRADING_FORM);
+  }
+
+  const editingSet = criteriaSets.find((set) => set.id === editingSetId) ?? null;
+  const isEditingDefaultSet = editingSet?.set_code === DEFAULT_CRITERIA_SET_CODE;
+
+  async function handleSubmitSet(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSaving(true);
     clearMessages();
@@ -291,6 +489,20 @@ export default function CriteriaGradingSetsPage() {
 
       if (!row.set_name || !row.set_code || !row.version) {
         throw new Error("Set name, code, and version are required.");
+      }
+
+      if (editingSetId) {
+        if (isEditingDefaultSet) {
+          row.set_code = DEFAULT_CRITERIA_SET_CODE;
+        }
+        await updateSupabaseRows<CriteriaSetRow, CriteriaSetInsertRow>("critera_set", row, {
+          eq: { id: editingSetId },
+          select: "id",
+        });
+        cancelEditSet();
+        await loadAll();
+        setSuccess(`Updated criteria set ${row.set_name}.`);
+        return;
       }
 
       const [created] = await insertSupabaseRows<CriteriaSetRow, CriteriaSetInsertRow>(
@@ -307,7 +519,7 @@ export default function CriteriaGradingSetsPage() {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to create criteria set.",
+          : "Unable to save criteria set.",
       );
     } finally {
       setSaving(false);
@@ -323,6 +535,7 @@ export default function CriteriaGradingSetsPage() {
         eq: { id: set.id },
         select: "id",
       });
+      if (editingSetId === set.id) cancelEditSet();
       await loadAll();
       setSuccess(`Deleted criteria set ${set.set_name}.`);
     } catch (deleteError) {
@@ -336,54 +549,190 @@ export default function CriteriaGradingSetsPage() {
     }
   }
 
-  async function handleToggleCriteriaLink(criteriaId: string, checked: boolean): Promise<void> {
+  async function handleToggleGradingSetLink(
+    gradingSet: GradingSetRow,
+    checked: boolean,
+  ): Promise<void> {
     if (!selectedSetId) return;
 
-    setLinkingId(criteriaId);
+    setLinkingId(gradingSet.id);
     clearMessages();
 
     try {
       if (checked) {
+        const conflicting = linkedGradingLevels.get(gradingSet.level);
+        if (conflicting && conflicting.id !== gradingSet.id) {
+          throw new Error(
+            `${conflicting.name} already covers the "${gradingSet.level}" level in this criteria set.`,
+          );
+        }
+
+        const total = getGradingSetTotal(gradingSet.id);
+        if (!isPercentageTotalValid(total)) {
+          throw new Error(
+            `${gradingSet.name} criteria total ${formatPercentage(total)}; it must total 100% before it can be assigned.`,
+          );
+        }
+
         const [created] = await insertSupabaseRows<
-          CriteriaSetLinkRow,
-          CriteriaSetLinkInsertRow
+          CriteriaSetGradingLinkRow,
+          CriteriaSetGradingLinkInsertRow
         >(
-          "criteria_set_criteria",
-          { set_id: selectedSetId, criteria_id: criteriaId },
-          "id,set_id,criteria_id",
+          "criteria_set_grading_set",
+          { criteria_set_id: selectedSetId, grading_set_id: gradingSet.id },
+          "id,criteria_set_id,grading_set_id",
         );
 
         if (created) {
-          setSetLinks((current) => [...current, created]);
+          setSetGradingLinks((current) => [...current, created]);
         }
-        setSuccess("Linked criteria to set.");
+        setSuccess(`Assigned ${gradingSet.name} to the criteria set.`);
       } else {
-        const existing = setLinks.find(
-          (link) => link.set_id === selectedSetId && link.criteria_id === criteriaId,
+        const existing = setGradingLinks.find(
+          (link) =>
+            link.criteria_set_id === selectedSetId &&
+            link.grading_set_id === gradingSet.id,
         );
 
         if (existing) {
-          await deleteSupabaseRows<CriteriaSetLinkRow>("criteria_set_criteria", {
-            eq: { id: existing.id },
-            select: "id",
-          });
-          setSetLinks((current) => current.filter((link) => link.id !== existing.id));
+          await deleteSupabaseRows<CriteriaSetGradingLinkRow>(
+            "criteria_set_grading_set",
+            {
+              eq: { id: existing.id },
+              select: "id",
+            },
+          );
+          setSetGradingLinks((current) =>
+            current.filter((link) => link.id !== existing.id),
+          );
         }
 
-        setSuccess("Unlinked criteria from set.");
+        setSuccess(`Removed ${gradingSet.name} from the criteria set.`);
       }
     } catch (linkError) {
       setError(
         linkError instanceof Error
           ? linkError.message
-          : "Unable to update criteria set links.",
+          : "Unable to update criteria set grading sets.",
       );
     } finally {
       setLinkingId(null);
     }
   }
 
-  async function handleCreateCriteria(
+  async function handleToggleGradingCriteria(
+    row: CriteriaRow,
+    checked: boolean,
+  ): Promise<void> {
+    if (!selectedGradingSetId) return;
+
+    setLinkingId(row.id);
+    clearMessages();
+
+    try {
+      if (checked) {
+        const [created] = await insertSupabaseRows<
+          GradingSetCriteriaRow,
+          GradingSetCriteriaInsertRow
+        >(
+          "grading_set_criteria",
+          {
+            grading_set_id: selectedGradingSetId,
+            criteria_id: row.id,
+            percentage: clampPercentage(row.weight),
+          },
+          "id,grading_set_id,criteria_id,percentage",
+        );
+
+        if (created) {
+          setGradingCriteriaLinks((current) => [...current, created]);
+        }
+        setSuccess(`Added ${row.name} to the grading set.`);
+      } else {
+        const existing = selectedGradingLinksByCriteriaId.get(row.id);
+
+        if (existing) {
+          await deleteSupabaseRows<GradingSetCriteriaRow>("grading_set_criteria", {
+            eq: { id: existing.id },
+            select: "id",
+          });
+          setGradingCriteriaLinks((current) =>
+            current.filter((link) => link.id !== existing.id),
+          );
+          setPercentageDrafts((current) => {
+            const next = { ...current };
+            delete next[existing.id];
+            return next;
+          });
+        }
+
+        setSuccess(`Removed ${row.name} from the grading set.`);
+      }
+    } catch (linkError) {
+      setError(
+        linkError instanceof Error
+          ? linkError.message
+          : "Unable to update grading set criteria.",
+      );
+    } finally {
+      setLinkingId(null);
+    }
+  }
+
+  async function handleSavePercentage(link: GradingSetCriteriaRow): Promise<void> {
+    const draft = percentageDrafts[link.id];
+    if (draft === undefined) return;
+
+    const parsed = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      setError("Percentage must be a number from 0 to 100.");
+      return;
+    }
+
+    if (parsed === clampPercentage(link.percentage)) {
+      setPercentageDrafts((current) => {
+        const next = { ...current };
+        delete next[link.id];
+        return next;
+      });
+      return;
+    }
+
+    setLinkingId(link.criteria_id);
+    clearMessages();
+
+    try {
+      const [updated] = await updateSupabaseRows<
+        GradingSetCriteriaRow,
+        { percentage: number }
+      >(
+        "grading_set_criteria",
+        { percentage: parsed },
+        { eq: { id: link.id }, select: "id,grading_set_id,criteria_id,percentage" },
+      );
+
+      setGradingCriteriaLinks((current) =>
+        current.map((row) =>
+          row.id === link.id ? (updated ?? { ...row, percentage: parsed }) : row,
+        ),
+      );
+      setPercentageDrafts((current) => {
+        const next = { ...current };
+        delete next[link.id];
+        return next;
+      });
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to update criteria percentage.",
+      );
+    } finally {
+      setLinkingId(null);
+    }
+  }
+
+  async function handleSubmitCriteria(
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
@@ -407,6 +756,17 @@ export default function CriteriaGradingSetsPage() {
         throw new Error("Name and code are required.");
       }
 
+      if (editingCriteriaId) {
+        await updateSupabaseRows<CriteriaRow, CriteriaInsertRow>("criteria", row, {
+          eq: { id: editingCriteriaId },
+          select: "id",
+        });
+        cancelEditCriteria();
+        await loadAll();
+        setSuccess(`Updated criteria ${row.name}.`);
+        return;
+      }
+
       const [created] = await insertSupabaseRows<CriteriaRow, CriteriaInsertRow>(
         "criteria",
         row,
@@ -420,7 +780,7 @@ export default function CriteriaGradingSetsPage() {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to create criteria.",
+          : "Unable to save criteria.",
       );
     } finally {
       setSaving(false);
@@ -436,6 +796,7 @@ export default function CriteriaGradingSetsPage() {
         eq: { id: row.id },
         select: "id",
       });
+      if (editingCriteriaId === row.id) cancelEditCriteria();
       await loadAll();
       setSuccess(`Deleted criteria ${row.name}.`);
     } catch (deleteError) {
@@ -449,7 +810,7 @@ export default function CriteriaGradingSetsPage() {
     }
   }
 
-  async function handleCreateGradingSet(
+  async function handleSubmitGradingSet(
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
@@ -460,28 +821,73 @@ export default function CriteriaGradingSetsPage() {
       const row: GradingSetInsertRow = {
         name: gradingForm.name.trim(),
         grading_code: gradingForm.grading_code.trim(),
+        level: gradingForm.level,
+        passing_score: parseRequiredNumber(gradingForm.passing_score, "Passing score"),
       };
 
       if (!row.name || !row.grading_code) {
         throw new Error("Name and grading code are required.");
       }
 
+      if (row.passing_score < 0 || row.passing_score > 100) {
+        throw new Error("Passing score must be from 0 to 100.");
+      }
+
+      if (editingGradingSetId) {
+        const editingId = editingGradingSetId;
+        const criteriaSetIdsForGrading = new Set(
+          setGradingLinks
+            .filter((link) => link.grading_set_id === editingId)
+            .map((link) => link.criteria_set_id),
+        );
+        const levelConflict = setGradingLinks.find((link) => {
+          if (link.grading_set_id === editingId) return false;
+          if (!criteriaSetIdsForGrading.has(link.criteria_set_id)) return false;
+          return (
+            gradingSets.find((set) => set.id === link.grading_set_id)?.level === row.level
+          );
+        });
+        if (levelConflict) {
+          const conflictSet = gradingSets.find(
+            (set) => set.id === levelConflict.grading_set_id,
+          );
+          const conflictCriteriaSet = criteriaSets.find(
+            (set) => set.id === levelConflict.criteria_set_id,
+          );
+          throw new Error(
+            `${conflictSet?.name ?? "Another grading set"} already covers the "${row.level}" level in ${conflictCriteriaSet?.set_name ?? "a criteria set"} this grading set is assigned to.`,
+          );
+        }
+
+        await updateSupabaseRows<GradingSetRow, GradingSetInsertRow>("grading_set", row, {
+          eq: { id: editingId },
+          select: "id",
+        });
+        cancelEditGradingSet();
+        await loadAll();
+        setSuccess(`Updated grading set ${row.name}.`);
+        return;
+      }
+
       const [created] = await insertSupabaseRows<GradingSetRow, GradingSetInsertRow>(
         "grading_set",
         row,
-        "id,name,grading_code,created_at,updated_at",
+        GRADING_SET_SELECT,
       );
 
       setGradingForm(INITIAL_GRADING_FORM);
       await loadAll();
+      if (created) setSelectedGradingSetId(created.id);
       setSuccess(
-        created ? `Created grading set ${created.name}.` : "Created grading set.",
+        created
+          ? `Created grading set ${created.name}. Add criteria and percentages below.`
+          : "Created grading set.",
       );
     } catch (submitError) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to create grading set.",
+          : "Unable to save grading set.",
       );
     } finally {
       setSaving(false);
@@ -497,6 +903,7 @@ export default function CriteriaGradingSetsPage() {
         eq: { id: set.id },
         select: "id",
       });
+      if (editingGradingSetId === set.id) cancelEditGradingSet();
       await loadAll();
       setSuccess(`Deleted grading set ${set.name}.`);
     } catch (deleteError) {
@@ -515,7 +922,7 @@ export default function CriteriaGradingSetsPage() {
       <Title
         eyebrow="Admin / Data Override"
         title="Criteria & Grading Sets"
-        subtitle="Manage evaluation criteria, criteria sets, and grading sets used by sprint scoring."
+        subtitle="Build criteria, group them into level-based grading sets with percentages, then assign grading sets to criteria sets used by sprint evaluation."
         size="large"
       />
 
@@ -547,7 +954,8 @@ export default function CriteriaGradingSetsPage() {
           <Card className="requirements-data-card">
             <form
               className="requirements-data-form"
-              onSubmit={(event) => void handleCreateSet(event)}
+              id="criteria-set-form"
+              onSubmit={(event) => void handleSubmitSet(event)}
             >
               <div className="requirements-data-grid">
                 <label className="requirements-data-field is-full-width">
@@ -558,7 +966,9 @@ export default function CriteriaGradingSetsPage() {
                       setSetForm((current) => ({
                         ...current,
                         set_name,
-                        set_code: buildCodeFromName(set_name),
+                        set_code: editingSetId
+                          ? current.set_code
+                          : buildCodeFromName(set_name),
                       }));
                     }}
                     placeholder="Criteria set name"
@@ -578,7 +988,13 @@ export default function CriteriaGradingSetsPage() {
                       }))
                     }
                     placeholder="e.g. default"
+                    readOnly={isEditingDefaultSet}
                     required
+                    title={
+                      isEditingDefaultSet
+                        ? "The Default set code is used to find the default set and cannot change"
+                        : undefined
+                    }
                     type="text"
                     value={setForm.set_code}
                   />
@@ -601,7 +1017,17 @@ export default function CriteriaGradingSetsPage() {
                 </label>
               </div>
 
-              <div className="requirements-data-actions">
+              <div className="requirements-data-actions requirements-data-modal-actions">
+                {editingSetId ? (
+                  <button
+                    className="requirements-data-cancel-button"
+                    disabled={saving}
+                    onClick={cancelEditSet}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
                 <button
                   className="requirements-data-submit"
                   disabled={saving || loading}
@@ -613,8 +1039,10 @@ export default function CriteriaGradingSetsPage() {
                         className="requirements-data-loader"
                         style={{ borderTopColor: Palette.cyan }}
                       />
-                      Creating
+                      {editingSetId ? "Saving" : "Creating"}
                     </>
+                  ) : editingSetId ? (
+                    "Save Changes"
                   ) : (
                     "Create Criteria Set"
                   )}
@@ -644,14 +1072,14 @@ export default function CriteriaGradingSetsPage() {
                       <th>Name</th>
                       <th>Code</th>
                       <th>Version</th>
-                      <th>Linked</th>
+                      <th>Grading Sets</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {criteriaSets.map((set) => {
-                      const linkedCount = setLinks.filter(
-                        (link) => link.set_id === set.id,
+                      const linkedCount = setGradingLinks.filter(
+                        (link) => link.criteria_set_id === set.id,
                       ).length;
 
                       return (
@@ -663,26 +1091,46 @@ export default function CriteriaGradingSetsPage() {
                               : undefined
                           }
                         >
-                          <td data-label="Name">{set.set_name}</td>
+                          <td data-label="Name">
+                            {set.set_name}
+                            {set.set_code === DEFAULT_CRITERIA_SET_CODE ? (
+                              <span className="grading-default-note"> · used by sprints without a set</span>
+                            ) : null}
+                          </td>
                           <td data-label="Code">{set.set_code}</td>
                           <td data-label="Version">{set.version}</td>
-                          <td data-label="Linked">{linkedCount}</td>
+                          <td data-label="Grading Sets">{linkedCount}</td>
                           <td data-label="Actions">
                             <div className="requirements-data-row-actions">
                               <button
                                 className="requirements-data-row-button"
                                 onClick={() => setSelectedSetId(set.id)}
-                                title="Manage links"
+                                title="Manage grading sets"
                                 type="button"
                               >
                                 Select
                               </button>
                               <button
+                                className="requirements-data-row-button"
+                                onClick={() => startEditSet(set)}
+                                title="Edit"
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                              <button
                                 aria-label={`Delete ${set.set_name}`}
                                 className="requirements-data-row-button is-danger"
-                                disabled={deletingId === set.id}
+                                disabled={
+                                  deletingId === set.id ||
+                                  set.set_code === DEFAULT_CRITERIA_SET_CODE
+                                }
                                 onClick={() => void handleDeleteSet(set)}
-                                title="Delete"
+                                title={
+                                  set.set_code === DEFAULT_CRITERIA_SET_CODE
+                                    ? "The Default set cannot be deleted"
+                                    : "Delete"
+                                }
                                 type="button"
                               >
                                 {deletingId === set.id ? (
@@ -708,10 +1156,10 @@ export default function CriteriaGradingSetsPage() {
           <Card className="requirements-data-card requirements-data-table-card">
             <div className="requirements-data-table-header">
               <div>
-                <div className="requirements-data-kicker">Set Links</div>
+                <div className="requirements-data-kicker">Assigned Grading Sets</div>
                 <h3>
                   {selectedSet
-                    ? `Criteria in ${selectedSet.set_name}`
+                    ? `Grading sets in ${selectedSet.set_name}`
                     : "Select a criteria set"}
                 </h3>
               </div>
@@ -739,38 +1187,77 @@ export default function CriteriaGradingSetsPage() {
             </div>
 
             {!selectedSetId ? (
-              <div className="requirements-data-empty">Select a criteria set to link criteria.</div>
+              <div className="requirements-data-empty">
+                Select a criteria set to assign grading sets.
+              </div>
             ) : loading ? (
-              <div className="requirements-data-empty">Loading criteria...</div>
-            ) : criteria.length === 0 ? (
-              <div className="requirements-data-empty">No criteria available to link.</div>
+              <div className="requirements-data-empty">Loading grading sets...</div>
+            ) : gradingSets.length === 0 ? (
+              <div className="requirements-data-empty">
+                No grading sets yet. Create one in the Grading Sets tab.
+              </div>
             ) : (
               <div className="acl-tree">
                 <div className="acl-tree-toolbar">
-                  <span>{linkedCriteriaIds.size} criteria linked</span>
-                  <span>{selectedSet?.set_code}</span>
+                  <span>{linkedGradingSetIds.size} grading sets assigned</span>
+                  <span>One grading set per level</span>
                 </div>
                 <div className="acl-tree-panel">
-                  {criteria.map((row) => {
-                    const checked = linkedCriteriaIds.has(row.id);
+                  {gradingSets.map((gradingSet) => {
+                    const checked = linkedGradingSetIds.has(gradingSet.id);
+                    const total = getGradingSetTotal(gradingSet.id);
+                    const totalValid = isPercentageTotalValid(total);
+                    const levelOwner = linkedGradingLevels.get(gradingSet.level);
+                    const levelTaken =
+                      !checked && Boolean(levelOwner && levelOwner.id !== gradingSet.id);
+                    const blockedReason = levelTaken
+                      ? `${levelOwner?.name} already covers the "${gradingSet.level}" level`
+                      : !checked && !totalValid
+                        ? `Criteria total ${formatPercentage(total)}; must be 100%`
+                        : undefined;
 
                     return (
-                      <label className="acl-tree-row is-leaf" key={row.id}>
+                      <label
+                        className="acl-tree-row is-leaf"
+                        key={gradingSet.id}
+                        title={blockedReason}
+                      >
                         <input
                           checked={checked}
-                          disabled={linkingId === row.id || !selectedSetId}
+                          disabled={
+                            linkingId === gradingSet.id ||
+                            !selectedSetId ||
+                            Boolean(blockedReason)
+                          }
                           onChange={(event) =>
-                            void handleToggleCriteriaLink(row.id, event.target.checked)
+                            void handleToggleGradingSetLink(
+                              gradingSet,
+                              event.target.checked,
+                            )
                           }
                           type="checkbox"
                         />
                         <span className="acl-tree-label">
-                          {row.name}
+                          {gradingSet.name}
                           {" · "}
-                          <span className={getLevelClass(row.level)}>{row.level}</span>
-                          {row.type ? ` · ${formatTypeLabel(row.type)}` : ""}
+                          <span className={getLevelClass(gradingSet.level)}>
+                            {gradingSet.level}
+                          </span>
+                          {` · pass ${formatOptionalNumber(gradingSet.passing_score)} · `}
+                          <span
+                            className={
+                              totalValid
+                                ? "grading-total-pill is-valid"
+                                : "grading-total-pill is-invalid"
+                            }
+                          >
+                            {formatPercentage(total)}
+                          </span>
+                          {blockedReason ? (
+                            <span className="grading-blocked-note"> · {blockedReason}</span>
+                          ) : null}
                         </span>
-                        <span className="acl-tree-id">{row.code}</span>
+                        <span className="acl-tree-id">{gradingSet.grading_code}</span>
                       </label>
                     );
                   })}
@@ -786,7 +1273,8 @@ export default function CriteriaGradingSetsPage() {
           <Card className="requirements-data-card">
             <form
               className="requirements-data-form"
-              onSubmit={(event) => void handleCreateCriteria(event)}
+              id="criteria-form"
+              onSubmit={(event) => void handleSubmitCriteria(event)}
             >
               <div className="requirements-data-grid">
                 <label className="requirements-data-field is-full-width">
@@ -797,7 +1285,7 @@ export default function CriteriaGradingSetsPage() {
                       setCriteriaForm((current) => ({
                         ...current,
                         name,
-                        code: buildCodeFromName(name),
+                        code: editingCriteriaId ? current.code : buildCodeFromName(name),
                       }));
                     }}
                     placeholder="Criteria name"
@@ -850,12 +1338,20 @@ export default function CriteriaGradingSetsPage() {
                   <span>Type</span>
                   <div className="requirements-data-select-wrap">
                     <select
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const nextType = event.target.value as CriteriaType;
                         setCriteriaForm((current) => ({
                           ...current,
-                          type: event.target.value as CriteriaType,
-                        }))
-                      }
+                          type: nextType,
+                          ...(nextType === "manual"
+                            ? {
+                                min: current.min || "0",
+                                max: current.max || "100",
+                                value: current.value || "75",
+                              }
+                            : {}),
+                        }));
+                      }}
                       required
                       value={criteriaForm.type}
                     >
@@ -867,6 +1363,11 @@ export default function CriteriaGradingSetsPage() {
                     </select>
                     <SelectArrow />
                   </div>
+                  {criteriaForm.type === "manual" ? (
+                    <span className="grading-default-note">
+                      Scored 0–100 per member in Story Points → Encode → Manual Criteria.
+                    </span>
+                  ) : null}
                 </label>
 
                 <label className="requirements-data-field">
@@ -918,7 +1419,7 @@ export default function CriteriaGradingSetsPage() {
                 </label>
 
                 <label className="requirements-data-field">
-                  <span>Weight</span>
+                  <span>Default %</span>
                   <input
                     onChange={(event) =>
                       setCriteriaForm((current) => ({
@@ -950,7 +1451,17 @@ export default function CriteriaGradingSetsPage() {
                 </label>
               </div>
 
-              <div className="requirements-data-actions">
+              <div className="requirements-data-actions requirements-data-modal-actions">
+                {editingCriteriaId ? (
+                  <button
+                    className="requirements-data-cancel-button"
+                    disabled={saving}
+                    onClick={cancelEditCriteria}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
                 <button
                   className="requirements-data-submit"
                   disabled={saving || loading}
@@ -962,8 +1473,10 @@ export default function CriteriaGradingSetsPage() {
                         className="requirements-data-loader"
                         style={{ borderTopColor: Palette.cyan }}
                       />
-                      Creating
+                      {editingCriteriaId ? "Saving" : "Creating"}
                     </>
+                  ) : editingCriteriaId ? (
+                    "Save Changes"
                   ) : (
                     "Create Criteria"
                   )}
@@ -978,13 +1491,87 @@ export default function CriteriaGradingSetsPage() {
                 <div className="requirements-data-kicker">Criteria Table</div>
                 <h3>All Criteria</h3>
               </div>
-              <span>{criteria.length} records</span>
+              <div className="requirements-data-table-tools">
+                <label className="requirements-data-filter-field">
+                  <span>Search</span>
+                  <input
+                    aria-label="Search criteria by name or code"
+                    onChange={(event) => setCriteriaSearch(event.target.value)}
+                    placeholder="Name or code"
+                    type="text"
+                    value={criteriaSearch}
+                  />
+                </label>
+                <label className="requirements-data-filter-field">
+                  <span>Type</span>
+                  <div className="requirements-data-select-wrap">
+                    <select
+                      aria-label="Filter criteria by type"
+                      onChange={(event) =>
+                        setCriteriaTypeFilter(event.target.value as CriteriaType | "")
+                      }
+                      value={criteriaTypeFilter}
+                    >
+                      <option value="">All Types</option>
+                      {TYPE_OPTIONS.map((type) => (
+                        <option key={type} value={type}>
+                          {formatTypeLabel(type)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </label>
+                <label className="requirements-data-filter-field">
+                  <span>Level</span>
+                  <div className="requirements-data-select-wrap">
+                    <select
+                      aria-label="Filter criteria by level"
+                      onChange={(event) =>
+                        setCriteriaLevelFilter(event.target.value as RequirementLevel | "")
+                      }
+                      value={criteriaLevelFilter}
+                    >
+                      <option value="">All Levels</option>
+                      {LEVEL_OPTIONS.map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </label>
+                <label className="requirements-data-filter-field">
+                  <span>Grading Set</span>
+                  <div className="requirements-data-select-wrap">
+                    <select
+                      aria-label="Filter criteria by grading set"
+                      onChange={(event) => setCriteriaGradingSetFilter(event.target.value)}
+                      value={criteriaGradingSetFilter}
+                    >
+                      <option value="">All Grading Sets</option>
+                      <option value={UNASSIGNED_GRADING_SET_FILTER}>Not in any set</option>
+                      {gradingSets.map((set) => (
+                        <option key={set.id} value={set.id}>
+                          {set.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </label>
+                <span>
+                  {hasCriteriaFilters
+                    ? `${filteredCriteria.length} of ${criteria.length} records`
+                    : `${criteria.length} records`}
+                </span>
+              </div>
             </div>
 
             {loading ? (
               <div className="requirements-data-empty">Loading criteria...</div>
-            ) : criteria.length === 0 ? (
-              <div className="requirements-data-empty">No Data Found</div>
+            ) : filteredCriteria.length === 0 ? (
+              <div className="requirements-data-empty">
+                {hasCriteriaFilters ? "No criteria match the filters" : "No Data Found"}
+              </div>
             ) : (
               <div className="requirements-data-table-wrap">
                 <table className="requirements-data-table">
@@ -997,14 +1584,21 @@ export default function CriteriaGradingSetsPage() {
                       <th>Min</th>
                       <th>Max</th>
                       <th>Value</th>
-                      <th>Weight</th>
+                      <th>Default %</th>
                       <th>Sort</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {criteria.map((row) => (
-                      <tr key={row.id}>
+                    {filteredCriteria.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={
+                          editingCriteriaId === row.id
+                            ? "requirements-data-row is-selected"
+                            : undefined
+                        }
+                      >
                         <td data-label="Name">{row.name}</td>
                         <td data-label="Code">{row.code}</td>
                         <td data-label="Level">
@@ -1016,10 +1610,18 @@ export default function CriteriaGradingSetsPage() {
                         <td data-label="Min">{formatOptionalNumber(row.min)}</td>
                         <td data-label="Max">{formatOptionalNumber(row.max)}</td>
                         <td data-label="Value">{formatOptionalNumber(row.value)}</td>
-                        <td data-label="Weight">{formatOptionalNumber(row.weight)}</td>
+                        <td data-label="Default %">{formatOptionalNumber(row.weight)}</td>
                         <td data-label="Sort">{formatOptionalNumber(row.sort_number)}</td>
                         <td data-label="Actions">
                           <div className="requirements-data-row-actions">
+                            <button
+                              className="requirements-data-row-button"
+                              onClick={() => startEditCriteria(row)}
+                              title="Edit"
+                              type="button"
+                            >
+                              Edit
+                            </button>
                             <button
                               aria-label={`Delete ${row.name}`}
                               className="requirements-data-row-button is-danger"
@@ -1054,7 +1656,8 @@ export default function CriteriaGradingSetsPage() {
           <Card className="requirements-data-card">
             <form
               className="requirements-data-form"
-              onSubmit={(event) => void handleCreateGradingSet(event)}
+              id="grading-set-form"
+              onSubmit={(event) => void handleSubmitGradingSet(event)}
             >
               <div className="requirements-data-grid">
                 <label className="requirements-data-field">
@@ -1065,10 +1668,12 @@ export default function CriteriaGradingSetsPage() {
                       setGradingForm((current) => ({
                         ...current,
                         name,
-                        grading_code: buildCodeFromName(name),
+                        grading_code: editingGradingSetId
+                          ? current.grading_code
+                          : buildCodeFromName(name),
                       }));
                     }}
-                    placeholder="Grading set name"
+                    placeholder="e.g. Junior Set V2"
                     required
                     type="text"
                     value={gradingForm.name}
@@ -1084,15 +1689,64 @@ export default function CriteriaGradingSetsPage() {
                         grading_code: event.target.value,
                       }))
                     }
-                    placeholder="e.g. default"
+                    placeholder="e.g. junior_set_v2"
                     required
                     type="text"
                     value={gradingForm.grading_code}
                   />
                 </label>
+
+                <label className="requirements-data-field">
+                  <span>Level</span>
+                  <div className="requirements-data-select-wrap">
+                    <select
+                      onChange={(event) =>
+                        setGradingForm((current) => ({
+                          ...current,
+                          level: event.target.value as RequirementLevel,
+                        }))
+                      }
+                      required
+                      value={gradingForm.level}
+                    >
+                      {LEVEL_OPTIONS.map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                    <SelectArrow />
+                  </div>
+                </label>
+
+                <label className="requirements-data-field">
+                  <span>Passing Score</span>
+                  <input
+                    onChange={(event) =>
+                      setGradingForm((current) => ({
+                        ...current,
+                        passing_score: event.target.value,
+                      }))
+                    }
+                    placeholder="75"
+                    required
+                    type="text"
+                    value={gradingForm.passing_score}
+                  />
+                </label>
               </div>
 
-              <div className="requirements-data-actions">
+              <div className="requirements-data-actions requirements-data-modal-actions">
+                {editingGradingSetId ? (
+                  <button
+                    className="requirements-data-cancel-button"
+                    disabled={saving}
+                    onClick={cancelEditGradingSet}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
                 <button
                   className="requirements-data-submit"
                   disabled={saving || loading}
@@ -1104,8 +1758,10 @@ export default function CriteriaGradingSetsPage() {
                         className="requirements-data-loader"
                         style={{ borderTopColor: Palette.cyan }}
                       />
-                      Creating
+                      {editingGradingSetId ? "Saving" : "Creating"}
                     </>
+                  ) : editingGradingSetId ? (
+                    "Save Changes"
                   ) : (
                     "Create Grading Set"
                   )}
@@ -1134,39 +1790,213 @@ export default function CriteriaGradingSetsPage() {
                     <tr>
                       <th>Name</th>
                       <th>Code</th>
+                      <th>Level</th>
+                      <th>Passing</th>
+                      <th>Criteria</th>
+                      <th>Total %</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {gradingSets.map((set) => (
-                      <tr key={set.id}>
-                        <td data-label="Name">{set.name}</td>
-                        <td data-label="Code">{set.grading_code}</td>
-                        <td data-label="Actions">
-                          <div className="requirements-data-row-actions">
-                            <button
-                              aria-label={`Delete ${set.name}`}
-                              className="requirements-data-row-button is-danger"
-                              disabled={deletingId === set.id}
-                              onClick={() => void handleDeleteGradingSet(set)}
-                              title="Delete"
-                              type="button"
+                    {gradingSets.map((set) => {
+                      const total = getGradingSetTotal(set.id);
+
+                      return (
+                        <tr
+                          key={set.id}
+                          className={
+                            selectedGradingSetId === set.id
+                              ? "requirements-data-row is-selected"
+                              : undefined
+                          }
+                        >
+                          <td data-label="Name">{set.name}</td>
+                          <td data-label="Code">{set.grading_code}</td>
+                          <td data-label="Level">
+                            <span className={getLevelClass(set.level)}>{set.level}</span>
+                          </td>
+                          <td data-label="Passing">
+                            {formatOptionalNumber(set.passing_score)}
+                          </td>
+                          <td data-label="Criteria">
+                            {getGradingSetCriteriaCount(set.id)}
+                          </td>
+                          <td data-label="Total %">
+                            <span
+                              className={
+                                isPercentageTotalValid(total)
+                                  ? "grading-total-pill is-valid"
+                                  : "grading-total-pill is-invalid"
+                              }
                             >
-                              {deletingId === set.id ? (
-                                <span
-                                  className="requirements-data-loader"
-                                  style={{ borderTopColor: "#ff8d8d" }}
-                                />
-                              ) : (
-                                "Delete"
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                              {formatPercentage(total)}
+                            </span>
+                          </td>
+                          <td data-label="Actions">
+                            <div className="requirements-data-row-actions">
+                              <button
+                                className="requirements-data-row-button"
+                                onClick={() => setSelectedGradingSetId(set.id)}
+                                title="Manage criteria"
+                                type="button"
+                              >
+                                Select
+                              </button>
+                              <button
+                                className="requirements-data-row-button"
+                                onClick={() => startEditGradingSet(set)}
+                                title="Edit"
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                aria-label={`Delete ${set.name}`}
+                                className="requirements-data-row-button is-danger"
+                                disabled={deletingId === set.id}
+                                onClick={() => void handleDeleteGradingSet(set)}
+                                title="Delete"
+                                type="button"
+                              >
+                                {deletingId === set.id ? (
+                                  <span
+                                    className="requirements-data-loader"
+                                    style={{ borderTopColor: "#ff8d8d" }}
+                                  />
+                                ) : (
+                                  "Delete"
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </Card>
+
+          <Card className="requirements-data-card requirements-data-table-card">
+            <div className="requirements-data-table-header">
+              <div>
+                <div className="requirements-data-kicker">Grading Set Criteria</div>
+                <h3>
+                  {selectedGradingSet
+                    ? `Criteria in ${selectedGradingSet.name}`
+                    : "Select a grading set"}
+                </h3>
+              </div>
+              <label className="requirements-data-filter-field">
+                <span>Grading Set</span>
+                <div className="requirements-data-select-wrap">
+                  <select
+                    disabled={loading || gradingSets.length === 0}
+                    onChange={(event) => setSelectedGradingSetId(event.target.value)}
+                    value={selectedGradingSetId}
+                  >
+                    {gradingSets.length === 0 ? (
+                      <option value="">No grading sets</option>
+                    ) : (
+                      gradingSets.map((set) => (
+                        <option key={set.id} value={set.id}>
+                          {set.name} ({set.level})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <SelectArrow />
+                </div>
+              </label>
+            </div>
+
+            {!selectedGradingSet ? (
+              <div className="requirements-data-empty">
+                Select a grading set to add criteria.
+              </div>
+            ) : loading ? (
+              <div className="requirements-data-empty">Loading criteria...</div>
+            ) : selectedGradingCriteria.length === 0 ? (
+              <div className="requirements-data-empty">
+                No criteria for the "{selectedGradingSet.level}" level. Create some in the
+                Criteria tab.
+              </div>
+            ) : (
+              <div className="acl-tree">
+                <div className="acl-tree-toolbar">
+                  <span>{selectedGradingLinksByCriteriaId.size} criteria added</span>
+                  <span
+                    className={
+                      isPercentageTotalValid(selectedGradingTotal)
+                        ? "grading-total-pill is-valid"
+                        : "grading-total-pill is-invalid"
+                    }
+                  >
+                    Total {formatPercentage(selectedGradingTotal)}
+                    {isPercentageTotalValid(selectedGradingTotal)
+                      ? ""
+                      : " · must equal 100%"}
+                  </span>
+                </div>
+                <div className="acl-tree-panel">
+                  {selectedGradingCriteria.map((row) => {
+                    const link = selectedGradingLinksByCriteriaId.get(row.id);
+                    const checked = Boolean(link);
+                    const draft = link ? percentageDrafts[link.id] : undefined;
+
+                    return (
+                      <div className="acl-tree-row is-leaf grading-criteria-row" key={row.id}>
+                        <input
+                          aria-label={`Include ${row.name}`}
+                          checked={checked}
+                          disabled={linkingId === row.id}
+                          onChange={(event) =>
+                            void handleToggleGradingCriteria(row, event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                        <span className="acl-tree-label">
+                          {row.name}
+                          {" · "}
+                          <span className={getLevelClass(row.level)}>{row.level}</span>
+                          {row.type ? ` · ${formatTypeLabel(row.type)}` : ""}
+                        </span>
+                        <label className="grading-percentage-field">
+                          <input
+                            aria-label={`${row.name} percentage`}
+                            disabled={!link || linkingId === row.id}
+                            inputMode="decimal"
+                            onBlur={() => {
+                              if (link) void handleSavePercentage(link);
+                            }}
+                            onChange={(event) => {
+                              if (!link) return;
+                              const value = event.target.value;
+                              setPercentageDrafts((current) => ({
+                                ...current,
+                                [link.id]: value,
+                              }));
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.currentTarget.blur();
+                              }
+                            }}
+                            placeholder="-"
+                            type="text"
+                            value={
+                              link
+                                ? (draft ?? String(clampPercentage(link.percentage)))
+                                : ""
+                            }
+                          />
+                          <span>%</span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </Card>

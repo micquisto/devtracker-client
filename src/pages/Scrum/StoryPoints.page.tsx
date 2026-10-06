@@ -20,6 +20,7 @@ import {
   getStoryPointsEncodeSprintsForYear,
   loadStoryPointsEncodeBreakdownData,
   loadStoryPointsEncodeData,
+  loadStoryPointsEncodeManualCriteriaData,
   loadStoryPointsEncodeProfessionalismData,
   loadStoryPointsPageSourceData,
   parseStoryPointsEncodeCountValue,
@@ -27,12 +28,15 @@ import {
   parseStoryPointsEncodeNullableInputValue,
   saveStoryPointsEncodeBreakdownData,
   saveStoryPointsEncodeData,
+  saveStoryPointsEncodeManualCriteriaData,
   saveStoryPointsEncodeProfessionalismData,
   saveStoryPointsEncodeStoryPoints,
+  type ManualCriteriaColumn,
   type ProfessionalismItemColumn,
   type StoryPointsEncodeBreakdownDraftRow,
   type StoryPointsEncodeBreakdownProjectColumn,
   type StoryPointsEncodeDraftRow,
+  type StoryPointsEncodeManualCriteriaDraftRow,
   type StoryPointsEncodeProfessionalismDraftRow,
   type StoryPointsEncodeSprintDraft,
   type StoryPointsEncodeSprintFieldKey,
@@ -206,7 +210,12 @@ const EMPTY_PAGE_DATA: StoryPointsPageData = {
   breakdownRows: [],
 };
 
-type EncodeActiveTab = "sprint" | "members" | "professionalism" | "breakdown";
+type EncodeActiveTab =
+  | "sprint"
+  | "members"
+  | "professionalism"
+  | "manual"
+  | "breakdown";
 
 function measureColumnWidth(cells: HTMLElement[]): number {
   return cells.reduce(
@@ -296,6 +305,12 @@ export default function StoryPointsPage() {
     useState<ProfessionalismItemColumn[]>([]);
   const [encodeProfessionalismRows, setEncodeProfessionalismRows] = useState<
     StoryPointsEncodeProfessionalismDraftRow[]
+  >([]);
+  const [encodeManualColumns, setEncodeManualColumns] = useState<
+    ManualCriteriaColumn[]
+  >([]);
+  const [encodeManualRows, setEncodeManualRows] = useState<
+    StoryPointsEncodeManualCriteriaDraftRow[]
   >([]);
   const [encodeLoading, setEncodeLoading] = useState(false);
   const [encodeSaving, setEncodeSaving] = useState(false);
@@ -448,6 +463,8 @@ export default function StoryPointsPage() {
     setEncodeBreakdownRows([]);
     setEncodeProfessionalismColumns([]);
     setEncodeProfessionalismRows([]);
+    setEncodeManualColumns([]);
+    setEncodeManualRows([]);
     setEncodeActiveTab("sprint");
     setEncodeError(null);
     setEncodeSaveSuccess(null);
@@ -468,6 +485,8 @@ export default function StoryPointsPage() {
     setEncodeBreakdownRows([]);
     setEncodeProfessionalismColumns([]);
     setEncodeProfessionalismRows([]);
+    setEncodeManualColumns([]);
+    setEncodeManualRows([]);
     setEncodeActiveTab("sprint");
   };
 
@@ -489,7 +508,7 @@ export default function StoryPointsPage() {
       setEncodeError(null);
 
       try {
-        const [encodeData, breakdownData, professionalismData] =
+        const [encodeData, breakdownData, professionalismData, manualData] =
           await Promise.all([
             loadStoryPointsEncodeData(encodeSprintId),
             loadStoryPointsEncodeBreakdownData(encodeSprintId),
@@ -497,6 +516,7 @@ export default function StoryPointsPage() {
               encodeSprintId,
               members,
             ),
+            loadStoryPointsEncodeManualCriteriaData(encodeSprintId, members),
           ]);
 
         if (!cancelled) {
@@ -517,6 +537,8 @@ export default function StoryPointsPage() {
             buildStoryPointsEncodeProfessionalismDraftRows(professionalismData);
           setEncodeProfessionalismColumns(professionalismDraft.itemColumns);
           setEncodeProfessionalismRows(professionalismDraft.rows);
+          setEncodeManualColumns(manualData.criteriaColumns);
+          setEncodeManualRows(manualData.rows);
         }
       } catch (error) {
         if (!cancelled) {
@@ -526,6 +548,8 @@ export default function StoryPointsPage() {
           setEncodeBreakdownRows([]);
           setEncodeProfessionalismColumns([]);
           setEncodeProfessionalismRows([]);
+          setEncodeManualColumns([]);
+          setEncodeManualRows([]);
           setEncodeError(
             error instanceof Error
               ? error.message
@@ -627,6 +651,43 @@ export default function StoryPointsPage() {
     }
 
     setEncodeProfessionalismRows((currentRows) =>
+      currentRows.map((row) => {
+        if (row.memberId !== memberId) {
+          return row;
+        }
+
+        const scoreInputs = [...row.scoreInputs];
+        scoreInputs[columnIndex] = nextValue;
+
+        return {
+          ...row,
+          scoreInputs,
+        };
+      }),
+    );
+  };
+
+  const updateEncodeManualValue = (
+    memberId: string,
+    columnIndex: number,
+    value: string,
+  ) => {
+    const trimmed = value.trim();
+    let nextValue = trimmed;
+
+    if (trimmed !== "") {
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed)) {
+        return;
+      }
+
+      const clamped = Math.min(Math.max(parsed, 0), 100);
+      nextValue = Number.isInteger(clamped)
+        ? String(clamped)
+        : String(Math.round(clamped * 100) / 100);
+    }
+
+    setEncodeManualRows((currentRows) =>
       currentRows.map((row) => {
         if (row.memberId !== memberId) {
           return row;
@@ -968,14 +1029,19 @@ export default function StoryPointsPage() {
 
   const refreshStoryPointsFromDatabase = async (sprintId: string) => {
     const nextSourceData = await loadStoryPointsPageSourceData();
-    const [encodeData, breakdownData, professionalismData] = await Promise.all([
-      loadStoryPointsEncodeData(sprintId),
-      loadStoryPointsEncodeBreakdownData(sprintId),
-      loadStoryPointsEncodeProfessionalismData(
-        sprintId,
-        nextSourceData.members,
-      ),
-    ]);
+    const [encodeData, breakdownData, professionalismData, manualData] =
+      await Promise.all([
+        loadStoryPointsEncodeData(sprintId),
+        loadStoryPointsEncodeBreakdownData(sprintId),
+        loadStoryPointsEncodeProfessionalismData(
+          sprintId,
+          nextSourceData.members,
+        ),
+        loadStoryPointsEncodeManualCriteriaData(
+          sprintId,
+          nextSourceData.members,
+        ),
+      ]);
 
     skipEncodeLoadRef.current = true;
     setSourceData(nextSourceData);
@@ -996,6 +1062,8 @@ export default function StoryPointsPage() {
       buildStoryPointsEncodeProfessionalismDraftRows(professionalismData);
     setEncodeProfessionalismColumns(professionalismDraft.itemColumns);
     setEncodeProfessionalismRows(professionalismDraft.rows);
+    setEncodeManualColumns(manualData.criteriaColumns);
+    setEncodeManualRows(manualData.rows);
   };
 
   const handleEncodeUpdate = async () => {
@@ -1110,6 +1178,28 @@ export default function StoryPointsPage() {
       await saveStoryPointsEncodeProfessionalismData(
         encodeSprintId,
         professionalismUpdates,
+      );
+
+      const manualUpdates = encodeManualRows.flatMap((row) =>
+        encodeManualColumns.flatMap((column, columnIndex) => {
+          const rawValue = (row.scoreInputs[columnIndex] ?? "").trim();
+          if (!rawValue || !row.applicable[columnIndex]) {
+            return [];
+          }
+
+          return [
+            {
+              memberId: row.memberId,
+              criteriaId: column.id,
+              score: parseStoryPointsEncodeInputValue(rawValue),
+            },
+          ];
+        }),
+      );
+      await saveStoryPointsEncodeManualCriteriaData(
+        encodeSprintId,
+        encodeManualColumns.map((column) => column.id),
+        manualUpdates,
       );
 
       await refreshStoryPointsFromDatabase(encodeSprintId);
@@ -1327,6 +1417,20 @@ export default function StoryPointsPage() {
                   onClick={() => setEncodeActiveTab("professionalism")}
                 >
                   Professionalism
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={encodeActiveTab === "manual"}
+                  aria-controls="story-points-encode-manual-panel"
+                  className={`story-points-encode-tab story-points-encode-tab--manual${
+                    encodeActiveTab === "manual" ? " is-active" : ""
+                  }`}
+                  id="story-points-encode-manual-tab"
+                  disabled={encodeSaving}
+                  onClick={() => setEncodeActiveTab("manual")}
+                >
+                  Manual Criteria
                 </button>
                 <button
                   type="button"
@@ -2048,6 +2152,173 @@ export default function StoryPointsPage() {
                                   )}
                                 </span>
                               </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+              ) : encodeActiveTab === "manual" ? (
+              <section
+                aria-labelledby="story-points-encode-manual-tab"
+                className="story-points-encode-section story-points-encode-section--professionalism story-points-encode-section--manual"
+                id="story-points-encode-manual-panel"
+                role="tabpanel"
+              >
+                <div className="story-points-encode-section-content">
+                  <div className="story-points-encode-table-wrap">
+                    {encodeLoading ? (
+                      <div className="story-points-encode-status">
+                        Loading manual criteria...
+                      </div>
+                    ) : encodeManualColumns.length === 0 ? (
+                      <div className="story-points-encode-status">
+                        This sprint's criteria set has no Manual criteria. Add
+                        a criterion with type "Manual" to a grading set in
+                        Criteria &amp; Grading Sets to score it here.
+                      </div>
+                    ) : encodeManualRows.length === 0 ? (
+                      <div className="story-points-encode-status">
+                        No scoreboard members found for this sprint.
+                      </div>
+                    ) : (
+                      <div
+                        className="story-points-encode-professionalism-grid"
+                        role="table"
+                        aria-label="Member manual criteria scores"
+                        style={{
+                          ["--encode-professionalism-item-count" as string]:
+                            encodeManualColumns.length,
+                          ["--encode-professionalism-row-count" as string]:
+                            encodeManualRows.length,
+                        }}
+                      >
+                        <div className="story-points-encode-status story-points-encode-status--inline">
+                          Enter a 0–100 score. Blank cells are left out of the
+                          evaluation; greyed cells are not in the member's
+                          grading set.
+                        </div>
+                        <div className="story-points-encode-professionalism-grid-scroll">
+                          <div className="story-points-encode-professionalism-grid-inner">
+                            <div
+                              className="story-points-encode-professionalism-grid-head"
+                              role="row"
+                            >
+                              <div
+                                className="story-points-encode-professionalism-member-head"
+                                role="columnheader"
+                              >
+                                Member
+                              </div>
+                              {encodeManualColumns.map((column) => (
+                                <div
+                                  key={column.id}
+                                  className="story-points-encode-professionalism-item-head"
+                                  role="columnheader"
+                                  title={column.code || column.name}
+                                >
+                                  {column.name}
+                                </div>
+                              ))}
+                              <div
+                                className="story-points-encode-professionalism-sum-head"
+                                role="columnheader"
+                              >
+                                Average
+                              </div>
+                            </div>
+                            <div
+                              className="story-points-encode-professionalism-grid-body"
+                              role="rowgroup"
+                            >
+                              {encodeManualRows.map((row) => {
+                                const enteredScores = row.scoreInputs
+                                  .filter(
+                                    (value, index) =>
+                                      row.applicable[index] && value.trim() !== "",
+                                  )
+                                  .map((value) => sumEncodeInputValue(value));
+                                const rowAverage =
+                                  enteredScores.length > 0
+                                    ? enteredScores.reduce((sum, value) => sum + value, 0) /
+                                      enteredScores.length
+                                    : null;
+
+                                return (
+                                  <div
+                                    key={row.memberId}
+                                    className="story-points-encode-professionalism-grid-row"
+                                    role="row"
+                                  >
+                                    <div
+                                      className="story-points-encode-professionalism-member-cell"
+                                      role="cell"
+                                    >
+                                      <div className="story-points-encode-member">
+                                        <span>{row.name}</span>
+                                        <span>
+                                          {row.roleLabel} · {row.levelLabel}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {encodeManualColumns.map((column, valueIndex) => {
+                                      const applicable = row.applicable[valueIndex];
+                                      return (
+                                        <div
+                                          key={`${row.memberId}-${column.id}`}
+                                          className="story-points-encode-professionalism-value-cell"
+                                          role="cell"
+                                        >
+                                          <span className="story-points-encode-professionalism-mobile-label">
+                                            {column.name}
+                                          </span>
+                                          <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            min={0}
+                                            max={100}
+                                            step={1}
+                                            aria-label={`${row.name} ${column.name} score`}
+                                            className="story-points-edit-input story-points-encode-input story-points-encode-professionalism-input"
+                                            disabled={!applicable}
+                                            placeholder={applicable ? "" : "—"}
+                                            title={
+                                              applicable
+                                                ? undefined
+                                                : "Not in this member's grading set"
+                                            }
+                                            value={
+                                              applicable
+                                                ? (row.scoreInputs[valueIndex] ?? "")
+                                                : ""
+                                            }
+                                            onChange={(event) =>
+                                              updateEncodeManualValue(
+                                                row.memberId,
+                                                valueIndex,
+                                                event.target.value,
+                                              )
+                                            }
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                    <div
+                                      className="story-points-encode-professionalism-row-total-cell"
+                                      role="cell"
+                                    >
+                                      <span className="story-points-encode-professionalism-mobile-label">
+                                        Average
+                                      </span>
+                                      <span className="story-points-encode-total-value">
+                                        {rowAverage === null ? "—" : formatAverage(rowAverage)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>

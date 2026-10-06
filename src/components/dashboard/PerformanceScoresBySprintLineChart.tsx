@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Background,
   Border,
@@ -6,7 +6,10 @@ import {
   Palette,
   Text,
   CHART_LABEL_FONT_SIZE,
-  CHART_LABEL_LINE_HEIGHT_PX,
+  CHART_LABEL_FONT_FAMILY,
+  CHART_LABEL_FONT_WEIGHT,
+  CHART_LABEL_LETTER_SPACING,
+  CHART_LABEL_TEXT_TRANSFORM,
   CHART_LABEL_MAX_LINES,
   chartLegendStyle,
   chartLabelSvgProps,
@@ -16,6 +19,7 @@ import {
 export type PerformanceScoresBySprintPoint = {
   id?: string;
   label: string;
+  labelLines?: string[];
   sublabel?: string | null;
   productivity: number;
   efficiency: number;
@@ -23,14 +27,25 @@ export type PerformanceScoresBySprintPoint = {
   collaboration: number;
   velocity: number;
   professionalism: number;
+  overallScore?: number | null;
+  hoursAccumulated?: number | null;
 };
 
-type SeriesKey = Exclude<
-  keyof PerformanceScoresBySprintPoint,
-  "id" | "label" | "sublabel"
->;
+type SeriesKey =
+  | "productivity"
+  | "efficiency"
+  | "quality"
+  | "collaboration"
+  | "velocity"
+  | "professionalism"
+  | "overallScore"
+  | "hoursAccumulated";
 
-const SERIES: Array<{ key: SeriesKey; label: string; color: string }> = [
+const BASE_SERIES: Array<{
+  key: Exclude<SeriesKey, "overallScore" | "hoursAccumulated">;
+  label: string;
+  color: string;
+}> = [
   { key: "productivity", label: "Productivity", color: Palette.cyan },
   { key: "efficiency", label: "Efficiency", color: Palette.green },
   { key: "quality", label: "Quality", color: Palette.indigo },
@@ -39,9 +54,44 @@ const SERIES: Array<{ key: SeriesKey; label: string; color: string }> = [
   { key: "professionalism", label: "Professionalism", color: "#ff9f43" },
 ];
 
-const LABEL_FONT_SIZE = CHART_LABEL_FONT_SIZE;
-const LABEL_LINE_HEIGHT = CHART_LABEL_LINE_HEIGHT_PX;
+const OVERALL_SERIES: { key: "overallScore"; label: string; color: string } = {
+  key: "overallScore",
+  label: "Overall Score",
+  color: Palette.purple,
+};
+
+const HOURS_SERIES: { key: "hoursAccumulated"; label: string; color: string } = {
+  key: "hoursAccumulated",
+  label: "Hours Accumulated",
+  color: "#67e8f9",
+};
+
 const LABEL_MAX_LINES = Math.max(CHART_LABEL_MAX_LINES, 5);
+const MIN_LABEL_FONT_SIZE = 5.5;
+const MAX_LABEL_FONT_SIZE = CHART_LABEL_FONT_SIZE;
+
+function getResponsiveLabelFontSize(
+  containerWidthPx: number,
+  entryCount: number,
+): number {
+  if (entryCount <= 1) {
+    return MAX_LABEL_FONT_SIZE;
+  }
+
+  const usableWidth = Math.max(containerWidthPx - 96, 160);
+  const columnWidth = usableWidth / entryCount;
+  // Fit roughly 4-5 compact characters per column.
+  const sizeFromDensity = columnWidth / 4.6;
+  const sizeFromViewport = Math.min(
+    MAX_LABEL_FONT_SIZE,
+    Math.max(MIN_LABEL_FONT_SIZE, containerWidthPx / 120),
+  );
+
+  return Math.min(
+    MAX_LABEL_FONT_SIZE,
+    Math.max(MIN_LABEL_FONT_SIZE, Math.min(sizeFromDensity, sizeFromViewport)),
+  );
+}
 
 function formatScoreValue(value: number): string {
   return Number((Math.round(value * 100) / 100).toFixed(2)).toString();
@@ -87,32 +137,125 @@ function getScoreDeltaArrow(delta: number | null): string {
 type PerformanceScoresBySprintLineChartProps = {
   entries: PerformanceScoresBySprintPoint[];
   glowFilterId?: string;
+  includeOverallScore?: boolean;
+  includeHoursAccumulated?: boolean;
+  emptyPreviousLabel?: string;
+  emptyEntriesLabel?: string;
 };
 
 export function PerformanceScoresBySprintLineChart({
   entries,
   glowFilterId = "performanceScoresBySprintGlow",
+  includeOverallScore = false,
+  includeHoursAccumulated = false,
+  emptyPreviousLabel = "No previous sprint",
+  emptyEntriesLabel = "No sprint data for the selected period.",
 }: PerformanceScoresBySprintLineChartProps) {
+  const SERIES: Array<{ key: SeriesKey; label: string; color: string }> = [
+    ...(includeOverallScore ? [OVERALL_SERIES] : []),
+    ...BASE_SERIES,
+    ...(includeHoursAccumulated ? [HOURS_SERIES] : []),
+  ];
+
   const [animated, setAnimated] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
+  const [containerWidth, setContainerWidth] = useState(720);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [visibleSeries, setVisibleSeries] = useState<Record<SeriesKey, boolean>>(
+    () =>
+      Object.fromEntries(
+        SERIES.map((series) => [series.key, true]),
+      ) as Record<SeriesKey, boolean>,
+  );
+
+  useEffect(() => {
+    setVisibleSeries((current) => {
+      const next = { ...current } as Record<SeriesKey, boolean>;
+      for (const series of SERIES) {
+        if (next[series.key] === undefined) {
+          next[series.key] = true;
+        }
+      }
+      return next;
+    });
+  }, [includeOverallScore, includeHoursAccumulated]);
 
   useEffect(() => {
     setAnimated(false);
     const t = setTimeout(() => setAnimated(true), 120);
     return () => clearTimeout(t);
-  }, [entries]);
+  }, [entries, includeOverallScore, includeHoursAccumulated, visibleSeries]);
+
+  useEffect(() => {
+    const element = chartContainerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver((observations) => {
+      const width = observations[0]?.contentRect.width;
+      if (Number.isFinite(width) && width > 0) {
+        setContainerWidth(width);
+      }
+    });
+
+    observer.observe(element);
+    setContainerWidth(element.getBoundingClientRect().width || 720);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const visibleSeriesList = SERIES.filter(
+    (series) => visibleSeries[series.key] !== false,
+  );
+  const showHoursAxis =
+    includeHoursAccumulated &&
+    visibleSeries.hoursAccumulated !== false;
+
+  const toggleSeries = (key: SeriesKey) => {
+    setVisibleSeries((current) => {
+      const isCurrentlyVisible = current[key] !== false;
+      const visibleCount = SERIES.filter(
+        (series) => current[series.key] !== false,
+      ).length;
+
+      // Keep at least one series visible.
+      if (isCurrentlyVisible && visibleCount <= 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [key]: !isCurrentlyVisible,
+      };
+    });
+  };
+
+  const labelFontSize = getResponsiveLabelFontSize(
+    containerWidth,
+    entries.length,
+  );
+  const labelLineHeight = Math.ceil(labelFontSize * 1.15);
+  const labelLetterSpacing =
+    entries.length >= 12
+      ? "0.02em"
+      : entries.length >= 8
+        ? "0.04em"
+        : CHART_LABEL_LETTER_SPACING;
 
   const W = 560;
   const pL = 48;
-  const pR = 48;
+  const pR = showHoursAxis ? 52 : 48;
   const pT = 26;
   const plotH = 148;
   const cW = W - pL - pR;
   const step = entries.length > 1 ? cW / (entries.length - 1) : 0;
-  // Labels use CSS px (do not scale with viewBox). Wrap against the chart's
-  // min display width so lines stay inside each sprint column and do not overlap.
-  const MIN_SVG_CSS_WIDTH = 340;
-  const viewBoxToCss = MIN_SVG_CSS_WIDTH / W;
+  const minSvgCssWidth = Math.max(
+    340,
+    entries.length > 1 ? entries.length * Math.max(28, labelFontSize * 4.2) : 340,
+  );
+  const displayWidthCss = Math.max(containerWidth, minSvgCssWidth, 280);
+  const viewBoxToCss = displayWidthCss / W;
 
   const getLabelLayout = (index: number) => {
     const pointX = pL + (entries.length === 1 ? cW / 2 : index * step);
@@ -125,8 +268,10 @@ export function PerformanceScoresBySprintLineChart({
       };
     }
 
-    // Keep each label under its point with a small gap between neighbors.
-    const maxWidthCss = Math.max(step * 0.72 * viewBoxToCss, 36);
+    const maxWidthCss = Math.max(
+      step * 0.9 * viewBoxToCss,
+      labelFontSize * 3.2,
+    );
 
     return {
       textAnchor: "middle" as const,
@@ -136,11 +281,18 @@ export function PerformanceScoresBySprintLineChart({
   };
 
   const wrappedLabels = entries.map((entry, index) => {
+    if (entry.labelLines && entry.labelLines.length > 0) {
+      return entry.labelLines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, LABEL_MAX_LINES);
+    }
+
     const { maxWidthCss } = getLabelLayout(index);
     return wrapChartLabel(
       entry.label,
       maxWidthCss,
-      LABEL_FONT_SIZE,
+      labelFontSize,
       entry.sublabel ? Math.max(LABEL_MAX_LINES - 1, 1) : LABEL_MAX_LINES,
     );
   });
@@ -150,14 +302,55 @@ export function PerformanceScoresBySprintLineChart({
       (lines, index) => lines.length + (entries[index]?.sublabel ? 1 : 0),
     ),
   );
-  const pB = 20 + maxLabelLines * LABEL_LINE_HEIGHT;
+  const pB = 14 + maxLabelLines * labelLineHeight;
   const cH = plotH;
   const H = pT + cH + pB;
   const maxScore = 100;
+  const maxHours = Math.max(
+    1,
+    ...entries.map((entry) =>
+      Number.isFinite(entry.hoursAccumulated) ? Number(entry.hoursAccumulated) : 0,
+    ),
+  );
   const gridTicks = [0, 0.25, 0.5, 0.75, 1];
+
+  const getSeriesValue = (
+    entry: PerformanceScoresBySprintPoint,
+    key: SeriesKey,
+  ): number => {
+    if (key === "overallScore") {
+      return Number.isFinite(entry.overallScore) ? Number(entry.overallScore) : 0;
+    }
+
+    if (key === "hoursAccumulated") {
+      return Number.isFinite(entry.hoursAccumulated)
+        ? Number(entry.hoursAccumulated)
+        : 0;
+    }
+
+    return entry[key];
+  };
+
+  const getSeriesY = (value: number, key: SeriesKey): number => {
+    if (key === "hoursAccumulated") {
+      return pT + cH - (Math.max(0, value) / maxHours) * cH;
+    }
+
+    return (
+      pT + cH - (Math.min(maxScore, Math.max(0, value)) / maxScore) * cH
+    );
+  };
 
   const points = entries.map((entry, index) => {
     const layout = getLabelLayout(index);
+    const values = SERIES.reduce(
+      (acc, series) => {
+        acc[series.key] = getSeriesValue(entry, series.key);
+        return acc;
+      },
+      {} as Record<SeriesKey, number>,
+    );
+
     return {
       key: entry.id ?? `${entry.label}-${index}`,
       x: pL + (entries.length === 1 ? cW / 2 : index * step),
@@ -165,20 +358,10 @@ export function PerformanceScoresBySprintLineChart({
       textAnchor: layout.textAnchor,
       labelLines: wrappedLabels[index] ?? [entry.label],
       sublabel: entry.sublabel?.trim() || null,
-      values: {
-        productivity: entry.productivity,
-        efficiency: entry.efficiency,
-        quality: entry.quality,
-        collaboration: entry.collaboration,
-        velocity: entry.velocity,
-        professionalism: entry.professionalism,
-      },
+      values,
       ys: SERIES.reduce(
         (acc, series) => {
-          acc[series.key] =
-            pT +
-            cH -
-            (Math.min(maxScore, Math.max(0, entry[series.key])) / maxScore) * cH;
+          acc[series.key] = getSeriesY(values[series.key], series.key);
           return acc;
         },
         {} as Record<SeriesKey, number>,
@@ -194,7 +377,7 @@ export function PerformanceScoresBySprintLineChart({
       )
       .join(" ");
 
-  const tooltipHeight = 18 + SERIES.length * 16;
+  const tooltipHeight = 18 + Math.max(visibleSeriesList.length, 1) * 16;
   const hoveredPoint = hovered !== null ? points[hovered] : null;
   const previousPoint =
     hovered !== null && hovered > 0 ? points[hovered - 1] : null;
@@ -226,44 +409,80 @@ export function PerformanceScoresBySprintLineChart({
     ? getTooltipPlacement(hoveredPoint)
     : null;
 
+  const formatSeriesTooltipValue = (key: SeriesKey, value: number): string => {
+    if (key === "hoursAccumulated") {
+      return `${formatScoreValue(value)} hrs`;
+    }
+
+    return `${formatScoreValue(value)}%`;
+  };
+
   return (
     <div>
       <div
         style={{
           display: "flex",
-          gap: 18,
+          gap: 14,
           marginBottom: 14,
           flexWrap: "wrap",
           rowGap: 10,
         }}
       >
-        {SERIES.map((series) => (
-          <div
-            key={series.key}
-            style={{ display: "flex", alignItems: "center", gap: 8 }}
-          >
-            <div
+        {SERIES.map((series) => {
+          const isVisible = visibleSeries[series.key] !== false;
+          const checkboxId = `${glowFilterId}-${series.key}`;
+
+          return (
+            <label
+              key={series.key}
+              htmlFor={checkboxId}
               style={{
-                width: 22,
-                height: 3,
-                background: series.color,
-                borderRadius: 99,
-                boxShadow: `0 0 8px ${series.color}55`,
-              }}
-            />
-            <span
-              style={{
-                ...chartLegendStyle,
-                color: "rgba(210, 230, 255, 0.92)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                cursor: "pointer",
+                userSelect: "none",
+                opacity: isVisible ? 1 : 0.45,
               }}
             >
-              {series.label}
-            </span>
-          </div>
-        ))}
+              <input
+                id={checkboxId}
+                type="checkbox"
+                checked={isVisible}
+                onChange={() => toggleSeries(series.key)}
+                style={{
+                  width: 14,
+                  height: 14,
+                  accentColor: series.color,
+                  cursor: "pointer",
+                }}
+              />
+              <div
+                style={{
+                  width: 22,
+                  height: 3,
+                  background: series.color,
+                  borderRadius: 99,
+                  boxShadow: isVisible ? `0 0 8px ${series.color}55` : "none",
+                }}
+              />
+              <span
+                style={{
+                  ...chartLegendStyle,
+                  color: "rgba(210, 230, 255, 0.92)",
+                }}
+              >
+                {series.label}
+              </span>
+            </label>
+          );
+        })}
       </div>
 
-      <div style={{ width: "100%", overflowX: "auto", overflowY: "visible" }}>
+      <div
+        ref={chartContainerRef}
+        style={{ width: "100%", overflowX: "auto", overflowY: "visible" }}
+      >
         {entries.length === 0 ? (
           <div
             style={{
@@ -274,14 +493,14 @@ export function PerformanceScoresBySprintLineChart({
               fontFamily: "'DM Sans',sans-serif",
             }}
           >
-            No sprint data for the selected period.
+            {emptyEntriesLabel}
           </div>
         ) : (
           <div
             style={{
               position: "relative",
               width: "100%",
-              minWidth: 340,
+              minWidth: minSvgCssWidth,
               overflow: "visible",
               paddingBottom: 8,
               boxSizing: "border-box",
@@ -324,6 +543,17 @@ export function PerformanceScoresBySprintLineChart({
                   >
                     {Math.round(maxScore * tick)}
                   </text>
+                  {showHoursAxis ? (
+                    <text
+                      x={W - pR + 6}
+                      y={y + 3}
+                      textAnchor="start"
+                      fill={HOURS_SERIES.color}
+                      {...chartLabelSvgProps}
+                    >
+                      {formatScoreValue(maxHours * tick)}
+                    </text>
+                  ) : null}
                 </g>
               );
             })}
@@ -336,8 +566,19 @@ export function PerformanceScoresBySprintLineChart({
             >
               SCORE
             </text>
+            {showHoursAxis ? (
+              <text
+                x={W - pR}
+                y={12}
+                textAnchor="end"
+                fill={HOURS_SERIES.color}
+                {...chartLabelSvgProps}
+              >
+                HRS
+              </text>
+            ) : null}
 
-            {SERIES.map((series, seriesIndex) => (
+            {visibleSeriesList.map((series, seriesIndex) => (
               <path
                 key={series.key}
                 d={pathFor(series.key)}
@@ -367,7 +608,7 @@ export function PerformanceScoresBySprintLineChart({
                   }
                   strokeWidth="1"
                 />
-                {SERIES.map((series) => (
+                {visibleSeriesList.map((series) => (
                   <circle
                     key={`${point.key}-${series.key}`}
                     cx={point.x}
@@ -381,16 +622,23 @@ export function PerformanceScoresBySprintLineChart({
                 ))}
                 <text
                   x={point.labelX}
-                  y={pT + cH + 14}
+                  y={pT + cH + Math.max(10, labelFontSize + 2)}
                   textAnchor={point.textAnchor}
                   fill={Text.muted}
-                  {...chartLabelSvgProps}
+                  className="chart-label"
+                  style={{
+                    fontSize: `${labelFontSize}px`,
+                    fontFamily: CHART_LABEL_FONT_FAMILY,
+                    fontWeight: CHART_LABEL_FONT_WEIGHT,
+                    letterSpacing: labelLetterSpacing,
+                    textTransform: CHART_LABEL_TEXT_TRANSFORM,
+                  }}
                 >
                   {point.labelLines.map((line, lineIndex) => (
                     <tspan
                       key={`${point.key}-line-${lineIndex}`}
                       x={point.labelX}
-                      dy={lineIndex === 0 ? 0 : LABEL_LINE_HEIGHT}
+                      dy={lineIndex === 0 ? 0 : labelLineHeight}
                     >
                       {line}
                     </tspan>
@@ -398,7 +646,7 @@ export function PerformanceScoresBySprintLineChart({
                   {point.sublabel ? (
                     <tspan
                       x={point.labelX}
-                      dy={LABEL_LINE_HEIGHT}
+                      dy={labelLineHeight}
                       fill={Text.faint}
                     >
                       {point.sublabel}
@@ -435,7 +683,7 @@ export function PerformanceScoresBySprintLineChart({
                   boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
                 }}
               >
-                {SERIES.map((series) => {
+                {visibleSeriesList.map((series) => {
                   const delta = getScoreDelta(
                     hoveredPoint.values[series.key],
                     previousPoint?.values[series.key] ?? null,
@@ -458,7 +706,11 @@ export function PerformanceScoresBySprintLineChart({
                       }}
                     >
                       <span>
-                        {series.label}: {formatScoreValue(hoveredPoint.values[series.key])}%
+                        {series.label}:{" "}
+                        {formatSeriesTooltipValue(
+                          series.key,
+                          hoveredPoint.values[series.key],
+                        )}
                       </span>
                       <span style={{ color: getScoreDeltaColor(delta) }}>
                         {formatScoreDeltaLabel(delta)}
@@ -476,7 +728,7 @@ export function PerformanceScoresBySprintLineChart({
                       fontFamily: "'DM Sans',sans-serif",
                     }}
                   >
-                    No previous sprint
+                    {emptyPreviousLabel}
                   </div>
                 )}
               </div>
